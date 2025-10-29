@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  # AgentMarket MCP Server
+  mcp-server:
+    build:
+      context: ..
+      dockerfile: docker/mcp-server.Dockerfile
+    container_name: agentmarket-mcp
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_PATH=/app/data/agentmarket.db
+      - NETWORK=${NETWORK:-base-sepolia}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CDP_API_KEY_NAME=${CDP_API_KEY_NAME}
+      - CDP_API_KEY_PRIVATE_KEY=${CDP_API_KEY_PRIVATE_KEY}
+    volumes:
+      - mcp-data:/app/data
+    networks:
+      - agentmarket-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('healthy')"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Example Service: Image Analyzer
+  image-analyzer:
+    build:
+      context: ..
+      dockerfile: examples/sample-services/image-analyzer/Dockerfile
+    container_name: image-analyzer
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=image-analyzer
+      - SERVICE_DESCRIPTION=AI-powered image analysis service
+      - PORT=3000
+      - WALLET_ADDRESS=${IMAGE_ANALYZER_WALLET}
+      - PRICE_USDC=0.02
+      - NETWORK=${NETWORK:-base-sepolia}
+    networks:
+      - agentmarket-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Example Service: Sentiment Analyzer
+  sentiment-analyzer:
+    build:
+      context: ..
+      dockerfile: examples/sample-services/sentiment-analyzer/Dockerfile
+    container_name: sentiment-analyzer
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=sentiment-analyzer
+      - SERVICE_DESCRIPTION=Text sentiment analysis service
+      - PORT=3000
+      - WALLET_ADDRESS=${SENTIMENT_ANALYZER_WALLET}
+      - PRICE_USDC=0.01
+      - NETWORK=${NETWORK:-base-sepolia}
+    networks:
+      - agentmarket-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Example Service: Text Summarizer
+  text-summarizer:
+    build:
+      context: ..
+      dockerfile: examples/sample-services/text-summarizer/Dockerfile
+    container_name: text-summarizer
+    restart: unless-stopped
+    ports:
+      - "3003:3000"
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=text-summarizer
+      - SERVICE_DESCRIPTION=Text summarization service
+      - PORT=3000
+      - WALLET_ADDRESS=${TEXT_SUMMARIZER_WALLET}
+      - PRICE_USDC=0.015
+      - NETWORK=${NETWORK:-base-sepolia}
+    networks:
+      - agentmarket-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  mcp-data:
+    driver: local
+
+networks:
+  agentmarket-network:
+    driver: bridge
