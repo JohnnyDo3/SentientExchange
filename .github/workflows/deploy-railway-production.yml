@@ -35,7 +35,8 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
-          railway link $RAILWAY_PROJECT_ID
+          echo "$RAILWAY_PROJECT_ID" > .railway-project-id
+          railway link --project $(cat .railway-project-id)
           railway up --detach --environment production
 
       - name: Get deployment URL
