@@ -5,8 +5,9 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "start:api": "node dist/api/apiServer.js",
+    "start": "node start-all.js",
+    "start:mcp": "node dist/index.js",
+    "start:api": "node dist/server/index.js",
     "dev": "nodemon --watch src --exec ts-node src/index.ts",
     "dev:api": "nodemon --watch src/api --exec ts-node src/api/apiServer.ts",
     "test": "jest",
