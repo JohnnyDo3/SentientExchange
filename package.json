@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node start-all.js",
+    "start": "node start-railway.js",
+    "start:all": "node start-all.js",
     "start:mcp": "node dist/index.js",
     "start:api": "node dist/server/index.js",
     "dev": "nodemon --watch src --exec ts-node src/index.ts",
