@@ -4,7 +4,7 @@
   "description": "AI Agent Service Marketplace via MCP + x402",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cd web && npm install && npm run build && cd ..",
     "start": "node start-railway.js",
     "start:all": "node start-all.js",
     "start:mcp": "node dist/index.js",
