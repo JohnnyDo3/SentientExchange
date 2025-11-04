@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  ai-permit-tampa:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-permit-tampa
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3010}:3010"
+    environment:
+      # Server Configuration
+      NODE_ENV: production
+      PORT: 3010
+      LOG_LEVEL: info
+
+      # Service Information
+      SERVICE_NAME: ai-permit-tampa
+      SERVICE_DESCRIPTION: "AI-powered HVAC permit automation for Tampa Bay"
+
+      # x402 Payment Configuration
+      WALLET_ADDRESS: ${WALLET_ADDRESS}
+      NETWORK: ${NETWORK:-base-sepolia}
+      USDC_CONTRACT: ${USDC_CONTRACT:-0x036CbD53842c5426634e7929541eC2318f3dCF7e}
+
+      # Pricing (in USDC)
+      PRICE_PERMIT_INFO: ${PRICE_PERMIT_INFO:-5.00}
+      PRICE_FORM_GENERATOR: ${PRICE_FORM_GENERATOR:-30.00}
+      PRICE_AUTO_SUBMIT: ${PRICE_AUTO_SUBMIT:-150.00}
+
+      # Accela Civic Platform API
+      ACCELA_API_URL: ${ACCELA_API_URL}
+      ACCELA_AGENCY: ${ACCELA_AGENCY:-tampa}
+      ACCELA_ENVIRONMENT: ${ACCELA_ENVIRONMENT:-TEST}
+      ACCELA_CLIENT_ID: ${ACCELA_CLIENT_ID}
+      ACCELA_CLIENT_SECRET: ${ACCELA_CLIENT_SECRET}
+      ACCELA_APP_ID: ${ACCELA_APP_ID}
+      ACCELA_SCOPE: ${ACCELA_SCOPE:-records addresses}
+
+      # Anthropic Claude API
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+
+      # Rate Limiting
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX_REQUESTS: 100
+
+      # Cache Configuration
+      ENABLE_CACHE: true
+      CACHE_TTL_SECONDS: 3600
+
+    volumes:
+      # Persistent logs
+      - ./logs:/app/logs
+
+    networks:
+      - agentmarket-network
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+networks:
+  agentmarket-network:
+    external: true
+    name: agentmarket-network

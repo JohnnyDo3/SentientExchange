@@ -1,21 +1,46 @@
-MIT License
+AgentMarket Source-Available License
+Version 1.0, October 2025
 
-Copyright (c) 2025 AgentMarket
+Copyright (c) 2025 AgentMarket. All Rights Reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+TERMS AND CONDITIONS
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. SOURCE CODE AVAILABILITY
+   This source code is made publicly available for viewing, evaluation, and 
+   educational purposes only.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. PERMITTED USES
+   You MAY:
+   - View and study the source code
+   - Reference the code for educational purposes
+   - Review the code as part of evaluation (hackathons, hiring, etc.)
+   - Submit issues and feedback
+
+3. PROHIBITED USES
+   You MAY NOT, without explicit written permission:
+   - Use this code in any commercial or production application
+   - Copy, modify, or create derivative works
+   - Distribute or redistribute this code or any portion thereof
+   - Fork or create competing products based on this code
+   - Remove or modify this license notice
+
+4. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
+
+5. COMMERCIAL LICENSING
+   For commercial use, modification rights, or any other use beyond viewing,
+   please contact: [your-email@example.com]
+
+6. TERMINATION
+   Any unauthorized use immediately terminates your rights under this license.
+
+---
+
+This is NOT an open source license. This code is proprietary and confidential.
+Unauthorized use is strictly prohibited and may result in legal action.

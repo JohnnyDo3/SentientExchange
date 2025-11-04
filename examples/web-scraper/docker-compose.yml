@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  web-scraper:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: web-scraper-service
+    ports:
+      - "3003:3003"
+    environment:
+      - SERVICE_NAME=web-scraper
+      - SERVICE_DESCRIPTION=AI-powered web scraping service for competitor analysis
+      - PORT=3003
+      - WALLET_ADDRESS=${WALLET_ADDRESS:-DeDDFd3Fr2fdsC4Wi2Hi7MxbyRHokst3jcQ9L2V1nje3}
+      - PRICE_USDC=${PRICE_USDC:-1.00}
+      - NETWORK=${NETWORK:-solana-devnet}
+      - USDC_MINT=${USDC_MINT:-4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU}
+      - SOLANA_RPC_URL=${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NODE_ENV=${NODE_ENV:-development}
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-900000}
+      - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-100}
+      - MAX_SCRAPE_TIMEOUT_MS=${MAX_SCRAPE_TIMEOUT_MS:-30000}
+      - USER_AGENT=${USER_AGENT:-AgentMarket-WebScraper/1.0}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3003/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - agentmarket-network
+
+networks:
+  agentmarket-network:
+    name: agentmarket-network
+    external: true

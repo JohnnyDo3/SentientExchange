@@ -20,17 +20,17 @@ function shouldLog(level: string): boolean {
 export const logger = {
   debug: (...args: any[]) => {
     if (shouldLog('debug')) {
-      console.log('[DEBUG]', new Date().toISOString(), ...args);
+      console.error('[DEBUG]', new Date().toISOString(), ...args);
     }
   },
   info: (...args: any[]) => {
     if (shouldLog('info')) {
-      console.log('[INFO]', new Date().toISOString(), ...args);
+      console.error('[INFO]', new Date().toISOString(), ...args);
     }
   },
   warn: (...args: any[]) => {
     if (shouldLog('warn')) {
-      console.warn('[WARN]', new Date().toISOString(), ...args);
+      console.error('[WARN]', new Date().toISOString(), ...args);
     }
   },
   error: (...args: any[]) => {

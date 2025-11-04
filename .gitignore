@@ -47,3 +47,35 @@ yarn-error.log*
 tmp
 temp
 .cache
+
+# Sensitive files (wallets, keys, test data)
+*-wallet.txt
+*.key
+*.pem
+treasury-wallet.txt
+wallet-devnet.txt
+NEW-WALLET.txt
+
+# Build/test artifacts
+build-output.txt
+test-results-full.txt
+test-results.json
+coverage-summary.json
+
+# Database check scripts
+check-db.js
+fix-endpoint.js
+update-*.js
+test-*.js
+
+# Keep important docs but block others
+# *.md (removed - need README.md)
+# Add specific temp docs to ignore if needed
+
+# Windows reserved filenames
+nul
+con
+prn
+aux
+com[0-9]
+lpt[0-9]

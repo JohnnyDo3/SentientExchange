@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger.js';
 import { Service, ServiceSearchQuery } from '../types';
 import { Database } from './database';
 import { randomUUID } from 'crypto';
@@ -18,22 +19,26 @@ export class ServiceRegistry {
   }
 
   /**
-   * Initialize the registry by loading all services from database into cache
+   * Initialize the registry by loading all active services from database into cache
    */
   async initialize(): Promise<void> {
-    const services = await this.db.all<any>('SELECT * FROM services');
+    // Only load non-deleted services
+    const services = await this.db.all<any>('SELECT * FROM services WHERE deleted_at IS NULL');
 
     for (const row of services) {
       const service = this.deserializeService(row);
       this.cache.set(service.id, service);
     }
+
+    logger.info(`✓ ServiceRegistry initialized with ${services.length} active services`);
   }
 
   /**
    * Register a new service in the marketplace
    */
   async registerService(
-    service: Omit<Service, 'id' | 'createdAt' | 'updatedAt'>
+    service: Omit<Service, 'id' | 'createdAt' | 'updatedAt'>,
+    createdBy?: string
   ): Promise<Service> {
     const newService: Service = {
       id: randomUUID(),
@@ -44,7 +49,8 @@ export class ServiceRegistry {
 
     // Insert into database
     await this.db.run(
-      `INSERT INTO services VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO services (id, name, description, provider, endpoint, capabilities, pricing, reputation, metadata, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         newService.id,
         newService.name,
@@ -55,10 +61,14 @@ export class ServiceRegistry {
         JSON.stringify(newService.pricing),
         JSON.stringify(newService.reputation),
         JSON.stringify(newService.metadata),
+        createdBy || null,
         newService.createdAt,
         newService.updatedAt,
       ]
     );
+
+    // Log audit
+    await this.db.logAudit('service', newService.id, 'CREATE', newService, createdBy);
 
     // Update cache
     this.cache.set(newService.id, newService);
@@ -71,6 +81,13 @@ export class ServiceRegistry {
    */
   async getService(id: string): Promise<Service | undefined> {
     return this.cache.get(id);
+  }
+
+  /**
+   * Get all services from cache
+   */
+  getAllServices(): Service[] {
+    return Array.from(this.cache.values());
   }
 
   /**
@@ -90,7 +107,7 @@ export class ServiceRegistry {
     if (query.maxPrice) {
       const maxPrice = parseFloat(query.maxPrice.replace('$', ''));
       results = results.filter((service) => {
-        const price = parseFloat(service.pricing.perRequest.replace('$', ''));
+        const price = parseFloat((service.pricing.perRequest || service.pricing.amount || "0").replace('$', ''));
         return price <= maxPrice;
       });
     }
@@ -105,8 +122,8 @@ export class ServiceRegistry {
     // Sort results
     if (query.sortBy === 'price') {
       results.sort((a, b) => {
-        const priceA = parseFloat(a.pricing.perRequest.replace('$', ''));
-        const priceB = parseFloat(b.pricing.perRequest.replace('$', ''));
+        const priceA = parseFloat((a.pricing.perRequest || a.pricing.amount || "0").replace('$', ''));
+        const priceB = parseFloat((b.pricing.perRequest || b.pricing.amount || "0").replace('$', ''));
         return priceA - priceB;
       });
     } else if (query.sortBy === 'rating') {
@@ -116,6 +133,132 @@ export class ServiceRegistry {
     }
 
     return results;
+  }
+
+  /**
+   * Update an existing service
+   */
+  async updateService(
+    id: string,
+    updates: Partial<Omit<Service, 'id' | 'createdAt' | 'reputation'>>,
+    updatedBy?: string
+  ): Promise<Service> {
+    const existing = this.cache.get(id);
+    if (!existing) {
+      throw new Error(`Service not found: ${id}`);
+    }
+
+    // Check if service is soft deleted
+    const row: any = await this.db.get('SELECT deleted_at FROM services WHERE id = ?', [id]);
+    if (row?.deleted_at) {
+      throw new Error(`Service has been deleted: ${id}`);
+    }
+
+    // Create updated service object
+    const updated: Service = {
+      ...existing,
+      ...updates,
+      id: existing.id, // Preserve ID
+      createdAt: existing.createdAt, // Preserve creation date
+      reputation: existing.reputation, // Preserve reputation (updated via separate method)
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Update database
+    await this.db.run(
+      `UPDATE services SET name = ?, description = ?, provider = ?, endpoint = ?,
+       capabilities = ?, pricing = ?, metadata = ?, updated_by = ?, updated_at = ?
+       WHERE id = ? AND deleted_at IS NULL`,
+      [
+        updated.name,
+        updated.description,
+        updated.provider,
+        updated.endpoint,
+        JSON.stringify(updated.capabilities),
+        JSON.stringify(updated.pricing),
+        JSON.stringify(updated.metadata),
+        updatedBy || null,
+        updated.updatedAt,
+        id
+      ]
+    );
+
+    // Log audit
+    await this.db.logAudit('service', id, 'UPDATE', updates, updatedBy);
+
+    // Update cache
+    this.cache.set(id, updated);
+
+    return updated;
+  }
+
+  /**
+   * Soft delete a service (sets deleted_at timestamp)
+   */
+  async deleteService(id: string, deletedBy?: string): Promise<void> {
+    const existing = this.cache.get(id);
+    if (!existing) {
+      throw new Error(`Service not found: ${id}`);
+    }
+
+    const deletedAt = new Date().toISOString();
+
+    // Soft delete in database
+    await this.db.run(
+      `UPDATE services SET deleted_at = ?, updated_by = ?, updated_at = ? WHERE id = ?`,
+      [deletedAt, deletedBy || null, deletedAt, id]
+    );
+
+    // Log audit
+    await this.db.logAudit('service', id, 'DELETE', { deletedAt }, deletedBy);
+
+    // Remove from cache
+    this.cache.delete(id);
+  }
+
+  /**
+   * Permanently delete a service (hard delete - use with caution)
+   */
+  async permanentlyDeleteService(id: string): Promise<void> {
+    // Delete from database
+    await this.db.run('DELETE FROM services WHERE id = ?', [id]);
+
+    // Remove from cache
+    this.cache.delete(id);
+  }
+
+  /**
+   * Restore a soft-deleted service
+   */
+  async restoreService(id: string, restoredBy?: string): Promise<Service> {
+    // Get the service from database (including soft-deleted ones)
+    const row: any = await this.db.get('SELECT * FROM services WHERE id = ?', [id]);
+
+    if (!row) {
+      throw new Error(`Service not found: ${id}`);
+    }
+
+    if (!row.deleted_at) {
+      throw new Error(`Service is not deleted: ${id}`);
+    }
+
+    const updatedAt = new Date().toISOString();
+
+    // Restore by clearing deleted_at
+    await this.db.run(
+      `UPDATE services SET deleted_at = NULL, updated_by = ?, updated_at = ? WHERE id = ?`,
+      [restoredBy || null, updatedAt, id]
+    );
+
+    // Log audit
+    await this.db.logAudit('service', id, 'UPDATE', { restored: true }, restoredBy);
+
+    // Reload into cache
+    const service = this.deserializeService(row);
+    service.updatedAt = updatedAt;
+    this.cache.set(id, service);
+
+    return service;
   }
 
   /**

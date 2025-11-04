@@ -1,32 +1,266 @@
+import { Coinbase, Wallet, Address } from '@coinbase/coinbase-sdk';
+import * as fs from 'fs';
+import * as path from 'path';
+import { logger } from '../utils/logger';
+
+interface WalletConfig {
+  networkId: string; // 'base-sepolia' or 'base-mainnet'
+  walletDataPath?: string;
+}
+
 /**
- * Wallet Manager
- *
- * Manages Coinbase CDP wallets for transaction signing.
- * Will be fully implemented in Day 3.
+ * WalletManager handles Coinbase CDP wallet operations
+ * Manages wallet persistence, USDC transfers, and testnet funding
  */
-
 export class WalletManager {
-  constructor(apiKeyName: string, privateKey: string) {
-    // TODO: Initialize Coinbase CDP wallet (Day 3)
-    console.log('WalletManager initialized');
+  private wallet: Wallet | null = null;
+  private config: WalletConfig;
+  private isInitialized: boolean = false;
+
+  constructor(config: WalletConfig) {
+    this.config = {
+      networkId: config.networkId,
+      walletDataPath: config.walletDataPath || './data/wallet.json'
+    };
   }
 
-  async initialize(networkId: string = 'base-sepolia'): Promise<void> {
-    // TODO: Load or create wallet (Day 3)
+  /**
+   * Initialize the wallet manager
+   * Configures Coinbase SDK and loads/creates wallet
+   */
+  async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      logger.debug('WalletManager already initialized');
+      return;
+    }
+
+    try {
+      logger.info('Configuring Coinbase CDP SDK...');
+
+      // Configure Coinbase SDK from environment variables
+      Coinbase.configure({
+        apiKeyName: process.env.CDP_API_KEY_NAME!,
+        privateKey: process.env.CDP_API_KEY_PRIVATE_KEY!.replace(/\\n/g, '\n')
+      });
+
+      logger.info('Coinbase SDK configured successfully');
+
+      // Load or create wallet
+      await this.loadOrCreateWallet();
+
+      this.isInitialized = true;
+      logger.info('WalletManager initialized successfully');
+    } catch (error: any) {
+      logger.error('Failed to initialize WalletManager:', error);
+      throw new Error(`WalletManager initialization failed: ${error.message}`);
+    }
   }
 
-  getAddress(): string {
-    // TODO: Get wallet address (Day 3)
-    return '';
+  /**
+   * Load existing wallet from file or create new one
+   */
+  private async loadOrCreateWallet(): Promise<void> {
+    const walletPath = this.config.walletDataPath!;
+
+    try {
+      // Check if wallet file exists
+      if (fs.existsSync(walletPath)) {
+        logger.info('Loading existing wallet from:', walletPath);
+
+        // Read wallet data
+        const walletData = JSON.parse(fs.readFileSync(walletPath, 'utf-8'));
+
+        // Import wallet using seed
+        this.wallet = await Wallet.import(walletData);
+
+        logger.info('Wallet loaded successfully');
+      } else {
+        logger.info('No existing wallet found, creating new wallet...');
+
+        // Create new wallet
+        this.wallet = await Wallet.create({
+          networkId: this.config.networkId
+        });
+
+        logger.info('New wallet created successfully');
+
+        // Save wallet data for persistence
+        await this.saveWalletData();
+      }
+
+      // Get and log default address
+      const address = await this.wallet.getDefaultAddress();
+      logger.info('Wallet address:', address.getId());
+
+    } catch (error: any) {
+      logger.error('Error loading/creating wallet:', error);
+      throw error;
+    }
   }
 
+  /**
+   * Save wallet data to file for persistence
+   */
+  private async saveWalletData(): Promise<void> {
+    if (!this.wallet) {
+      throw new Error('No wallet to save');
+    }
+
+    const walletPath = this.config.walletDataPath!;
+
+    try {
+      // Ensure directory exists
+      const dir = path.dirname(walletPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      // Export wallet data
+      const walletData = await this.wallet.export();
+
+      // Save to file
+      fs.writeFileSync(walletPath, JSON.stringify(walletData, null, 2));
+
+      logger.info('Wallet data saved to:', walletPath);
+    } catch (error: any) {
+      logger.error('Failed to save wallet data:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get the wallet's default address
+   */
+  async getAddress(): Promise<string> {
+    if (!this.wallet) {
+      throw new Error('Wallet not initialized. Call initialize() first.');
+    }
+
+    const address = await this.wallet.getDefaultAddress();
+    return address.getId();
+  }
+
+  /**
+   * Get the wallet's USDC balance
+   * @param asset - Asset symbol (default: 'usdc')
+   * @returns Balance as string (e.g., "10.50")
+   */
   async getBalance(asset: string = 'usdc'): Promise<string> {
-    // TODO: Get wallet balance (Day 3)
-    return '0';
+    if (!this.wallet) {
+      throw new Error('Wallet not initialized. Call initialize() first.');
+    }
+
+    try {
+      const balance = await this.wallet.getBalance(asset);
+      return balance.toString();
+    } catch (error: any) {
+      logger.warn(`Failed to get ${asset} balance:`, error.message);
+      return '0';
+    }
   }
 
-  async signTransaction(tx: any): Promise<string> {
-    // TODO: Sign transaction (Day 3)
-    return '';
+  /**
+   * Request testnet USDC from faucet (Base Sepolia only)
+   */
+  async requestFaucetFunds(): Promise<string> {
+    if (!this.wallet) {
+      throw new Error('Wallet not initialized. Call initialize() first.');
+    }
+
+    if (this.config.networkId !== 'base-sepolia') {
+      throw new Error('Faucet only available on base-sepolia network');
+    }
+
+    try {
+      logger.info('Requesting faucet funds...');
+
+      const address = await this.wallet.getDefaultAddress();
+
+      // Request funds from faucet
+      const faucetTx = await address.faucet();
+
+      logger.info('Faucet transaction created, waiting for confirmation...');
+
+      // Wait for transaction to complete
+      await faucetTx.wait();
+
+      const txHash = faucetTx.getTransactionHash();
+      logger.info('Faucet funds received! Transaction:', txHash);
+
+      return txHash || '';
+    } catch (error: any) {
+      logger.error('Failed to request faucet funds:', error);
+      throw new Error(`Faucet request failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Transfer USDC to a recipient address
+   * @param recipientAddress - Destination wallet address
+   * @param amountUsdc - Amount in USDC (e.g., "1.5" for 1.5 USDC)
+   * @returns Transaction hash
+   */
+  async transferUsdc(recipientAddress: string, amountUsdc: string): Promise<string> {
+    if (!this.wallet) {
+      throw new Error('Wallet not initialized. Call initialize() first.');
+    }
+
+    try {
+      logger.info(`Transferring ${amountUsdc} USDC to ${recipientAddress}...`);
+
+      // Create USDC transfer
+      // Convert string amount to number (CDP SDK expects Amount type: number | bigint | Decimal)
+      const transfer = await this.wallet.createTransfer({
+        amount: parseFloat(amountUsdc),
+        assetId: 'usdc',
+        destination: recipientAddress,
+        gasless: true // Use gasless transactions if available on the network
+      });
+
+      logger.info('Transfer created, waiting for broadcast...');
+
+      // Wait briefly for broadcast to get transaction hash
+      // Use shorter timeout options if available
+      try {
+        await transfer.wait({ timeoutSeconds: 3, intervalSeconds: 0.5 });
+      } catch (timeoutError) {
+        // Timeout is OK - transaction is broadcasting
+        logger.info('Transfer broadcast initiated (confirmation pending)');
+      }
+
+      const txHash = transfer.getTransactionHash();
+
+      if (!txHash) {
+        // Fallback: use transfer ID as proof
+        const transferId = transfer.getId();
+        logger.warn('Transaction hash not yet available, using transfer ID:', transferId);
+        return `transfer://${transferId}`;
+      }
+
+      logger.info('Transfer broadcast! Transaction hash:', txHash);
+      logger.info('Note: Confirmation will complete in background');
+
+      return txHash;
+    } catch (error: any) {
+      logger.error('USDC transfer failed:', error);
+      throw new Error(`Transfer failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Check if wallet is initialized
+   */
+  isReady(): boolean {
+    return this.isInitialized && this.wallet !== null;
+  }
+
+  /**
+   * Get wallet instance (for advanced operations)
+   */
+  getWallet(): Wallet {
+    if (!this.wallet) {
+      throw new Error('Wallet not initialized. Call initialize() first.');
+    }
+    return this.wallet;
   }
 }
