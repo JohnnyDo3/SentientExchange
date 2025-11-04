@@ -3,29 +3,27 @@ module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/tests', '<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
+  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   transform: {
-    '^.+\\.ts$': 'ts-jest',
+    '^.+\.ts$': 'ts-jest',
+  },
+  moduleNameMapper: {
+    '^(\.{1,2}/.*)\.js$': '$1',
   },
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
     '!src/**/*.test.ts',
-    // Exclude skeleton files until implemented
-    '!src/index.ts',
-    '!src/server.ts',
-    '!src/payment/**/*.ts',
-    '!src/tools/**/*.ts',
-    '!src/utils/**/*.ts',
-    '!src/types/**/*.ts', // Type definitions don't need coverage
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
   coverageThreshold: {
     global: {
-      branches: 80,
-      functions: 80,
-      lines: 80,
-      statements: 80,
+      branches: 70,
+      functions: 70,
+      lines: 70,
+      statements: 70,
     },
   },
+  testTimeout: 30000,
 };

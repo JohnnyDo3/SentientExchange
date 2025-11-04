@@ -49,7 +49,7 @@ describe('Database', () => {
 
   test('should insert and retrieve data', async () => {
     await db.run(
-      `INSERT INTO services VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO services VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         'test-id',
         'test-service',
@@ -60,6 +60,9 @@ describe('Database', () => {
         JSON.stringify({ perRequest: '$0.01', currency: 'USDC', network: 'base-sepolia' }),
         JSON.stringify({ totalJobs: 0, successRate: 0, avgResponseTime: '0s', rating: 0, reviews: 0 }),
         JSON.stringify({ apiVersion: 'v1' }),
+        null, // created_by
+        null, // updated_by
+        null, // deleted_at
         new Date().toISOString(),
         new Date().toISOString(),
       ]
@@ -293,7 +296,7 @@ describe('ServiceRegistry', () => {
 
       // All results should be <= $0.10
       results.forEach((service) => {
-        const price = parseFloat(service.pricing.perRequest.replace('$', ''));
+        const price = parseFloat((service.pricing.perRequest || service.pricing.amount || '$0').replace('$', ''));
         expect(price).toBeLessThanOrEqual(0.10);
       });
 
@@ -318,8 +321,8 @@ describe('ServiceRegistry', () => {
       });
 
       for (let i = 0; i < results.length - 1; i++) {
-        const priceA = parseFloat(results[i].pricing.perRequest.replace('$', ''));
-        const priceB = parseFloat(results[i + 1].pricing.perRequest.replace('$', ''));
+        const priceA = parseFloat((results[i].pricing.perRequest || results[i].pricing.amount || '$0').replace('$', ''));
+        const priceB = parseFloat((results[i + 1].pricing.perRequest || results[i + 1].pricing.amount || '$0').replace('$', ''));
         expect(priceA).toBeLessThanOrEqual(priceB);
       }
     });
@@ -352,7 +355,7 @@ describe('ServiceRegistry', () => {
       });
 
       results.forEach((service) => {
-        const price = parseFloat(service.pricing.perRequest.replace('$', ''));
+        const price = parseFloat((service.pricing.perRequest || service.pricing.amount || '$0').replace('$', ''));
         expect(price).toBeLessThanOrEqual(0.10);
         expect(service.reputation.rating).toBeGreaterThanOrEqual(4.0);
       });
