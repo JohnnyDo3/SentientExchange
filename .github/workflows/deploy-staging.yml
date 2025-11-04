@@ -18,20 +18,18 @@ jobs:
 
       - name: Deploy to Railway Staging
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
         run: |
-          railway up --service=${{ env.RAILWAY_SERVICE_ID }} --environment=staging
+          railway up
 
       - name: Notify on success
         if: success()
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
         run: |
           echo "✅ Staging deployment succeeded"
           echo "Environment: develop branch → Railway staging"
-          URL=$(railway domain --environment staging --service=${{ env.RAILWAY_SERVICE_ID }})
+          URL=$(railway domain)
           echo "Staging URL: https://$URL"
 
       - name: Notify on failure

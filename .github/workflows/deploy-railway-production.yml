@@ -18,10 +18,9 @@ jobs:
 
       - name: Deploy to Railway Production
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
         run: |
-          railway up --service=${{ env.RAILWAY_SERVICE_ID }} --environment=production
+          railway up
 
       - name: Create deployment tag
         if: success()
@@ -35,12 +34,11 @@ jobs:
       - name: Notify on success
         if: success()
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
         run: |
           echo "✅ Production deployment succeeded"
           echo "Environment: main branch → Railway production"
-          URL=$(railway domain --environment production --service=${{ env.RAILWAY_SERVICE_ID }})
+          URL=$(railway domain)
           echo "Production URL: https://$URL"
 
       - name: Notify on failure
