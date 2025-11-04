@@ -3,9 +3,10 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { Database } from '../registry/database.js';
 import { ServiceRegistry } from '../registry/ServiceRegistry.js';
-import { logger } from '../utils/logger.js';
+import { logger, securityLogger } from '../utils/logger.js';
 import {
   apiLimiter,
   writeLimiter,
@@ -57,6 +58,9 @@ app.use(cors(corsOptions));
 // Body parsing with size limits
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// Cookie parsing (required for httpOnly JWT cookies)
+app.use(cookieParser());
 
 // Request size limiting
 app.use(requestSizeLimit);
@@ -141,6 +145,7 @@ app.post('/api/auth/nonce', (req, res, next) => {
 });
 
 // POST /api/auth/verify - Verify SIWE signature and return JWT
+// SECURITY: Sets JWT in httpOnly cookie (XSS-safe) + returns in body (backwards compatibility)
 app.post('/api/auth/verify', async (req, res, next) => {
   try {
     const { message, signature } = req.body;
@@ -158,6 +163,22 @@ app.post('/api/auth/verify', async (req, res, next) => {
     // Generate JWT token
     const token = generateToken(address, chainId);
 
+    // Security event: Successful authentication
+    securityLogger.authSuccess({
+      address,
+      chainId,
+      ip: req.ip,
+    });
+
+    // Set token in httpOnly cookie (XSS-safe - JavaScript cannot access)
+    res.cookie('auth-token', token, {
+      httpOnly: true, // Cannot be accessed by JavaScript (XSS protection)
+      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      sameSite: 'strict', // CSRF protection
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days (matches JWT expiry)
+    });
+
+    // Also return token in body for backwards compatibility
     res.json({
       success: true,
       token,
@@ -166,6 +187,13 @@ app.post('/api/auth/verify', async (req, res, next) => {
       message: 'Authentication successful',
     });
   } catch (error: any) {
+    // Security event: Authentication failed
+    securityLogger.authFailure({
+      reason: `SIWE verification failed: ${error.message}`,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
     res.status(401).json({
       success: false,
       error: 'Authentication failed',
@@ -185,11 +213,18 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   });
 });
 
-// POST /api/auth/logout - Logout (mainly for client-side token clearing)
+// POST /api/auth/logout - Logout and clear httpOnly cookie
 app.post('/api/auth/logout', (req, res) => {
+  // Clear the httpOnly cookie
+  res.clearCookie('auth-token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+  });
+
   res.json({
     success: true,
-    message: 'Logged out successfully',
+    message: 'Logged out successfully - cookie cleared',
   });
 });
 

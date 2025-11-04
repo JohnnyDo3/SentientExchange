@@ -1,7 +1,7 @@
 import { Coinbase, Wallet, Address } from '@coinbase/coinbase-sdk';
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '../utils/logger';
+import { logger, securityLogger } from '../utils/logger';
 
 interface WalletConfig {
   networkId: string; // 'base-sepolia' or 'base-mainnet'
@@ -19,11 +19,21 @@ function validateSafePath(filePath: string, baseDir: string = './data'): string 
 
   // Check if the resolved path is within the base directory
   if (!resolvedPath.startsWith(resolvedBase)) {
+    // Security event: Path traversal attempt detected
+    securityLogger.pathTraversalAttempt({
+      path: filePath,
+      reason: `Path is outside allowed directory (base: ${resolvedBase})`,
+    });
     throw new Error(`Path traversal detected: ${filePath} is outside allowed directory`);
   }
 
   // Check for suspicious patterns
   if (filePath.includes('..') || filePath.includes('~')) {
+    // Security event: Suspicious path characters detected
+    securityLogger.pathTraversalAttempt({
+      path: filePath,
+      reason: 'Suspicious path characters detected (.., ~)',
+    });
     throw new Error(`Invalid path characters detected: ${filePath}`);
   }
 

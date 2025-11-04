@@ -71,6 +71,18 @@ export function extractToken(authHeader?: string): string | null {
 }
 
 /**
+ * Extract token from httpOnly cookie (preferred method - XSS safe)
+ */
+export function extractTokenFromCookie(cookies?: any): string | null {
+  if (!cookies) {
+    return null;
+  }
+
+  // Try to get token from httpOnly cookie
+  return cookies['auth-token'] || cookies['auth_token'] || null;
+}
+
+/**
  * Check if a token is expired without throwing
  */
 export function isTokenExpired(token: string): boolean {

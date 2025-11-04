@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken, extractToken, TokenPayload } from '../auth/jwt.js';
+import { verifyToken, extractToken, extractTokenFromCookie, TokenPayload } from '../auth/jwt.js';
+import { securityLogger } from '../utils/logger.js';
 
 /**
  * Authentication middleware
@@ -18,13 +19,26 @@ declare global {
 /**
  * Middleware to require authentication
  * Returns 401 if no valid token provided
+ * SECURITY: Tries httpOnly cookie first (XSS safe), then Authorization header (backwards compatibility)
  */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   try {
-    // Extract token from Authorization header
-    const token = extractToken(req.headers.authorization);
+    // Try to extract token from httpOnly cookie first (preferred - XSS safe)
+    let token = extractTokenFromCookie(req.cookies);
+
+    // Fall back to Authorization header for backwards compatibility
+    if (!token) {
+      token = extractToken(req.headers.authorization);
+    }
 
     if (!token) {
+      // Security event: Authentication required but no token provided
+      securityLogger.authFailure({
+        reason: 'No authentication token provided',
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
       res.status(401).json({
         success: false,
         error: 'Authentication required',
@@ -41,6 +55,13 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 
     next();
   } catch (error: any) {
+    // Security event: Token verification failed
+    securityLogger.authFailure({
+      reason: `Token verification failed: ${error.message}`,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
     res.status(401).json({
       success: false,
       error: 'Invalid authentication token',
@@ -52,10 +73,15 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 /**
  * Optional authentication middleware
  * Attaches user info if token is valid, but doesn't require it
+ * SECURITY: Tries httpOnly cookie first (XSS safe), then Authorization header (backwards compatibility)
  */
 export function optionalAuth(req: Request, res: Response, next: NextFunction): void {
   try {
-    const token = extractToken(req.headers.authorization);
+    // Try httpOnly cookie first, fall back to Authorization header
+    let token = extractTokenFromCookie(req.cookies);
+    if (!token) {
+      token = extractToken(req.headers.authorization);
+    }
 
     if (token) {
       const payload = verifyToken(token);

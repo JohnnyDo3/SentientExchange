@@ -1,5 +1,5 @@
 import { Connection, PublicKey, ParsedTransactionWithMeta } from '@solana/web3.js';
-import { logger } from '../utils/logger';
+import { logger, securityLogger } from '../utils/logger';
 import { spawn } from 'child_process';
 import path from 'path';
 
@@ -141,6 +141,45 @@ export class SolanaPaymentCoordinator {
 
       const amount = solanaPayment.amount || solanaPayment.maxAmountRequired || '0';
       const token = solanaPayment.tokenAddress || solanaPayment.asset || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+      // SECURITY: Validate all parameters to prevent command injection
+      // Solana addresses are base58 encoded, 32-44 chars, alphanumeric only
+      const solanaAddressRegex = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+      if (!solanaAddressRegex.test(recipient)) {
+        // Security event: Invalid recipient address (potential command injection)
+        securityLogger.commandInjectionAttempt({
+          value: recipient,
+          reason: 'Invalid Solana recipient address format',
+        });
+        return reject(new Error('Invalid recipient address format - potential command injection attempt'));
+      }
+
+      if (!solanaAddressRegex.test(token)) {
+        // Security event: Invalid token address (potential command injection)
+        securityLogger.commandInjectionAttempt({
+          value: token,
+          reason: 'Invalid Solana token address format',
+        });
+        return reject(new Error('Invalid token address format - potential command injection attempt'));
+      }
+
+      // Validate amount is numeric and positive
+      const amountNum = parseFloat(amount);
+      if (isNaN(amountNum) || amountNum <= 0 || !Number.isFinite(amountNum)) {
+        return reject(new Error('Invalid amount format - must be positive number'));
+      }
+
+      // Extra safety: Check for shell metacharacters
+      const dangerousChars = /[;&|`$(){}[\]<>'"\\]/;
+      if (dangerousChars.test(recipient) || dangerousChars.test(amount) || dangerousChars.test(token)) {
+        // Security event: Shell metacharacters detected (CRITICAL threat)
+        securityLogger.commandInjectionAttempt({
+          value: `recipient=${recipient}, amount=${amount}, token=${token}`,
+          reason: 'Shell metacharacters detected in payment parameters',
+        });
+        return reject(new Error('Dangerous characters detected in payment parameters'));
+      }
 
       logger.info('Executing payment:', { recipient, amount, token });
 

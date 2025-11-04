@@ -1,7 +1,8 @@
-import { logger } from '../utils/logger.js';
+import { logger, securityLogger } from '../utils/logger.js';
 import { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
+import crypto from 'crypto';
 
 /**
  * Security Middleware
@@ -90,7 +91,8 @@ export const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Payment', 'X-Request-ID'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Payment', 'X-Request-ID', 'X-CSRF-Token'],
+  exposedHeaders: ['X-CSRF-Token'],
   maxAge: 86400, // 24 hours
 };
 
@@ -217,20 +219,81 @@ function sanitizeObject(obj: any): void {
   });
 }
 
-// CSRF protection for state-changing operations
+/**
+ * Generate CSRF token middleware
+ * Generates a unique token for each session and sends it in response header
+ */
+export function generateCsrfToken(req: Request, res: Response, next: NextFunction) {
+  // Generate a new CSRF token if not present
+  if (!req.headers['x-csrf-token']) {
+    const token = crypto.randomBytes(32).toString('hex');
+    res.setHeader('X-CSRF-Token', token);
+
+    // Store token in a secure cookie (double-submit pattern)
+    res.cookie('csrf-token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 3600000, // 1 hour
+    });
+  }
+  next();
+}
+
+/**
+ * CSRF protection for state-changing operations
+ * Validates CSRF token using double-submit cookie pattern
+ */
 export function csrfProtection(req: Request, res: Response, next: NextFunction) {
   // Skip CSRF for read operations
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
     return next();
   }
 
-  // In production, verify CSRF token
-  if (process.env.NODE_ENV === 'production') {
-    const token = req.headers['x-csrf-token'];
-    // TODO: Implement proper CSRF token validation
-    // For now, just log
-    logger.info('CSRF token:', token);
+  // Skip CSRF for development (but log warning)
+  if (process.env.NODE_ENV !== 'production') {
+    logger.debug('CSRF protection skipped in development');
+    return next();
   }
 
+  // Verify CSRF token (double-submit cookie pattern)
+  const headerToken = req.headers['x-csrf-token'] as string;
+  const cookieToken = req.cookies?.['csrf-token'];
+
+  // Both tokens must be present
+  if (!headerToken || !cookieToken) {
+    // Security event: CSRF token missing
+    securityLogger.csrfViolation({
+      path: req.path,
+      method: req.method,
+      ip: req.ip,
+      hasHeader: !!headerToken,
+      hasCookie: !!cookieToken,
+    });
+
+    return res.status(403).json({
+      success: false,
+      error: 'CSRF token missing - possible cross-site request forgery attempt',
+    });
+  }
+
+  // Tokens must match (constant-time comparison to prevent timing attacks)
+  if (!crypto.timingSafeEqual(Buffer.from(headerToken), Buffer.from(cookieToken))) {
+    // Security event: CSRF token mismatch (possible attack)
+    securityLogger.csrfViolation({
+      path: req.path,
+      method: req.method,
+      ip: req.ip,
+      hasHeader: true,
+      hasCookie: true,
+    });
+
+    return res.status(403).json({
+      success: false,
+      error: 'CSRF token invalid - possible cross-site request forgery attempt',
+    });
+  }
+
+  // CSRF validation passed
   next();
 }

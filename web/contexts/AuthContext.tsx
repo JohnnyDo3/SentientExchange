@@ -26,6 +26,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   // Load token from localStorage on mount
+  // SECURITY NOTE: JWT is also stored in httpOnly cookie on backend (Phase 3)
+  // - Backend reads from cookie first (XSS-safe), then falls back to Authorization header
+  // - localStorage kept for backwards compatibility and offline token display
+  // - Cookie is the primary auth mechanism (httpOnly + secure + sameSite:strict)
   useEffect(() => {
     const storedToken = localStorage.getItem('auth_token');
     const storedAddress = localStorage.getItem('auth_address');
