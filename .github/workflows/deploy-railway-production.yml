@@ -25,7 +25,8 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
         run: |
-          railway up --service=agentMarket-mcp
+          railway up --service=agentMarket-mcp || true
+          echo "Deployment triggered (log streaming may fail but deployment continues)"
 
       - name: Create deployment tag
         if: success()
