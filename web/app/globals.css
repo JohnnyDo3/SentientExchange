@@ -1,0 +1,192 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.5);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.7);
+}
+
+@layer base {
+  body {
+    @apply bg-black text-white;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-900;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-purple rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-pink;
+  }
+}
+
+@layer components {
+  /* Glassmorphism effect */
+  .glass {
+    background: rgba(17, 17, 17, 0.5);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    background: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #a855f7 100%);
+    background-size: 200% 200%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    display: inline-block;
+    line-height: 1.2;
+    padding-bottom: 0.1em;
+  }
+
+  /* Glow effect */
+  .glow-purple {
+    box-shadow: 0 0 20px rgba(168, 85, 247, 0.5);
+  }
+
+  .glow-pink {
+    box-shadow: 0 0 20px rgba(236, 72, 153, 0.5);
+  }
+
+  /* Button styles */
+  .btn-primary {
+    @apply bg-gradient-to-r from-purple to-pink text-white font-semibold py-3 px-8 rounded-lg;
+    @apply hover:scale-105 hover:shadow-2xl hover:shadow-purple/50;
+    @apply transition-all duration-200 ease-out;
+  }
+
+  .btn-secondary {
+    @apply border-2 border-purple text-white font-semibold py-3 px-8 rounded-lg;
+    @apply hover:bg-purple/10 hover:border-pink hover:scale-105;
+    @apply transition-all duration-200 ease-out;
+  }
+
+  /* Card styles */
+  .card {
+    @apply glass rounded-2xl p-6 hover:border-purple/50;
+    @apply transition-all duration-300 ease-out;
+  }
+
+  .card-hover {
+    @apply card hover:scale-105 hover:-translate-y-1;
+    @apply hover:shadow-xl hover:shadow-purple/20;
+  }
+}
+
+@layer utilities {
+  /* Text glow */
+  .text-glow {
+    text-shadow: 0 0 10px currentColor;
+  }
+
+  .text-glow-lg {
+    text-shadow: 0 0 20px currentColor, 0 0 30px currentColor;
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .hide-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;  /* Chrome, Safari, Opera */
+  }
+
+  /* Animations */
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-20px); }
+  }
+
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 3s ease-in-out infinite;
+  }
+}
+
+/* Solana Wallet Adapter Customization */
+.solana-wallet-button button {
+  @apply bg-gradient-to-r from-pink to-purple text-white rounded-xl font-semibold;
+  @apply hover:scale-105 transition-transform;
+  @apply px-6 py-3;
+  background-image: linear-gradient(135deg, #ec4899, #a855f7) !important;
+  border: none !important;
+  border-radius: 0.75rem !important;
+  padding: 0.75rem 1.5rem !important;
+  font-weight: 600 !important;
+  transition: all 0.2s ease-in-out !important;
+}
+
+.solana-wallet-button button:hover {
+  transform: scale(1.05) !important;
+}
+
+.solana-wallet-button button:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
+.wallet-adapter-modal-wrapper {
+  @apply bg-black/90;
+}
+
+.wallet-adapter-modal {
+  @apply glass border border-gray-800 rounded-2xl;
+  background: rgba(17, 17, 17, 0.95) !important;
+  backdrop-filter: blur(20px) !important;
+}
+
+.wallet-adapter-modal-title {
+  @apply text-white font-bold;
+}
+
+.wallet-adapter-modal-button {
+  @apply bg-gray-800 hover:bg-gray-700 text-white rounded-lg;
+  background: rgba(31, 31, 31, 0.8) !important;
+}
+
+.wallet-adapter-modal-button:hover {
+  background: rgba(55, 55, 55, 0.9) !important;
+}
