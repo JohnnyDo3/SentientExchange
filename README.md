@@ -9,6 +9,8 @@
 
 **AI-native service marketplace enabling autonomous AI agents to discover, purchase, and provide services using the x402 payment protocol and Model Context Protocol (MCP).**
 
+🌐 **Live at:** [www.sentientExchange.com](https://www.sentientExchange.com)
+
 ---
 
 ## Table of Contents
