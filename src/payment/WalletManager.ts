@@ -9,6 +9,28 @@ interface WalletConfig {
 }
 
 /**
+ * Validates that a file path is safe and doesn't contain path traversal attempts
+ * Prevents attacks like: ../../../../etc/passwd
+ */
+function validateSafePath(filePath: string, baseDir: string = './data'): string {
+  // Resolve the absolute paths
+  const resolvedPath = path.resolve(filePath);
+  const resolvedBase = path.resolve(baseDir);
+
+  // Check if the resolved path is within the base directory
+  if (!resolvedPath.startsWith(resolvedBase)) {
+    throw new Error(`Path traversal detected: ${filePath} is outside allowed directory`);
+  }
+
+  // Check for suspicious patterns
+  if (filePath.includes('..') || filePath.includes('~')) {
+    throw new Error(`Invalid path characters detected: ${filePath}`);
+  }
+
+  return resolvedPath;
+}
+
+/**
  * WalletManager handles Coinbase CDP wallet operations
  * Manages wallet persistence, USDC transfers, and testnet funding
  */
@@ -60,7 +82,8 @@ export class WalletManager {
    * Load existing wallet from file or create new one
    */
   private async loadOrCreateWallet(): Promise<void> {
-    const walletPath = this.config.walletDataPath!;
+    // Validate path to prevent traversal attacks
+    const walletPath = validateSafePath(this.config.walletDataPath!);
 
     try {
       // Check if wallet file exists
@@ -106,7 +129,8 @@ export class WalletManager {
       throw new Error('No wallet to save');
     }
 
-    const walletPath = this.config.walletDataPath!;
+    // Validate path to prevent traversal attacks
+    const walletPath = validateSafePath(this.config.walletDataPath!);
 
     try {
       // Ensure directory exists

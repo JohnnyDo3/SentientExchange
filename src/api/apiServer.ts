@@ -477,7 +477,11 @@ app.get('/api/stats', async (req, res, next) => {
 // GET /api/transactions/recent - Recent transactions
 app.get('/api/transactions/recent', async (req, res, next) => {
   try {
-    const limit = parseInt(String(req.query.limit)) || 20;
+    // Secure parseInt with bounds checking (prevent Infinity, NaN, negative, or excessive values)
+    const rawLimit = parseInt(String(req.query.limit), 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 && rawLimit <= 100
+      ? rawLimit
+      : 20;
     const query = `
       SELECT t.*, s.name as service_name
       FROM transactions t
@@ -508,7 +512,11 @@ app.get('/api/transactions/recent', async (req, res, next) => {
 app.get('/api/services/:id/audit', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const limit = parseInt(String(req.query.limit)) || 50;
+    // Secure parseInt with bounds checking (prevent Infinity, NaN, negative, or excessive values)
+    const rawLimit = parseInt(String(req.query.limit), 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 && rawLimit <= 200
+      ? rawLimit
+      : 50;
 
     const history = await db.getAuditHistory('service', id, limit);
 
