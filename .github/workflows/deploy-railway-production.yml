@@ -20,7 +20,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
         run: |
-          railway up
+          railway up --service=agentMarket-mcp
 
       - name: Create deployment tag
         if: success()

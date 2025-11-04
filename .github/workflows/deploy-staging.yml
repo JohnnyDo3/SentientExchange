@@ -20,7 +20,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
         run: |
-          railway up
+          railway up --service=agentMarket-mcp
 
       - name: Notify on success
         if: success()
