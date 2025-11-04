@@ -1,31 +1,22 @@
 name: Deploy to Staging (Railway)
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
     branches: [ develop ]
   workflow_dispatch:
 
 jobs:
-  # Wait for CI to pass before deploying
-  check-ci:
-    name: Wait for CI
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wait for CI workflow
-        uses: lewagon/wait-on-check-action@v1.3.4
-        with:
-          ref: ${{ github.ref }}
-          check-name: 'CI Status'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 10
-
   deploy-staging:
     name: Deploy to Railway Staging
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: staging
     container: ghcr.io/railwayapp/cli:latest
-    needs: check-ci
+    # Only deploy if CI succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - uses: actions/checkout@v4
