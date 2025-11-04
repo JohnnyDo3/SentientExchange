@@ -7,6 +7,10 @@ on:
       - completed
     branches: [ develop ]
   workflow_dispatch:
+  push:
+    branches: [ develop ]
+    paths:
+      - '.github/workflows/deploy-staging.yml'
 
 jobs:
   deploy-staging:
