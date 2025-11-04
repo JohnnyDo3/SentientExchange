@@ -79,3 +79,9 @@ prn
 aux
 com[0-9]
 lpt[0-9]
+
+# Claude Code configuration (project-specific, don't commit)
+.claude/
+
+# Archive folder (temp docs, old files)
+archive/
