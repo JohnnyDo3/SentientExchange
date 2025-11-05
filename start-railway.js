@@ -9,12 +9,14 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
-const RAILWAY_PORT = process.env.PORT || '3000';
-const API_PORT = '8080';
+// Railway provides PORT env var - we use it for the web app
+// API server runs on a different internal port
+const WEB_PORT = process.env.PORT || '3000';
+const API_PORT = process.env.API_PORT || '8081';
 
 console.log('🚀 Starting AgentMarket on Railway...');
-console.log(`📡 Web app will bind to Railway PORT: ${RAILWAY_PORT}`);
-console.log(`🔧 API server running internally on: ${API_PORT}\n`);
+console.log(`📡 Web app will bind to port: ${WEB_PORT} (Railway public port)`);
+console.log(`🔧 API server running internally on port: ${API_PORT}\n`);
 
 // Start API Server on internal port
 const apiServer = spawn('node', ['dist/server/index.js'], {
@@ -23,10 +25,10 @@ const apiServer = spawn('node', ['dist/server/index.js'], {
 });
 
 // Start Next.js Web App on Railway PORT
-const webApp = spawn('node_modules/.bin/next', ['start', '-p', RAILWAY_PORT], {
+const webApp = spawn('node_modules/.bin/next', ['start', '-p', WEB_PORT], {
   cwd: path.join(__dirname, 'web'),
   stdio: 'inherit',
-  env: { ...process.env, PORT: RAILWAY_PORT, API_URL: `http://localhost:${API_PORT}` }
+  env: { ...process.env, PORT: WEB_PORT, API_URL: `http://localhost:${API_PORT}` }
 });
 
 apiServer.on('error', (err) => {
