@@ -28,7 +28,7 @@ const apiServer = spawn('node', ['dist/server/index.js'], {
 const webApp = spawn('node_modules/.bin/next', ['start', '-p', WEB_PORT], {
   cwd: path.join(__dirname, 'web'),
   stdio: 'inherit',
-  env: { ...process.env, PORT: WEB_PORT, API_URL: `http://localhost:${API_PORT}` }
+  env: { ...process.env, PORT: WEB_PORT, API_PORT: API_PORT, API_URL: `http://localhost:${API_PORT}` }
 });
 
 apiServer.on('error', (err) => {

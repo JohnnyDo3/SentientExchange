@@ -22,11 +22,12 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   async rewrites() {
-    // Proxy API requests to backend server running on port 8080
+    // Proxy API requests to backend server running on port 8081
+    const apiPort = process.env.API_PORT || '8081';
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8080/api/:path*',
+        destination: `http://localhost:${apiPort}/api/:path*`,
       },
     ];
   },
