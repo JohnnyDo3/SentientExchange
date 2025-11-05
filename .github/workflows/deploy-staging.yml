@@ -1,4 +1,4 @@
-name: Deploy to Staging (Railway)
+name: Deploy to Staging
 
 on:
   workflow_run:
@@ -7,28 +7,57 @@ on:
       - completed
     branches: [ develop ]
   workflow_dispatch:
-  push:
-    branches: [ develop ]
-    paths:
-      - '.github/workflows/deploy-staging.yml'
 
 jobs:
-  deploy-staging:
-    name: Deploy to Railway Staging
+  build-and-deploy-staging:
+    name: Build & Deploy to Staging
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: staging
-    container: ghcr.io/railwayapp/cli:latest
     # Only deploy if CI succeeded
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker
+
+      - name: Build and push Docker image for staging
+        run: |
+          docker build -f docker/mcp-server.Dockerfile \
+            -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/agentmarket-mcp:staging \
+            -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/agentmarket-mcp:${{ github.sha }} \
+            .
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/agentmarket-mcp:staging
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/agentmarket-mcp:${{ github.sha }}
+
       - name: Deploy to Railway Staging
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
         run: |
+          # Install Railway CLI
+          npm install -g @railway/cli
           railway up --service=agentMarket-mcp || true
           echo "Deployment triggered (log streaming may fail but deployment continues)"
 
@@ -36,8 +65,9 @@ jobs:
         if: success()
         run: |
           echo "✅ Staging deployment succeeded"
-          echo "Environment: develop branch → Railway staging"
-          echo "Check Railway dashboard for deployment URL"
+          echo "Environment: develop branch → Railway + GCR staging"
+          echo "Docker image: gcr.io/${{ secrets.GCP_PROJECT_ID }}/agentmarket-mcp:staging"
+          echo "SHA: ${{ github.sha }}"
 
       - name: Notify on failure
         if: failure()
