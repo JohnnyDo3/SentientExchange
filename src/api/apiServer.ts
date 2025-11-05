@@ -11,6 +11,8 @@ import {
   apiLimiter,
   writeLimiter,
   registrationLimiter,
+  mcpConnectionLimiter,
+  mcpMessageLimiter,
   helmetConfig,
   corsOptions,
   requestSizeLimit,
@@ -126,13 +128,15 @@ app.get('/api/pulse', (req, res) => {
 
 // GET /mcp/sse - Establish SSE stream for MCP protocol
 // This allows Claude Desktop (or other MCP clients) to connect remotely
-app.get('/mcp/sse', async (req, res) => {
+// Rate limited: 10 connections per 15 minutes per IP
+app.get('/mcp/sse', mcpConnectionLimiter, async (req, res) => {
   await sseTransport.handleSSEConnection(req, res);
 });
 
 // POST /mcp/message?sessionId=X - Receive client messages
 // Bidirectional communication: client sends JSON-RPC requests to server
-app.post('/mcp/message', express.text({ type: '*/*' }), async (req, res) => {
+// Rate limited: 60 messages per minute per session
+app.post('/mcp/message', mcpMessageLimiter, express.text({ type: '*/*' }), async (req, res) => {
   await sseTransport.handleMessage(req, res);
 });
 

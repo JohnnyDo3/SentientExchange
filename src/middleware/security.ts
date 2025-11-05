@@ -49,6 +49,36 @@ export const registrationLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Rate limit for MCP SSE connections
+export const mcpConnectionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Max 10 new SSE connections per 15 minutes per IP
+  message: {
+    success: false,
+    error: 'Too many MCP connection attempts, please try again later.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limit for MCP messages
+export const mcpMessageLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 60, // Max 60 messages per minute (1 per second average)
+  message: {
+    success: false,
+    error: 'Too many MCP messages, please slow down.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Extract session ID from query for per-session limiting
+  keyGenerator: (req) => {
+    const sessionId = req.query.sessionId as string;
+    // Use sessionId if available, otherwise use IP (express-rate-limit handles IPv6)
+    return sessionId || (req.ip as string) || 'unknown';
+  },
+});
+
 // Helmet configuration for security headers
 export const helmetConfig = helmet({
   contentSecurityPolicy: {

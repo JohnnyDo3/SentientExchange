@@ -14,9 +14,9 @@ import { logger } from '../../utils/logger.js';
 
 export class SQLiteAdapter implements DatabaseAdapter {
   private db: sqlite3.Database;
-  private runAsync: any;
-  private getAsync: any;
-  private allAsync: any;
+  private runAsync: (sql: string, ...params: any[]) => Promise<void>;
+  private getAsync: <T = any>(sql: string, ...params: any[]) => Promise<T | undefined>;
+  private allAsync: <T = any>(sql: string, ...params: any[]) => Promise<T[]>;
 
   constructor(private dbPath: string) {
     // Ensure data directory exists

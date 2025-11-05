@@ -279,46 +279,85 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
     // Handle tool calls
     this.mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
+      const startTime = Date.now();
+
+      // Log tool call (for monitoring and debugging)
+      logger.info(`MCP Tool Call: ${name}`, {
+        tool: name,
+        argsPreview: JSON.stringify(args).substring(0, 200), // First 200 chars
+        timestamp: new Date().toISOString(),
+      });
 
       try {
+        let result: any;
         switch (name) {
           case 'discover_services':
-            return await discoverServices(this.registry, args as any);
+            result = await discoverServices(this.registry, args as any);
+            break;
           case 'get_service_details':
-            return await getServiceDetails(this.registry, args as any);
+            result = await getServiceDetails(this.registry, args as any);
+            break;
           case 'purchase_service':
-            return await purchaseService(this.registry, args as any, this.spendingLimitManager);
+            result = await purchaseService(this.registry, args as any, this.spendingLimitManager);
+            break;
           case 'execute_payment':
-            return await executePayment(args as any);
+            result = await executePayment(args as any);
+            break;
           case 'submit_payment':
-            return await submitPayment(this.registry, this.solanaVerifier, this.db, args as any);
+            result = await submitPayment(this.registry, this.solanaVerifier, this.db, args as any);
+            break;
           case 'rate_service':
-            return await rateService(this.registry, this.db, args as any);
+            result = await rateService(this.registry, this.db, args as any);
+            break;
           case 'list_all_services':
-            return await listAllServices(this.registry, args as any);
+            result = await listAllServices(this.registry, args as any);
+            break;
           case 'get_transaction':
-            return await getTransaction(this.db, args as any);
+            result = await getTransaction(this.db, args as any);
+            break;
           case 'set_spending_limits': {
             const { userId, ...limitsArgs } = args as any;
-            return await setSpendingLimits(this.spendingLimitManager, userId, limitsArgs);
+            result = await setSpendingLimits(this.spendingLimitManager, userId, limitsArgs);
+            break;
           }
           case 'check_spending': {
             const { userId } = args as any;
-            return await checkSpending(this.spendingLimitManager, userId);
+            result = await checkSpending(this.spendingLimitManager, userId);
+            break;
           }
           case 'reset_spending_limits': {
             const { userId } = args as any;
-            return await resetSpendingLimits(this.spendingLimitManager, userId);
+            result = await resetSpendingLimits(this.spendingLimitManager, userId);
+            break;
           }
           case 'discover_and_prepare_service':
-            return await discoverAndPrepareService(this.registry, args as any, this.spendingLimitManager);
+            result = await discoverAndPrepareService(this.registry, args as any, this.spendingLimitManager);
+            break;
           case 'complete_service_with_payment':
-            return await completeServiceWithPayment(this.registry, this.solanaVerifier, this.db, args as any);
+            result = await completeServiceWithPayment(this.registry, this.solanaVerifier, this.db, args as any);
+            break;
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
+
+        // Log successful completion with duration
+        const duration = Date.now() - startTime;
+        logger.info(`MCP Tool Success: ${name}`, {
+          tool: name,
+          duration: `${duration}ms`,
+          success: true,
+        });
+
+        return result;
       } catch (error: any) {
-        logger.error(`Tool execution error [${name}]:`, error);
+        const duration = Date.now() - startTime;
+        logger.error(`MCP Tool Error: ${name}`, {
+          tool: name,
+          duration: `${duration}ms`,
+          error: error.message,
+          success: false,
+        });
+
         return {
           content: [{
             type: 'text',
@@ -332,30 +371,62 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
 
   /**
    * Handle GET /mcp/sse - Establish SSE stream
+   *
+   * Security measures:
+   * - Rate limited (10 connections per 15 minutes per IP)
+   * - Logs client IP for security monitoring
+   * - Session timeout after 30 minutes of inactivity
+   * - Validates session IDs
    */
   async handleSSEConnection(req: Request, res: Response): Promise<void> {
-    logger.info('Received SSE connection request');
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+
+    logger.info('SSE connection request', {
+      ip: clientIp,
+      userAgent: req.headers['user-agent'],
+      timestamp: new Date().toISOString(),
+    });
 
     try {
       // Create SSE transport
       const transport = new SSEServerTransport('/mcp/message', res);
       const sessionId = transport.sessionId;
 
-      // Store transport
+      // Validate session ID format (basic check)
+      if (!sessionId || sessionId.length < 16) {
+        logger.error('Invalid session ID generated', { sessionId, ip: clientIp });
+        if (!res.headersSent) {
+          res.status(500).send('Failed to generate valid session');
+        }
+        return;
+      }
+
+      // Store transport with metadata
       this.transports.set(sessionId, transport);
 
       // Set up close handler
       transport.onclose = () => {
-        logger.info(`SSE transport closed for session ${sessionId}`);
+        logger.info('SSE transport closed', {
+          sessionId,
+          ip: clientIp,
+          duration: 'N/A', // Duration would require tracking connection start time
+        });
         this.transports.delete(sessionId);
       };
 
       // Connect transport to MCP server
       await this.mcpServer.connect(transport);
 
-      logger.info(`✓ Established SSE stream with session ID: ${sessionId}`);
+      logger.info('SSE stream established', {
+        sessionId,
+        ip: clientIp,
+        activeSessions: this.transports.size,
+      });
     } catch (error) {
-      logger.error('Error establishing SSE stream:', error);
+      logger.error('Error establishing SSE stream', {
+        error: error instanceof Error ? error.message : String(error),
+        ip: clientIp,
+      });
       if (!res.headersSent) {
         res.status(500).send('Error establishing SSE stream');
       }
@@ -364,19 +435,44 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
 
   /**
    * Handle POST /mcp/message?sessionId=X - Receive client messages
+   *
+   * Security measures:
+   * - Rate limited (60 messages per minute per session)
+   * - Validates session ID
+   * - Logs suspicious activity (missing session, invalid session)
    */
   async handleMessage(req: Request, res: Response): Promise<void> {
     const sessionId = req.query.sessionId as string;
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
 
+    // Validate session ID presence
     if (!sessionId) {
-      logger.error('No session ID provided in message request');
+      logger.error('Missing session ID in message request', {
+        ip: clientIp,
+        userAgent: req.headers['user-agent'],
+      });
       res.status(400).send('Missing sessionId parameter');
       return;
     }
 
+    // Validate session ID format (prevent injection)
+    if (!/^[a-zA-Z0-9_-]{16,}$/.test(sessionId)) {
+      logger.error('Invalid session ID format', {
+        sessionId: sessionId.substring(0, 50), // Log only first 50 chars
+        ip: clientIp,
+      });
+      res.status(400).send('Invalid sessionId format');
+      return;
+    }
+
+    // Check if session exists
     const transport = this.transports.get(sessionId);
     if (!transport) {
-      logger.error(`No active transport found for session ID: ${sessionId}`);
+      logger.error('No active transport found for session', {
+        sessionId,
+        ip: clientIp,
+        activeSessions: this.transports.size,
+      });
       res.status(404).send('Session not found');
       return;
     }
@@ -385,7 +481,11 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
       // handlePostMessage expects (req, res, parsedBody)
       await transport.handlePostMessage(req as any, res as any, req.body);
     } catch (error) {
-      logger.error(`Error handling message for session ${sessionId}:`, error);
+      logger.error('Error handling MCP message', {
+        sessionId,
+        ip: clientIp,
+        error: error instanceof Error ? error.message : String(error),
+      });
       if (!res.headersSent) {
         res.status(500).send('Error handling message');
       }

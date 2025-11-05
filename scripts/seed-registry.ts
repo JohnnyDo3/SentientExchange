@@ -14,7 +14,10 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DB_PATH = path.join(__dirname, '..', 'data', 'agentmarket.db');
+// Auto-detect database: DATABASE_URL (Postgres) or DATABASE_PATH (SQLite)
+const DB_PATH = process.env.DATABASE_URL ||
+                process.env.DATABASE_PATH ||
+                path.join(__dirname, '..', 'data', 'agentmarket.db');
 
 interface ServiceData {
   id: string;
@@ -293,6 +296,13 @@ const SERVICES: ServiceData[] = [
 
 async function seedRegistry() {
   console.log('🌱 Seeding AgentMarket Registry...\n');
+
+  // Detect database type
+  if (DB_PATH.startsWith('postgres://') || DB_PATH.startsWith('postgresql://')) {
+    console.log('🐘 Using PostgreSQL database (production)');
+  } else {
+    console.log(`💾 Using SQLite database: ${DB_PATH}`);
+  }
 
   const db = new Database(DB_PATH);
   await db.initialize();
