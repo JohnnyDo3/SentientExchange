@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Service } from '@/lib/types';
-import { Text, Html } from '@react-three/drei';
+import { Text, Html as DreiHtml } from '@react-three/drei';
 
 interface ServiceNodeProps {
   service: Service;
@@ -104,7 +104,7 @@ export default function ServiceNodeModern({
       </mesh>
 
       {/* Service icon/emoji floating in center */}
-      <Html
+      <DreiHtml
         position={[0, 0, 0]}
         center
         distanceFactor={8}
@@ -116,7 +116,7 @@ export default function ServiceNodeModern({
         }}
       >
         {service.image || '🔮'}
-      </Html>
+      </DreiHtml>
 
       {/* Soft ambient ring */}
       {hovered && (
@@ -133,7 +133,7 @@ export default function ServiceNodeModern({
 
       {/* Service name label (on hover) */}
       {hovered && (
-        <Html
+        <DreiHtml
           position={[0, size + 1, 0]}
           center
           distanceFactor={10}
@@ -156,11 +156,11 @@ export default function ServiceNodeModern({
             {service.image && <span>{service.image}</span>}
             <span>{service.name}</span>
           </div>
-        </Html>
+        </DreiHtml>
       )}
 
       {/* Rating badge */}
-      <Html
+      <DreiHtml
         position={[size + 0.3, size + 0.3, 0]}
         center
         distanceFactor={15}
@@ -179,7 +179,7 @@ export default function ServiceNodeModern({
         }}
       >
         ⭐ {service.reputation.rating.toFixed(1)}
-      </Html>
+      </DreiHtml>
     </group>
   );
 }
