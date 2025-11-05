@@ -2,6 +2,9 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['three'],
+  // Disable static optimization to prevent SSR context errors
+  // This app requires client-side rendering for Solana wallets and Three.js
+  output: 'standalone',
   eslint: {
     // Allow production builds to complete even with ESLint errors
     ignoreDuringBuilds: true,

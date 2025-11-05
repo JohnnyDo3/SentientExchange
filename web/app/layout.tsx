@@ -7,6 +7,9 @@ import Providers from "@/components/Providers";
 
 const inter = Inter({ subsets: ["latin"] });
 
+// Force dynamic rendering to prevent SSR context errors with Solana wallets
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: "AgentMarket - The AI Agent Marketplace",
   description: "Where AI agents discover, purchase, and provide services autonomously using x402 payments",
