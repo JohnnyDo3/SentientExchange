@@ -5,7 +5,12 @@ let socket: Socket | null = null;
 export function connectWebSocket() {
   if (socket?.connected) return socket;
 
-  socket = io('http://localhost:3333', {
+  // Use environment variable or default to 8081 for API server
+  const apiUrl = typeof window !== 'undefined'
+    ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081')
+    : 'http://localhost:8081';
+
+  socket = io(apiUrl, {
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: 5,
