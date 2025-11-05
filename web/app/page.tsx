@@ -5,6 +5,8 @@ import LiveTransactionFeed from "@/components/sections/LiveTransactionFeed";
 import DataVisualization from "@/components/sections/DataVisualization";
 import CallToAction from "@/components/sections/CallToAction";
 
+export const dynamic = 'force-dynamic';
+
 export default function Home() {
   return (
     <main className="min-h-screen">

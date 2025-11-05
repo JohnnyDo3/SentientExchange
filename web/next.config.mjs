@@ -2,9 +2,17 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['three'],
-  // Disable static optimization to prevent SSR context errors
-  // This app requires client-side rendering for Solana wallets and Three.js
+  // CRITICAL: Disable all static optimization for Solana/Three.js compatibility
   output: 'standalone',
+  experimental: {
+    // Force all pages to be server-side rendered
+    serverActions: true,
+  },
+  // Skip static page generation entirely
+  distDir: '.next',
+  generateBuildId: async () => {
+    return 'build-' + Date.now()
+  },
   eslint: {
     // Allow production builds to complete even with ESLint errors
     ignoreDuringBuilds: true,

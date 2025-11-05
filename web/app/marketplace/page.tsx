@@ -11,6 +11,8 @@ import MarketplaceStats from '@/components/marketplace/MarketplaceStats';
 import ParticleScene from '@/components/3d/ParticleScene';
 import { soundManager } from '@/lib/sound';
 
+export const dynamic = 'force-dynamic';
+
 export default function MarketplacePage() {
   const {
     services,
