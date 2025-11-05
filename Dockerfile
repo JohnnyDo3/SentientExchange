@@ -7,16 +7,19 @@ WORKDIR /app
 COPY package*.json ./
 COPY web/package*.json ./web/
 
-# Install dependencies WITHOUT cache
-RUN npm ci --no-cache
-RUN cd web && npm ci --no-cache
+# Install ALL dependencies including devDependencies (needed for build)
+RUN npm ci --include=dev
+RUN cd web && npm ci --include=dev
 
 # Copy source
 COPY . .
 
-# Build WITHOUT cache mounts
-ENV NODE_ENV=production
+# Build the application
 RUN npm run build
+
+# Remove devDependencies after build to reduce image size
+RUN npm prune --production
+RUN cd web && npm prune --production
 
 # Start
 CMD ["node", "start-railway.js"]
