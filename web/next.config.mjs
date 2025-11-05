@@ -2,8 +2,8 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['three'],
-  // Use standalone output for optimal Railway deployment
-  output: 'standalone',
+  // Removed standalone output - causes issues with Three.js dependencies not being bundled
+  // output: 'standalone',
   // Custom build ID for cache busting
   generateBuildId: async () => {
     return 'build-' + Date.now()
