@@ -19,6 +19,13 @@ export class ServiceRegistry {
   }
 
   /**
+   * Get the database instance (for WebSocket server to query transactions)
+   */
+  public getDatabase(): Database {
+    return this.db;
+  }
+
+  /**
    * Initialize the registry by loading all active services from database into cache
    */
   async initialize(): Promise<void> {

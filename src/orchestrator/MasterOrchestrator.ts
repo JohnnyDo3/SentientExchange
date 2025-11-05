@@ -479,4 +479,11 @@ export class MasterOrchestrator {
       elapsedTime: Date.now() - this.startTime,
     };
   }
+
+  /**
+   * Get the service registry instance (for WebSocket server to query services/transactions)
+   */
+  getRegistry(): ServiceRegistry {
+    return this.registry;
+  }
 }
