@@ -2,20 +2,21 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import dynamic from 'next/dynamic';
 import AnimatedCounter from '@/components/ui/AnimatedCounter';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { soundManager } from '@/lib/sound';
 import { ArrowDown } from 'lucide-react';
-
-// Dynamically import ParticleScene to avoid SSR issues
-const ParticleScene = dynamic(() => import('@/components/3d/ParticleScene'), {
-  ssr: false,
-});
+import ParticleScene from '@/components/3d/ParticleScene';
 
 export default function HeroSection() {
   const { stats } = useWebSocket();
   const [soundInitialized, setSoundInitialized] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Ensure component only renders particles on client
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Initialize sound on first user interaction
   useEffect(() => {
@@ -43,8 +44,8 @@ export default function HeroSection() {
 
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-      {/* Particle Background */}
-      <ParticleScene />
+      {/* Particle Background - Only render on client */}
+      {mounted && <ParticleScene />}
 
       {/* Gradient Overlay */}
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/50 to-black pointer-events-none" />

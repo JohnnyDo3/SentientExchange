@@ -5,12 +5,20 @@ let socket: Socket | null = null;
 export function connectWebSocket() {
   if (socket?.connected) return socket;
 
-  // Use environment variable or default to 8081 for API server
-  const apiUrl = typeof window !== 'undefined'
-    ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081')
-    : 'http://localhost:8081';
+  // Determine API URL based on environment
+  let apiUrl = 'http://localhost:8081'; // Default for development
+
+  if (typeof window !== 'undefined') {
+    // In production, use same origin for API (Railway serves both web and API)
+    if (window.location.hostname !== 'localhost') {
+      apiUrl = window.location.origin; // Use production URL
+    } else if (process.env.NEXT_PUBLIC_API_URL) {
+      apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    }
+  }
 
   socket = io(apiUrl, {
+    path: '/socket.io',
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: 5,
