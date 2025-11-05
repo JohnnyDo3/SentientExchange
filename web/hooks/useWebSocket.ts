@@ -21,10 +21,10 @@ export interface Transaction {
 
 export function useWebSocket() {
   const [stats, setStats] = useState<MarketStats>({
-    agentsActive: 47,
-    servicesListed: 23,
-    transactionsToday: 1247,
-    volumeToday: 24.94,
+    agentsActive: 0,
+    servicesListed: 0,
+    transactionsToday: 0,
+    volumeToday: 0,
   });
 
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);

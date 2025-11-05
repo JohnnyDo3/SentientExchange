@@ -21,8 +21,14 @@ export class OrchestrationWebSocket {
   constructor(server: HTTPServer) {
     this.io = new SocketIOServer(server, {
       cors: {
-        origin: 'http://localhost:3000', // Next.js dev server
+        origin: [
+          'http://localhost:3000',
+          'http://localhost:3001',
+          'https://www.sentientexchange.com',
+          'https://sentientexchange.com',
+        ],
         methods: ['GET', 'POST'],
+        credentials: true,
       },
     });
 

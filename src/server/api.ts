@@ -18,8 +18,26 @@ import path from 'path';
 const app = express();
 const server = createServer(app);
 
-// Middleware
-app.use(cors({ origin: 'http://localhost:3000' }));
+// Middleware - allow both localhost and production domain
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://www.sentientexchange.com',
+  'https://sentientexchange.com',
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, Postman, or server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+}));
 app.use(express.json());
 
 // Initialize dependencies
