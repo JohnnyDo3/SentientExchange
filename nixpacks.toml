@@ -1,3 +1,7 @@
 [phases.setup]
 # Use Node 22 to satisfy react-native dependency requirements (>=20.19.4)
 nixPkgs = ['nodejs_22']
+
+[variables]
+# Force clean build - bust all caches
+NIXPACKS_NO_CACHE = '1'
