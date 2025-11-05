@@ -51,7 +51,8 @@
       "Bash(netstat:*)",
       "Bash(awk:*)",
       "Bash(xargs:*)",
-      "Bash(node fix-purchase-tests.js:*)"
+      "Bash(node fix-purchase-tests.js:*)",
+      "Bash(railway logs:*)"
     ],
     "deny": [],
     "ask": []

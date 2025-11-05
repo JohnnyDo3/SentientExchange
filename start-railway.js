@@ -9,19 +9,24 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
-console.log('🚀 Starting AgentMarket for Railway...\n');
+const RAILWAY_PORT = process.env.PORT || '3000';
+const API_PORT = '8080';
 
-// Start API Server (backend on port 8080)
+console.log('🚀 Starting AgentMarket on Railway...');
+console.log(`📡 Web app will bind to Railway PORT: ${RAILWAY_PORT}`);
+console.log(`🔧 API server running internally on: ${API_PORT}\n`);
+
+// Start API Server on internal port
 const apiServer = spawn('node', ['dist/server/index.js'], {
   stdio: 'inherit',
-  env: { ...process.env, PORT: '8080' }
+  env: { ...process.env, PORT: API_PORT }
 });
 
-// Start Next.js Web App (frontend - Railway will assign PORT)
+// Start Next.js Web App on Railway PORT
 const webApp = spawn('npm', ['run', 'start'], {
   cwd: path.join(__dirname, 'web'),
   stdio: 'inherit',
-  env: process.env,
+  env: { ...process.env, PORT: RAILWAY_PORT, API_URL: `http://localhost:${API_PORT}` },
   shell: true
 });
 

@@ -1,12 +1,10 @@
 import { useMemo } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
-import {
-  PhantomWalletAdapter,
-  SolflareWalletAdapter,
-  TorusWalletAdapter,
-  LedgerWalletAdapter,
-} from '@solana/wallet-adapter-wallets';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
+import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
+import { TorusWalletAdapter } from '@solana/wallet-adapter-torus';
+import { LedgerWalletAdapter } from '@solana/wallet-adapter-ledger';
 import { clusterApiUrl } from '@solana/web3.js';
 
 export const SOLANA_NETWORK = WalletAdapterNetwork.Devnet;
