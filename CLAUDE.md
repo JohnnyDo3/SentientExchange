@@ -22,6 +22,7 @@ AgentMarket is an AI-native service marketplace that enables autonomous AI agent
 ## Development Commands
 
 ### Setup
+
 ```bash
 npm install
 # Or use the setup script
@@ -29,18 +30,21 @@ npm install
 ```
 
 ### Build
+
 ```bash
 npm run build        # Compile TypeScript to dist/
 npm run clean        # Remove dist/ directory
 ```
 
 ### Development
+
 ```bash
 npm run dev          # Run with nodemon and ts-node (hot reload)
 npm start            # Run compiled version from dist/
 ```
 
 ### Testing
+
 ```bash
 npm test             # Run Jest test suite
 npm run test:watch   # Run tests in watch mode
@@ -49,6 +53,7 @@ npm run test:watch   # Run tests in watch mode
 ```
 
 ### Linting
+
 ```bash
 npm run lint         # Run ESLint on src/**/*.ts
 ```
@@ -65,10 +70,9 @@ User-invoked commands for common workflows:
 2. **`/test-comprehensive`** - Run all test suites with detailed reporting (unit, integration, e2e, x402 scenarios)
 3. **`/docker-build-all`** - Build all Docker containers with security scanning and SBOM generation
 4. **`/x402-flow-test`** - Test complete x402 payment workflow (happy path + 15 error scenarios)
-5. **`/deploy-gcp`** - Deploy to Google Cloud Platform with full production setup
-6. **`/security-audit`** - Comprehensive security audit (secrets, vulnerabilities, Docker, dependencies)
-7. **`/generate-docs`** - Auto-generate all project documentation (API, architecture, deployment)
-8. **`/demo-prepare`** - Prepare environment for hackathon demo recording
+5. **`/security-audit`** - Comprehensive security audit (secrets, vulnerabilities, Docker, dependencies)
+6. **`/generate-docs`** - Auto-generate all project documentation (API, architecture, deployment)
+7. **`/demo-prepare`** - Prepare environment for hackathon demo recording
 
 ### Skills (`~/.claude/skills/`)
 
@@ -91,32 +95,43 @@ Specialized agents for complex multi-step workflows:
 
 1. **`x402-payment-specialist`** - Expert in x402 payment implementation, debugging, and testing
 2. **`test-coverage-enforcer`** - Ensures 80%+ test coverage with comprehensive test generation
-3. **`gcp-deployment-specialist`** - Handles complete GCP production deployment
-4. **`ci-cd-pipeline-builder`** - Creates and maintains GitHub Actions workflows
-5. **`database-architect`** - Designs schema, migrations, and optimizes database performance
+3. **`ci-cd-pipeline-builder`** - Creates and maintains GitHub Actions workflows
+4. **`database-architect`** - Designs schema, migrations, and optimizes database performance
 
 ### GitHub Actions Workflows (`.github/workflows/`)
 
-Automated CI/CD pipelines:
+Enterprise-grade CI/CD pipelines with Railway deployment:
 
-1. **`ci.yml`** - Continuous Integration (runs on every push/PR)
-   - Lint, type-check, test with coverage
+1. **`ci.yml`** - Continuous Integration (runs on every push/PR to master/develop)
+   - ESLint with strict TypeScript rules (zero warnings tolerated)
+   - TypeScript compilation check
+   - Jest tests with 80% coverage requirement
    - Security scanning (npm audit, Snyk)
-   - Build verification
+   - Build verification with artifact upload
    - Upload coverage to Codecov
+   - **All checks must pass before merge**
 
-2. **`deploy-production.yml`** - Production Deployment (runs on merge to main)
-   - Build and push Docker images to GCR
-   - Trivy security scanning
-   - Deploy to Cloud Run
-   - Run smoke tests
+2. **`deploy-staging.yml`** - Staging Deployment (automatic on develop branch)
+   - Triggers after CI passes on develop branch
+   - Deploys to Railway staging environment
+   - Runs post-deployment smoke tests
+   - Validates health endpoints
+   - Automated - no approval required
 
-3. **`security-scan.yml`** - Daily Security Scans
+3. **`deploy-production.yml`** - Production Deployment (manual approval required)
+   - Triggers on merge to master branch
+   - **Requires manual approval** via GitHub Environments
+   - Deploys to Railway production environment
+   - Comprehensive smoke tests
+   - Creates GitHub deployment record
+   - Detailed rollback instructions on failure
+   - Production URL tracked in deployment
+
+4. **`security-scan.yml`** - Daily Security Scans
    - Dependency scanning (npm audit, Snyk)
    - Secret scanning (Gitleaks, TruffleHog)
    - Code scanning (CodeQL)
-   - Docker image scanning (Trivy)
-   - Auto-create issues for findings
+   - Auto-creates GitHub issues for security findings
 
 ### Docker Configuration (`docker/`)
 
@@ -141,13 +156,14 @@ Bash scripts for common tasks:
 
 1. **`setup.sh`** - Initial project setup and dependency installation
 2. **`test-all.sh`** - Run comprehensive test suite with coverage
-3. **`deploy-gcp.sh`** - Deploy to GCP with security scanning
-4. **`seed-database.sh`** - Seed database with example services
-5. **`security-audit.sh`** - Run complete security audit
+3. **`seed-database.sh`** - Seed database with example services
+4. **`security-audit.sh`** - Run complete security audit
+5. **`smoke-test.sh`** - Post-deployment health checks and validation
 
 ### How to Use the Automation
 
 **During Development:**
+
 ```bash
 # Start with setup
 /build-production
@@ -169,6 +185,7 @@ Bash scripts for common tasks:
 ```
 
 **Before Submission:**
+
 ```bash
 # Security audit
 /security-audit
@@ -178,17 +195,14 @@ Bash scripts for common tasks:
 
 # Prepare demo
 /demo-prepare
-
-# Deploy to production
-/deploy-gcp
 ```
 
 **With Agents:**
+
 ```bash
 # Invoke agents explicitly for complex tasks
 "@x402-payment-specialist implement payment middleware"
 "@test-coverage-enforcer write comprehensive tests"
-"@gcp-deployment-specialist deploy to production"
 "@ci-cd-pipeline-builder set up GitHub Actions"
 "@database-architect design the schema"
 ```
@@ -273,11 +287,209 @@ ENABLE_ANALYTICS=false
 
 **IMPORTANT**: Never commit `.env` files or expose CDP private keys.
 
+## CI/CD Workflow
+
+AgentMarket uses an enterprise-grade CI/CD pipeline powered by GitHub Actions and Railway.
+
+### Development Workflow
+
+```
+┌──────────────┐
+│  Developer   │
+│  Local Work  │
+└──────┬───────┘
+       │ git push
+       ▼
+┌──────────────┐
+│ GitHub: Push │
+│  to develop  │
+└──────┬───────┘
+       │
+       ▼
+┌──────────────────────────┐
+│  CI Workflow (ci.yml)    │
+│  ✓ ESLint (0 warnings)   │
+│  ✓ TypeScript compile    │
+│  ✓ Tests (80% coverage)  │
+│  ✓ Security scan         │
+│  ✓ Build artifacts       │
+└──────┬───────────────────┘
+       │ All checks pass
+       ▼
+┌──────────────────────────┐
+│ Deploy Staging           │
+│ (deploy-staging.yml)     │
+│  → Railway Staging       │
+│  → Smoke Tests           │
+└──────────────────────────┘
+```
+
+### Production Deployment Workflow
+
+```
+┌──────────────┐
+│ Pull Request │
+│  develop →   │
+│   master     │
+└──────┬───────┘
+       │ Merge
+       ▼
+┌──────────────────────────┐
+│  CI Workflow (ci.yml)    │
+│  ✓ All checks must pass  │
+└──────┬───────────────────┘
+       │ Success
+       ▼
+┌──────────────────────────┐
+│ Production Deployment    │
+│ (deploy-production.yml)  │
+│                          │
+│ ⚠️  MANUAL APPROVAL      │
+│    REQUIRED              │
+└──────┬───────────────────┘
+       │ Approved
+       ▼
+┌──────────────────────────┐
+│  Deploy to Railway       │
+│  → Production Env        │
+│  → Smoke Tests           │
+│  → Health Checks         │
+│  → Deployment Record     │
+└──────────────────────────┘
+```
+
+### Quality Gates
+
+Before any code reaches production, it must pass:
+
+1. **Pre-commit Hooks** (via Husky)
+   - Runs ESLint --fix on staged files
+   - Runs Prettier formatting
+   - Performs TypeScript compilation check
+   - Fails commit if any checks fail
+
+2. **Continuous Integration** (on every push/PR)
+   - ESLint with `--max-warnings=0` (zero tolerance)
+   - Full TypeScript compilation
+   - Jest tests with 80% coverage requirement
+   - npm audit + Snyk security scanning
+   - All jobs must succeed (no continue-on-error)
+
+3. **Branch Protection** (configured in GitHub)
+   - Require PR approval (1+ reviewers)
+   - Require status checks to pass
+   - Require branches to be up to date
+   - No force pushes to master/develop
+
+4. **Deployment Gates**
+   - Staging: Automatic after CI passes
+   - Production: Manual approval required
+   - Smoke tests must pass post-deployment
+
+### Deployment Environments
+
+| Environment    | Branch  | Trigger   | Approval   | URL Secret               |
+| -------------- | ------- | --------- | ---------- | ------------------------ |
+| **Staging**    | develop | Automatic | None       | `RAILWAY_STAGING_URL`    |
+| **Production** | master  | Automatic | **Manual** | `RAILWAY_PRODUCTION_URL` |
+
+### Required GitHub Secrets
+
+Configure these in GitHub Settings → Secrets and variables → Actions:
+
+1. **Railway Tokens**:
+   - `RAILWAY_TOKEN_STAGING` - Railway API token for staging
+   - `RAILWAY_TOKEN_PRODUCTION` - Railway API token for production
+
+2. **Railway URLs** (for smoke tests):
+   - `RAILWAY_STAGING_URL` - Full URL (e.g., `https://app-staging.up.railway.app`)
+   - `RAILWAY_PRODUCTION_URL` - Full URL (e.g., `https://app.up.railway.app`)
+
+3. **Code Quality & Security**:
+   - `CODECOV_TOKEN` - For coverage reporting (value: `53bde5cf-9bd1-4097-a2c8-daf0cc916f9f`)
+   - `SNYK_TOKEN` - For vulnerability scanning (free tier at snyk.io)
+
+### Setting Up Manual Approval for Production
+
+1. Go to **Settings** → **Environments**
+2. Create environment: `production`
+3. Configure:
+   - **Required reviewers**: Add yourself or team members (1+ required)
+   - **Wait timer**: Optional (e.g., 30 minutes before deployment can proceed)
+   - **Deployment branches**: Select "Selected branches" → Add `master`
+4. Save
+
+Now every production deployment will pause and wait for manual approval.
+
+### Rollback Procedures
+
+If a deployment fails or causes issues:
+
+**Via Railway Dashboard:**
+
+1. Navigate to your project
+2. Click on the service
+3. Go to "Deployments" tab
+4. Find the last working deployment
+5. Click "Redeploy"
+
+**Via Railway CLI:**
+
+```bash
+railway rollback
+```
+
+**Via GitHub:**
+
+1. Revert the problematic commit
+2. Push to master
+3. Approve the new deployment
+
+### Monitoring & Alerts
+
+- **CI Status**: Visible in PR checks and GitHub Actions tab
+- **Deployment Status**: GitHub Deployments page
+- **Security Issues**: Auto-created as GitHub Issues by security-scan.yml
+- **Coverage Trends**: Codecov dashboard
+
+### Best Practices
+
+1. **Always work on feature branches**
+
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+2. **Test locally before pushing**
+
+   ```bash
+   npm run lint
+   npm test
+   npm run build
+   ```
+
+3. **Keep commits small and focused**
+   - Pre-commit hooks will catch issues early
+   - Easier to review and rollback if needed
+
+4. **Write tests for new features**
+   - 80% coverage is enforced
+   - Tests block merges if they fail
+
+5. **Review Dependabot PRs weekly**
+   - Auto-created for dependency updates
+   - Security patches are prioritized
+
+6. **Monitor security scans**
+   - Run daily at 2 AM UTC
+   - Issues auto-created for critical findings
+
 ## Key Implementation Details
 
 ### Type Safety
 
 All data models are strictly typed in `src/types/`:
+
 - **Service**: Service metadata, pricing, reputation, capabilities
 - **Transaction**: Payment records with request/response data
 - **Rating**: User reviews with scores (1-5)
@@ -289,6 +501,7 @@ The ServiceRegistry maintains an in-memory Map cache of all services for fast lo
 ### Database Schema
 
 Three main tables with foreign key relationships:
+
 - `services`: Service listings with JSON-serialized complex fields
 - `transactions`: Payment history linked to services
 - `ratings`: User reviews linked to transactions and services
@@ -304,17 +517,23 @@ Indexes on: `capabilities`, `service_id`, and rating queries for performance.
 ## Testing Strategy
 
 ### Unit Tests
+
 Located in `tests/unit/`:
+
 - `registry.test.ts`: ServiceRegistry CRUD operations
 - `payment.test.ts`: X402Client payment flows
 - `tools.test.ts`: MCP tool logic
 
 ### Integration Tests
+
 Located in `tests/integration/`:
+
 - `e2e.test.ts`: End-to-end workflows (limited due to stdio transport)
 
 ### Manual Testing
+
 MCP protocol testing requires manual testing with Claude Desktop:
+
 1. Build the project
 2. Configure Claude Desktop's MCP settings (see `~/.config/claude/config.json`)
 3. Test each tool through natural language interactions
@@ -398,9 +617,11 @@ agentmarket-mcp/
 ## Important Notes
 
 ### Current Project Status
+
 This is a very early-stage project (Day 1 of development). Most of the planned architecture exists only in `AgentMarket_Complete_Project_Plan.md`. The actual implementation needs to be built following the detailed plan.
 
 ### Development Priorities
+
 1. Set up TypeScript configuration and project structure
 2. Implement Database and ServiceRegistry classes
 3. Implement WalletManager and X402Client for payments
@@ -410,9 +631,11 @@ This is a very early-stage project (Day 1 of development). Most of the planned a
 7. Write comprehensive tests
 
 ### x402 Protocol
+
 The x402 protocol extends HTTP with a 402 Payment Required status code. Services return 402 with payment details, clients execute blockchain payments, then retry with payment proof. This enables automatic micropayments between AI agents.
 
 ### MCP Protocol
+
 Model Context Protocol enables AI assistants to access tools and resources. This server exposes tools via stdio transport, allowing Claude Desktop to discover services and make payments on behalf of users.
 
 ## References

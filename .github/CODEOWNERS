@@ -1,0 +1,51 @@
+# CODEOWNERS file defines individuals or teams responsible for code in this repository.
+# When a Pull Request modifies code that has an owner, that owner will automatically be
+# requested for review.
+
+# Default owner for everything in the repo (unless a more specific rule applies)
+* @johnn
+
+# CI/CD and GitHub Actions
+/.github/workflows/ @johnn
+/.github/dependabot.yml @johnn
+/.github/CODEOWNERS @johnn
+
+# Core configuration files (require careful review)
+/package.json @johnn
+/package-lock.json @johnn
+/tsconfig.json @johnn
+/jest.config.js @johnn
+/.eslintrc.js @johnn
+/.prettierrc.json @johnn
+
+# Infrastructure and deployment
+/Dockerfile @johnn
+/docker-compose.yml @johnn
+/railway.json @johnn
+/start-railway.js @johnn
+/start-all.js @johnn
+
+# Environment and secrets
+/.env.example @johnn
+/.env.*.example @johnn
+
+# Database schema and migrations
+/src/registry/database.ts @johnn
+/scripts/seed-database.ts @johnn
+
+# Payment and x402 implementation (critical security)
+/src/payment/ @johnn
+/src/tools/purchase.ts @johnn
+
+# MCP server core
+/src/index.ts @johnn
+/src/server.ts @johnn
+/src/mcp/ @johnn
+
+# Documentation
+/CLAUDE.md @johnn
+/README.md @johnn
+/.github/WORKFLOWS.md @johnn
+
+# Web frontend
+/web/ @johnn

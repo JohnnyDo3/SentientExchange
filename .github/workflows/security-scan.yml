@@ -85,40 +85,6 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
 
-  docker-scan:
-    name: Docker Image Scan
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: github.event_name == 'schedule'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Pull latest image
-        run: |
-          gcloud auth configure-docker
-          docker pull gcr.io/${{ secrets.GCP_PROJECT_ID }}/agentmarket-mcp:latest
-
-      - name: Scan with Trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: gcr.io/${{ secrets.GCP_PROJECT_ID }}/agentmarket-mcp:latest
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-
-      - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-results.sarif'
-
   create-issue:
     name: Create Security Issue
     runs-on: ubuntu-latest

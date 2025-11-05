@@ -2,13 +2,13 @@ name: Deploy to Staging (Railway)
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ['CI']
     types:
       - completed
-    branches: [ develop ]
+    branches: [develop]
   workflow_dispatch:
   push:
-    branches: [ develop ]
+    branches: [develop]
     paths:
       - '.github/workflows/deploy-staging.yml'
 
@@ -18,26 +18,45 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: staging
-    container: ghcr.io/railwayapp/cli:latest
     # Only deploy if CI succeeded
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.app/install.sh | sh
+          echo "$HOME/.railway/bin" >> $GITHUB_PATH
+
       - name: Deploy to Railway Staging
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
         run: |
+          # Deploy to Railway (Railway builds on their platform)
+          # Note: CI already validated the build works, Railway builds again for deployment
           railway up --service=agentMarket-mcp || true
           echo "Deployment triggered (log streaming may fail but deployment continues)"
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting 30 seconds for Railway deployment to stabilize..."
+          sleep 30
+
+      - name: Run smoke tests
+        if: ${{ secrets.RAILWAY_STAGING_URL != '' }}
+        run: |
+          chmod +x scripts/smoke-test.sh
+          bash scripts/smoke-test.sh "${{ secrets.RAILWAY_STAGING_URL }}"
+        continue-on-error: true
 
       - name: Notify on success
         if: success()
         run: |
           echo "✅ Staging deployment succeeded"
           echo "Environment: develop branch → Railway staging"
-          echo "Check Railway dashboard for deployment URL"
+          echo "URL: ${{ secrets.RAILWAY_STAGING_URL }}"
+          echo "Check Railway dashboard for deployment details"
 
       - name: Notify on failure
         if: failure()

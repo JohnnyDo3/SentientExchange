@@ -1,0 +1,49 @@
+# Dependencies
+node_modules
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist
+build
+out
+.next
+
+# Coverage
+coverage
+*.lcov
+
+# Database
+data
+*.db
+*.sqlite
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.*
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Examples
+examples/*/node_modules
+examples/*/dist
+
+# Generated files
+*.min.js
+*.min.css
