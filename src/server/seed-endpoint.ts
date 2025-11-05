@@ -5,32 +5,32 @@ import { ServiceRegistry } from '../registry/ServiceRegistry.js';
 import type { Service } from '../types/index.js';
 
 export async function seedDatabase(registry: ServiceRegistry): Promise<Service[]> {
-  const exampleServices: Omit<Service, 'serviceId' | 'createdAt' | 'updatedAt'>[] = [
+  const exampleServices: Omit<Service, 'id' | 'createdAt' | 'updatedAt'>[] = [
     {
       name: 'Sentiment Analyzer',
       description: 'Advanced AI-powered sentiment analysis for text, social media, and customer feedback',
       endpoint: 'https://sentiment-analyzer.example.com/analyze',
       capabilities: ['sentiment-analysis', 'emotion-detection', 'text-processing'],
+      provider: 'did:key:sentiment-ai',
       pricing: {
-        model: 'per-request',
-        amount: '0.05',
-        currency: 'USDC'
-      },
-      provider: {
-        name: 'SentimentAI',
-        did: 'did:key:sentiment-ai'
+        perRequest: '0.05',
+        currency: 'USDC',
+        network: 'base-sepolia',
+        billingModel: 'per-request'
       },
       reputation: {
-        rating: 4.8,
-        totalTransactions: 1250,
+        totalJobs: 1250,
         successRate: 98.5,
-        reviews: []
+        avgResponseTime: '2.1s',
+        rating: 4.8,
+        reviews: 85
       },
       metadata: {
-        version: '2.1.0',
-        documentation: 'https://docs.sentimentai.com',
-        supportedLanguages: ['en', 'es', 'fr', 'de', 'ja', 'zh'],
-        tags: ['nlp', 'ai', 'sentiment', 'text-analysis']
+        apiVersion: 'v2.1.0',
+        rateLimit: '100/min',
+        maxPayload: '10MB',
+        image: '😊',
+        color: '#10b981'
       }
     },
     {
@@ -38,26 +38,26 @@ export async function seedDatabase(registry: ServiceRegistry): Promise<Service[]
       description: 'Computer vision service for object detection, image classification, and visual content analysis',
       endpoint: 'https://image-analyzer.example.com/analyze',
       capabilities: ['image-classification', 'object-detection', 'visual-analysis'],
+      provider: 'did:key:vision-labs',
       pricing: {
-        model: 'per-request',
-        amount: '0.10',
-        currency: 'USDC'
-      },
-      provider: {
-        name: 'VisionLabs',
-        did: 'did:key:vision-labs'
+        perRequest: '0.10',
+        currency: 'USDC',
+        network: 'base-sepolia',
+        billingModel: 'per-request'
       },
       reputation: {
-        rating: 4.7,
-        totalTransactions: 890,
+        totalJobs: 890,
         successRate: 97.2,
-        reviews: []
+        avgResponseTime: '3.5s',
+        rating: 4.7,
+        reviews: 62
       },
       metadata: {
-        version: '3.0.1',
-        documentation: 'https://docs.visionlabs.ai',
-        supportedFormats: ['jpg', 'png', 'webp', 'gif'],
-        tags: ['computer-vision', 'ai', 'image-processing']
+        apiVersion: 'v3.0.1',
+        rateLimit: '50/min',
+        maxPayload: '25MB',
+        image: '👁️',
+        color: '#3b82f6'
       }
     },
     {
@@ -65,26 +65,26 @@ export async function seedDatabase(registry: ServiceRegistry): Promise<Service[]
       description: 'AI text summarization service for documents, articles, and long-form content',
       endpoint: 'https://text-summarizer.example.com/summarize',
       capabilities: ['text-summarization', 'document-processing', 'content-extraction'],
+      provider: 'did:key:summary-bot',
       pricing: {
-        model: 'per-request',
-        amount: '0.08',
-        currency: 'USDC'
-      },
-      provider: {
-        name: 'SummaryBot',
-        did: 'did:key:summary-bot'
+        perRequest: '0.08',
+        currency: 'USDC',
+        network: 'base-sepolia',
+        billingModel: 'per-request'
       },
       reputation: {
-        rating: 4.6,
-        totalTransactions: 670,
+        totalJobs: 670,
         successRate: 96.8,
-        reviews: []
+        avgResponseTime: '4.2s',
+        rating: 4.6,
+        reviews: 48
       },
       metadata: {
-        version: '1.5.2',
-        documentation: 'https://docs.summarybot.io',
-        maxLength: 50000,
-        tags: ['nlp', 'summarization', 'text-processing']
+        apiVersion: 'v1.5.2',
+        rateLimit: '75/min',
+        maxPayload: '5MB',
+        image: '📝',
+        color: '#f59e0b'
       }
     },
     {
@@ -92,26 +92,26 @@ export async function seedDatabase(registry: ServiceRegistry): Promise<Service[]
       description: 'High-performance data transformation and ETL service for structured and unstructured data',
       endpoint: 'https://data-processor.example.com/process',
       capabilities: ['data-transformation', 'etl', 'data-cleaning'],
+      provider: 'did:key:dataflow',
       pricing: {
-        model: 'per-request',
-        amount: '0.15',
-        currency: 'USDC'
-      },
-      provider: {
-        name: 'DataFlow Inc',
-        did: 'did:key:dataflow'
+        perRequest: '0.15',
+        currency: 'USDC',
+        network: 'base-sepolia',
+        billingModel: 'per-request'
       },
       reputation: {
-        rating: 4.9,
-        totalTransactions: 2100,
+        totalJobs: 2100,
         successRate: 99.1,
-        reviews: []
+        avgResponseTime: '1.8s',
+        rating: 4.9,
+        reviews: 142
       },
       metadata: {
-        version: '4.2.0',
-        documentation: 'https://docs.dataflow.com',
-        supportedFormats: ['json', 'csv', 'xml', 'parquet'],
-        tags: ['data', 'etl', 'transformation', 'pipeline']
+        apiVersion: 'v4.2.0',
+        rateLimit: '200/min',
+        maxPayload: '50MB',
+        image: '⚙️',
+        color: '#8b5cf6'
       }
     },
     {
@@ -119,26 +119,26 @@ export async function seedDatabase(registry: ServiceRegistry): Promise<Service[]
       description: 'Static code analysis and vulnerability scanning for multiple programming languages',
       endpoint: 'https://code-analyzer.example.com/analyze',
       capabilities: ['code-analysis', 'security-scanning', 'linting'],
+      provider: 'did:key:secure-code',
       pricing: {
-        model: 'per-request',
-        amount: '0.12',
-        currency: 'USDC'
-      },
-      provider: {
-        name: 'SecureCode',
-        did: 'did:key:secure-code'
+        perRequest: '0.12',
+        currency: 'USDC',
+        network: 'base-sepolia',
+        billingModel: 'per-request'
       },
       reputation: {
-        rating: 4.8,
-        totalTransactions: 1540,
+        totalJobs: 1540,
         successRate: 98.7,
-        reviews: []
+        avgResponseTime: '5.3s',
+        rating: 4.8,
+        reviews: 97
       },
       metadata: {
-        version: '2.8.5',
-        documentation: 'https://docs.securecode.dev',
-        supportedLanguages: ['javascript', 'typescript', 'python', 'java', 'go', 'rust'],
-        tags: ['security', 'code-quality', 'static-analysis']
+        apiVersion: 'v2.8.5',
+        rateLimit: '30/min',
+        maxPayload: '15MB',
+        image: '🔍',
+        color: '#ef4444'
       }
     }
   ];

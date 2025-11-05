@@ -113,7 +113,7 @@ app.post('/api/admin/seed', async (req, res) => {
     res.json({
       success: true,
       message: `Successfully seeded ${services.length} services`,
-      services: services.map(s => ({ id: s.serviceId, name: s.name }))
+      services: services.map(s => ({ id: s.id, name: s.name }))
     });
   } catch (error: any) {
     logger.error('Failed to seed database:', error);
