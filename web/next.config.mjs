@@ -2,14 +2,9 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['three'],
-  // CRITICAL: Disable all static optimization for Solana/Three.js compatibility
+  // Use standalone output for optimal Railway deployment
   output: 'standalone',
-  experimental: {
-    // Force all pages to be server-side rendered
-    serverActions: true,
-  },
-  // Skip static page generation entirely
-  distDir: '.next',
+  // Custom build ID for cache busting
   generateBuildId: async () => {
     return 'build-' + Date.now()
   },
