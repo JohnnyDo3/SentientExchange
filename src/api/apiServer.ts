@@ -28,6 +28,9 @@ import {
 import { generateNonce, verifySiweMessage } from '../auth/siwe.js';
 import { generateToken, verifyToken } from '../auth/jwt.js';
 import { requireAuth, optionalAuth, checkOwnership } from '../middleware/auth.js';
+import { SSETransportManager } from '../mcp/SSETransport.js';
+import { SolanaVerifier } from '../payment/SolanaVerifier.js';
+import { SpendingLimitManager } from '../payment/SpendingLimitManager.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -36,8 +39,18 @@ const io = new SocketIOServer(httpServer, {
 });
 
 const PORT = process.env.API_PORT || 3333;
-const db = new Database(process.env.DATABASE_PATH || './data/agentmarket.db');
+
+// Initialize database (auto-detects SQLite vs Postgres from DATABASE_URL)
+const dbPathOrUrl = process.env.DATABASE_URL || process.env.DATABASE_PATH || './data/agentmarket.db';
+const db = new Database(dbPathOrUrl);
 const registry = new ServiceRegistry(db);
+
+// Initialize payment verification (for MCP smart tools)
+const solanaVerifier = new SolanaVerifier();
+const spendingLimitManager = new SpendingLimitManager(db);
+
+// Initialize SSE Transport for remote MCP connections
+const sseTransport = new SSETransportManager(registry, db, solanaVerifier, spendingLimitManager);
 
 // ============================================================================
 // MIDDLEWARE
@@ -99,8 +112,28 @@ app.get('/api/pulse', (req, res) => {
     vibe: 'immaculate',
     uptime: `${uptimeMinutes}m ${Math.floor(uptimeSeconds % 60)}s`,
     timestamp: new Date().toISOString(),
-    message: '🤖 SentientExchange is alive and thriving'
+    message: '🤖 SentientExchange is alive and thriving',
+    mcp: {
+      sseEndpoint: '/mcp/sse',
+      activeSessions: sseTransport.getActiveSessionCount(),
+    }
   });
+});
+
+// ============================================================================
+// MCP SSE ENDPOINTS (Remote Claude Desktop Connections)
+// ============================================================================
+
+// GET /mcp/sse - Establish SSE stream for MCP protocol
+// This allows Claude Desktop (or other MCP clients) to connect remotely
+app.get('/mcp/sse', async (req, res) => {
+  await sseTransport.handleSSEConnection(req, res);
+});
+
+// POST /mcp/message?sessionId=X - Receive client messages
+// Bidirectional communication: client sends JSON-RPC requests to server
+app.post('/mcp/message', express.text({ type: '*/*' }), async (req, res) => {
+  await sseTransport.handleMessage(req, res);
 });
 
 // Legacy health endpoint (backwards compatibility)

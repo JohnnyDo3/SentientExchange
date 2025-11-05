@@ -16,7 +16,17 @@ const API_PORT = process.env.API_PORT || '8081';
 
 console.log('🚀 Starting AgentMarket on Railway...');
 console.log(`📡 Web app will bind to port: ${WEB_PORT} (Railway public port)`);
-console.log(`🔧 API server running internally on port: ${API_PORT}\n`);
+console.log(`🔧 API server running internally on port: ${API_PORT}`);
+
+// Detect database type
+if (process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith('postgres://') || process.env.DATABASE_URL.startsWith('postgresql://'))) {
+  console.log('🐘 Using PostgreSQL database (production)');
+} else if (process.env.DATABASE_PATH) {
+  console.log(`💾 Using SQLite database: ${process.env.DATABASE_PATH}`);
+} else {
+  console.log('💾 Using SQLite database: ./data/agentmarket.db (default)');
+}
+console.log('');
 
 // Start API Server on internal port
 const apiServer = spawn('node', ['dist/server/index.js'], {

@@ -1,195 +1,76 @@
 import { logger } from '../utils/logger.js';
-import sqlite3 from 'sqlite3';
-import { promisify } from 'util';
-import path from 'path';
-import fs from 'fs';
+import { DatabaseAdapter } from './DatabaseAdapter.js';
+import { SQLiteAdapter } from './adapters/SQLiteAdapter.js';
+import { PostgresAdapter } from './adapters/PostgresAdapter.js';
 
 /**
  * Database Layer
  *
- * SQLite database wrapper with promisified API for async/await patterns.
- * Manages three tables: services, transactions, and ratings.
+ * Unified database interface that auto-detects and uses the appropriate adapter.
+ * Supports both SQLite (local development) and PostgreSQL (Railway production).
+ *
+ * Auto-detection logic:
+ * - If DATABASE_URL env var starts with "postgres://", use PostgresAdapter
+ * - Otherwise, use SQLiteAdapter with provided path
  */
 
 export class Database {
-  private db: sqlite3.Database;
-  private runAsync: any;
-  private getAsync: any;
-  private allAsync: any;
+  private adapter: DatabaseAdapter;
 
-  constructor(dbPath: string) {
-    // Ensure data directory exists
-    const dir = path.dirname(dbPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+  constructor(dbPathOrUrl: string) {
+    // Auto-detect database type from connection string
+    if (dbPathOrUrl.startsWith('postgres://') || dbPathOrUrl.startsWith('postgresql://')) {
+      // Use PostgreSQL for Railway production
+      this.adapter = new PostgresAdapter(dbPathOrUrl);
+      logger.info('🐘 Using PostgreSQL database (production)');
+    } else {
+      // Use SQLite for local development
+      this.adapter = new SQLiteAdapter(dbPathOrUrl);
+      logger.info('💾 Using SQLite database (local development)');
     }
-
-    // Initialize SQLite database
-    this.db = new sqlite3.Database(dbPath);
-
-    // Promisify database methods for async/await
-    this.runAsync = promisify(this.db.run.bind(this.db));
-    this.getAsync = promisify(this.db.get.bind(this.db));
-    this.allAsync = promisify(this.db.all.bind(this.db));
   }
 
   /**
    * Initialize database schema with tables and indexes
+   * Delegates to the appropriate adapter (SQLite or Postgres)
    */
   async initialize(): Promise<void> {
-    // Enable foreign key constraints
-    await this.runAsync('PRAGMA foreign_keys = ON');
-
-    // Create services table with enhanced schema
-    await this.runAsync(`
-      CREATE TABLE IF NOT EXISTS services (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        description TEXT,
-        provider TEXT NOT NULL,
-        endpoint TEXT NOT NULL,
-        capabilities TEXT NOT NULL,
-        pricing TEXT NOT NULL,
-        reputation TEXT NOT NULL,
-        metadata TEXT,
-        created_by TEXT,
-        updated_by TEXT,
-        deleted_at TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
-
-    // Create transactions table
-    await this.runAsync(`
-      CREATE TABLE IF NOT EXISTS transactions (
-        id TEXT PRIMARY KEY,
-        serviceId TEXT NOT NULL,
-        buyer TEXT NOT NULL,
-        seller TEXT NOT NULL,
-        amount TEXT NOT NULL,
-        currency TEXT NOT NULL,
-        status TEXT NOT NULL,
-        request TEXT NOT NULL,
-        response TEXT,
-        paymentHash TEXT,
-        error TEXT,
-        timestamp TEXT NOT NULL,
-        FOREIGN KEY (serviceId) REFERENCES services(id)
-      )
-    `);
-
-    // Create ratings table
-    await this.runAsync(`
-      CREATE TABLE IF NOT EXISTS ratings (
-        id TEXT PRIMARY KEY,
-        transactionId TEXT NOT NULL,
-        serviceId TEXT NOT NULL,
-        rater TEXT NOT NULL,
-        score INTEGER NOT NULL,
-        review TEXT,
-        timestamp TEXT NOT NULL,
-        FOREIGN KEY (transactionId) REFERENCES transactions(id),
-        FOREIGN KEY (serviceId) REFERENCES services(id)
-      )
-    `);
-
-    // Create audit_logs table for tracking all changes
-    await this.runAsync(`
-      CREATE TABLE IF NOT EXISTS audit_logs (
-        id TEXT PRIMARY KEY,
-        entity_type TEXT NOT NULL,
-        entity_id TEXT NOT NULL,
-        action TEXT NOT NULL,
-        changes TEXT,
-        performed_by TEXT,
-        ip_address TEXT,
-        user_agent TEXT,
-        timestamp TEXT NOT NULL
-      )
-    `);
-
-    // Create metadata table for schema versioning
-    await this.runAsync(`
-      CREATE TABLE IF NOT EXISTS metadata (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      )
-    `);
-
-    // Create indexes for performance
-    await this.runAsync(`
-      CREATE INDEX IF NOT EXISTS idx_services_capabilities
-      ON services(capabilities)
-    `);
-
-    await this.runAsync(`
-      CREATE INDEX IF NOT EXISTS idx_services_provider
-      ON services(provider)
-    `);
-
-    await this.runAsync(`
-      CREATE INDEX IF NOT EXISTS idx_services_deleted
-      ON services(deleted_at)
-    `);
-
-    await this.runAsync(`
-      CREATE INDEX IF NOT EXISTS idx_transactions_service
-      ON transactions(serviceId)
-    `);
-
-    await this.runAsync(`
-      CREATE INDEX IF NOT EXISTS idx_transactions_buyer
-      ON transactions(buyer)
-    `);
-
-    await this.runAsync(`
-      CREATE INDEX IF NOT EXISTS idx_ratings_service
-      ON ratings(serviceId)
-    `);
-
-    await this.runAsync(`
-      CREATE INDEX IF NOT EXISTS idx_audit_entity
-      ON audit_logs(entity_type, entity_id)
-    `);
-
-    await this.runAsync(`
-      CREATE INDEX IF NOT EXISTS idx_audit_timestamp
-      ON audit_logs(timestamp)
-    `);
+    await this.adapter.initialize();
   }
 
   /**
    * Execute a SQL query (INSERT, UPDATE, DELETE)
    */
   async run(query: string, params?: any[]): Promise<void> {
-    await this.runAsync(query, params);
+    await this.adapter.run(query, params);
   }
 
   /**
    * Get a single row from database
    */
   async get<T>(query: string, params?: any[]): Promise<T | undefined> {
-    return await this.getAsync(query, params);
+    return await this.adapter.get<T>(query, params);
   }
 
   /**
    * Get all matching rows from database
    */
   async all<T>(query: string, params?: any[]): Promise<T[]> {
-    return await this.allAsync(query, params);
+    return await this.adapter.all<T>(query, params);
   }
 
   /**
    * Close database connection
    */
   async close(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.db.close((err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    await this.adapter.close();
+  }
+
+  /**
+   * Get the database type (for debugging/logging)
+   */
+  getType(): 'sqlite' | 'postgres' {
+    return this.adapter.getType();
   }
 
   /**
@@ -273,11 +154,21 @@ export class Database {
       }
     }
 
-    // Update schema version
-    await this.run(
-      `INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)`,
-      [version.toString()]
-    );
+    // Update schema version (handle SQLite vs Postgres UPSERT syntax)
+    const dbType = this.adapter.getType();
+    if (dbType === 'postgres') {
+      await this.run(
+        `INSERT INTO metadata (key, value)
+         VALUES (?, ?)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        ['schema_version', version.toString()]
+      );
+    } else {
+      await this.run(
+        `INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)`,
+        ['schema_version', version.toString()]
+      );
+    }
 
     logger.info(`✓ Database migrated to version ${version}`);
   }
