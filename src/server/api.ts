@@ -12,6 +12,7 @@ import { ServiceRegistry } from '../registry/ServiceRegistry.js';
 import { MasterOrchestrator } from '../orchestrator/MasterOrchestrator.js';
 import { OrchestrationWebSocket } from './websocket.js';
 import { logger } from '../utils/logger.js';
+import { seedDatabase } from './seed-endpoint.js';
 import path from 'path';
 
 const app = express();
@@ -98,6 +99,29 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
+});
+
+/**
+ * POST /api/admin/seed
+ * Seed database with example services (admin only)
+ */
+app.post('/api/admin/seed', async (req, res) => {
+  try {
+    logger.info('🌱 Seeding database with example services...');
+    const services = await seedDatabase(registry);
+
+    res.json({
+      success: true,
+      message: `Successfully seeded ${services.length} services`,
+      services: services.map(s => ({ id: s.serviceId, name: s.name }))
+    });
+  } catch (error: any) {
+    logger.error('Failed to seed database:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 /**
