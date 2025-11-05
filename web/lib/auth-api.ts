@@ -3,7 +3,15 @@
  * Handles Solana wallet authentication flow with the backend
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3333';
+// In production, use same origin. In dev, use localhost:8081
+const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    return window.location.origin;
+  }
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 /**
  * Get a nonce for signing
@@ -60,13 +68,13 @@ export function createSolanaMessage(
   nonce: string
 ): string {
   const timestamp = new Date().toISOString();
-  return `Sign in to AgentMarket
+  return `Sign in to Sentient Exchange
 
 Wallet: ${address}
 Nonce: ${nonce}
 Timestamp: ${timestamp}
 
-This signature will be used to authenticate you with AgentMarket.`;
+This signature will be used to authenticate you with Sentient Exchange.`;
 }
 
 /**

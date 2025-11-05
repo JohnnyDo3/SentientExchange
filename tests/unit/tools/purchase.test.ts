@@ -1,14 +1,11 @@
 import { purchaseService } from '../../../src/tools/purchase';
 import { ServiceRegistry } from '../../../src/registry/ServiceRegistry';
-import { createPaymentRouter } from '../../../src/payment/PaymentFactory';
-import { PaymentRouter } from '../../../src/payment/PaymentRouter';
 import { Database } from '../../../src/registry/database';
 import { Service } from '../../../src/types/service';
 
-describe('purchaseService - REAL PRODUCTION TESTS', () => {
+describe('purchaseService - CLIENT-SIDE PAYMENT TESTS', () => {
   let db: Database;
   let registry: ServiceRegistry;
-  let paymentRouter: PaymentRouter;
   let testService: Service;
   let expensiveService: Service;
   let invalidEndpointService: Service;
@@ -21,14 +18,6 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     // Create REAL registry
     registry = new ServiceRegistry(db);
     await registry.initialize();
-
-    // Create REAL payment router with test config
-    paymentRouter = await createPaymentRouter({
-      network: 'devnet',
-      rpcUrl: process.env.SOLANA_RPC_URL,
-      secretKey: process.env.SOLANA_PRIVATE_KEY,
-      paymentMode: 'hybrid'
-    });
 
     // Register REAL test services
     testService = await registry.registerService({
@@ -144,7 +133,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
 
   describe('INPUT VALIDATION - All Edge Cases', () => {
     it('should reject empty service ID', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: '',
         data: { test: true }
       } as any);
@@ -154,7 +143,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
 
     it('should reject missing service ID', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         data: { test: true }
       } as any);
 
@@ -163,7 +152,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
 
     it('should reject missing data', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: testService.id
       } as any);
 
@@ -172,7 +161,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
 
     it('should reject null data', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: testService.id,
         data: null as any
       });
@@ -181,7 +170,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
 
     it('should reject invalid maxPayment format (no dollar sign)', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: testService.id,
         data: { test: true },
         maxPayment: '10.50'
@@ -192,7 +181,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
 
     it('should reject invalid maxPayment format (letters)', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: testService.id,
         data: { test: true },
         maxPayment: '$abc'
@@ -206,7 +195,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
       const validFormats = ['$0.01', '$1.00', '$10.99', '$100.00'];
 
       for (const maxPayment of validFormats) {
-        const result = await purchaseService(registry, paymentRouter, {
+        const result = await purchaseService(registry, {
           serviceId: testService.id,
           data: { text: 'test' },
           maxPayment
@@ -223,7 +212,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
 
   describe('SERVICE NOT FOUND Errors', () => {
     it('should handle non-existent service ID', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: 'non-existent-uuid-12345',
         data: { test: true }
       });
@@ -233,7 +222,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
 
     it('should handle malformed UUID', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: 'not-a-uuid',
         data: { test: true }
       });
@@ -246,7 +235,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
 
   describe('NETWORK ERRORS - Real Failure Scenarios', () => {
     it('should handle unreachable service endpoint', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: invalidEndpointService.id,
         data: { test: true }
       });
@@ -284,7 +273,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
         }
       });
 
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: timeoutService.id,
         data: { test: true }
       });
@@ -296,7 +285,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
 
   describe('PAYMENT FAILURES - Max Payment Exceeded', () => {
     it('should reject when service price exceeds maxPayment', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: expensiveService.id,
         data: { test: true },
         maxPayment: '$1.00' // Service costs $10.00
@@ -308,7 +297,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
 
     it('should allow when maxPayment equals service price', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: testService.id,
         data: { test: true },
         maxPayment: '$0.01' // Exactly the service price
@@ -321,7 +310,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
 
     it('should allow when maxPayment is higher than service price', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: testService.id,
         data: { test: true },
         maxPayment: '$10.00' // Service only costs $0.01
@@ -336,7 +325,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
 
   describe('COMPLEX DATA PAYLOADS', () => {
     it('should handle simple object data', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: testService.id,
         data: { key: 'value' }
       });
@@ -345,7 +334,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
 
     it('should handle nested object data', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: testService.id,
         data: {
           level1: {
@@ -360,7 +349,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
 
     it('should handle array data', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: testService.id,
         data: {
           items: ['item1', 'item2', 'item3']
@@ -371,7 +360,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
 
     it('should handle mixed type data', async () => {
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: testService.id,
         data: {
           string: 'text',
@@ -393,7 +382,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
         }))
       };
 
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: testService.id,
         data: largeData
       });
@@ -402,22 +391,14 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
     });
   });
 
-  describe('PAYMENT ROUTER INTEGRATION', () => {
-    it('should have valid wallet address', async () => {
-      const address = await paymentRouter.getWalletAddress();
-
-      expect(address).toBeDefined();
-      expect(typeof address).toBe('string');
-      expect(address.length).toBeGreaterThan(20);
-    });
-
-    it('should handle multiple payment attempts', async () => {
+  describe('MULTIPLE PURCHASE ATTEMPTS', () => {
+    it('should handle multiple purchase attempts', async () => {
       // Try purchasing same service multiple times
       const attempts = 3;
       const results = [];
 
       for (let i = 0; i < attempts; i++) {
-        const result = await purchaseService(registry, paymentRouter, {
+        const result = await purchaseService(registry, {
           serviceId: testService.id,
           data: { attempt: i + 1 }
         });
@@ -456,7 +437,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
         }
       });
 
-      const result = await purchaseService(registry, paymentRouter, {
+      const result = await purchaseService(registry, {
         serviceId: nullService.id,
         data: { test: true }
       });
@@ -469,7 +450,7 @@ describe('purchaseService - REAL PRODUCTION TESTS', () => {
 
     it('should handle concurrent purchase attempts', async () => {
       const promises = Array.from({ length: 5 }, (_, i) =>
-        purchaseService(registry, paymentRouter, {
+        purchaseService(registry, {
           serviceId: testService.id,
           data: { concurrent: i }
         })

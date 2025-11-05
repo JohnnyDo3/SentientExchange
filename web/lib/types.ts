@@ -1,5 +1,5 @@
 /**
- * Type definitions for AgentMarket
+ * Type definitions for Sentient Exchange
  * Matches backend schema from src/types/service.ts
  */
 

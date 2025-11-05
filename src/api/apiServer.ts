@@ -99,7 +99,7 @@ app.get('/api/pulse', (req, res) => {
     vibe: 'immaculate',
     uptime: `${uptimeMinutes}m ${Math.floor(uptimeSeconds % 60)}s`,
     timestamp: new Date().toISOString(),
-    message: '🤖 AgentMarket is alive and thriving'
+    message: '🤖 SentientExchange is alive and thriving'
   });
 });
 
@@ -610,7 +610,7 @@ app.use(errorHandler);
 async function start() {
   await initialize();
   httpServer.listen(PORT, () => {
-    logger.info(`\n🚀 AgentMarket API Server running on http://localhost:${PORT}`);
+    logger.info(`\n🚀 SentientExchange API Server running on http://localhost:${PORT}`);
     logger.info(`🔌 WebSocket server running on ws://localhost:${PORT}`);
     logger.info(`🔒 Security: Helmet, CORS, Rate Limiting enabled`);
     logger.info(`📝 Validation: Zod schemas active\n`);

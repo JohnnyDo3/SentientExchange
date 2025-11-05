@@ -27,8 +27,10 @@ jest.mock('fs', () => ({
 }));
 
 const mockPathDirname = jest.fn();
+const mockPathResolve = jest.fn();
 jest.mock('path', () => ({
-  dirname: mockPathDirname
+  dirname: mockPathDirname,
+  resolve: mockPathResolve
 }));
 
 import { WalletManager } from '../../../src/payment/WalletManager';
@@ -87,6 +89,7 @@ describe('WalletManager', () => {
     mockFsWriteFileSync.mockReset();
     mockFsMkdirSync.mockReset();
     mockPathDirname.mockReset().mockReturnValue('./data');
+    mockPathResolve.mockReset().mockImplementation((...args) => args.join('/'));
 
     // Create fresh instance
     walletManager = new WalletManager(mockConfig);

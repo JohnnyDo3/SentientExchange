@@ -16,6 +16,9 @@
     "test:unit": "jest tests/unit",
     "test:integration": "jest tests/integration",
     "test:e2e": "jest tests/integration/e2e.test.ts",
+    "test:e2e:real": "jest tests/e2e/real-payment-flow.test.ts",
+    "test:e2e:true": "jest tests/e2e/true-e2e-payment-flow.test.ts --runInBand --verbose",
+    "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e:real",
     "seed": "ts-node scripts/seed-database.ts",
     "lint": "echo \"ESLint not configured yet\"",
     "clean": "rm -rf dist"

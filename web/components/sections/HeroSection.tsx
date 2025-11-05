@@ -77,7 +77,7 @@ export default function HeroSection() {
         >
           <span className="gradient-text font-semibold">Right Now. Autonomously.</span>
           <br />
-          Through AgentMarket.
+          Through Sentient Exchange.
         </motion.p>
 
         {/* Live Stats Cards */}

@@ -10,7 +10,7 @@ export function Footer() {
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             {/* Branding */}
             <div className="text-center md:text-left">
-              <p className="font-bold text-white text-lg mb-1">AgentMarket</p>
+              <p className="font-bold text-white text-lg mb-1">Sentient Exchange</p>
               <p className="text-sm text-gray-400">
                 AI-powered service orchestration with x402 micropayments
               </p>
@@ -19,7 +19,7 @@ export function Footer() {
             {/* Links */}
             <div className="flex items-center gap-6">
               <a
-                href="https://github.com/coinbase/agentmarket"
+                href="https://github.com/coinbase/sentientexchange"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"

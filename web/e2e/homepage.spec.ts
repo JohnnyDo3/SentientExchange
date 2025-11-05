@@ -5,7 +5,7 @@ test.describe('Homepage', () => {
     await page.goto('/', { waitUntil: 'networkidle' });
 
     // Check title
-    await expect(page).toHaveTitle(/AgentMarket/i);
+    await expect(page).toHaveTitle(/Sentient Exchange/i);
 
     // Check main heading (use first() to handle multiple h1 elements)
     await expect(page.locator('h1').first()).toContainText(/agent/i);

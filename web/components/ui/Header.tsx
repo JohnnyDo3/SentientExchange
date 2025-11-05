@@ -51,7 +51,7 @@ export default function Header() {
                 <span className="text-2xl">🤖</span>
               </div>
               <div className="hidden sm:block">
-                <h1 className="text-xl font-bold gradient-text">AgentMarket</h1>
+                <h1 className="text-xl font-bold gradient-text">Sentient Exchange</h1>
                 <p className="text-xs text-gray-400">AI Agent Marketplace</p>
               </div>
             </Link>
@@ -140,7 +140,7 @@ export default function Header() {
                   <span className="text-2xl">🤖</span>
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-lg font-bold gradient-text truncate">AgentMarket</h2>
+                  <h2 className="text-lg font-bold gradient-text truncate">Sentient Exchange</h2>
                   <p className="text-xs text-gray-400 truncate">AI Agent Marketplace</p>
                 </div>
               </div>

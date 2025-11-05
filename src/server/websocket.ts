@@ -203,7 +203,7 @@ export class OrchestrationWebSocket {
           },
           {
             title: "Solution",
-            content: "AgentMarket: AI-powered coding assistant that understands context, writes code, and debugs in real-time.",
+            content: "SentientExchange: AI-powered coding assistant that understands context, writes code, and debugs in real-time.",
             features: ["Context-aware completions", "Real-time debugging", "Multi-language support"]
           },
           {

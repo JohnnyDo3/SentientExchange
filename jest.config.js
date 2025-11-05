@@ -8,6 +8,7 @@ module.exports = {
     '^.+\.ts$': 'ts-jest',
   },
   moduleNameMapper: {
+    '^uuid$': require.resolve('uuid'),
     '^(\.{1,2}/.*)\.js$': '$1',
   },
   collectCoverageFrom: [

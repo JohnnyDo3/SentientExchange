@@ -1,30 +1,30 @@
 #!/usr/bin/env node
 
 /**
- * AgentMarket MCP Server - Entry Point
+ * SentientExchange MCP Server - Entry Point
  *
  * Starts the Model Context Protocol server for AI service marketplace.
  * Connects to Claude Desktop via stdio transport.
  */
 
-import { AgentMarketServer } from './server.js';
+import { SentientExchangeServer } from './server.js';
 import { logger } from './utils/logger.js';
 
 // Environment variables passed via MCP config (no dotenv needed for stdio transport)
 // Payment execution is client-side, server only coordinates
-logger.info('AgentMarket MCP Server - Environment loaded from MCP config');
+logger.info('SentientExchange MCP Server - Environment loaded from MCP config');
 
 /**
  * Main entry point
  */
 async function main() {
-  let server: AgentMarketServer | null = null;
+  let server: SentientExchangeServer | null = null;
 
   try {
-    logger.info('🚀 AgentMarket MCP Server starting...');
+    logger.info('🚀 SentientExchange MCP Server starting...');
 
     // Create server instance
-    server = new AgentMarketServer();
+    server = new SentientExchangeServer();
 
     // Initialize all components
     await server.initialize();
@@ -34,7 +34,7 @@ async function main() {
 
     logger.info('');
     logger.info('═══════════════════════════════════════════════════════════');
-    logger.info('  AgentMarket MCP Server Running');
+    logger.info('  SentientExchange MCP Server Running');
     logger.info('═══════════════════════════════════════════════════════════');
     logger.info('');
     logger.info('✓ Server Status: ONLINE');

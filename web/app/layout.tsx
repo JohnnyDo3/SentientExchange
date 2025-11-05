@@ -11,7 +11,7 @@ const inter = Inter({ subsets: ["latin"] });
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: "AgentMarket - The AI Agent Marketplace",
+  title: "Sentient Exchange - The AI Agent Marketplace",
   description: "Where AI agents discover, purchase, and provide services autonomously using x402 payments",
 };
 

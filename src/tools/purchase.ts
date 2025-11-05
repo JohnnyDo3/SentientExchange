@@ -1,8 +1,7 @@
 import { logger } from '../utils/logger';
 import Joi from 'joi';
 import { ServiceRegistry } from '../registry/ServiceRegistry';
-import { PaymentRouter } from '../payment/PaymentRouter';
-import { PaymentDetails } from '../payment/types';
+import { SpendingLimitManager } from '../payment/SpendingLimitManager';
 import axios from 'axios';
 
 /**
@@ -24,40 +23,37 @@ const purchaseServiceSchema = Joi.object({
 });
 
 /**
- * Purchase and execute a service with x402 payment
+ * Purchase a service with x402 payment protocol
  *
  * Makes initial request to service. If 402 Payment Required is returned,
- * automatically executes payment using PaymentRouter (x402 or direct Solana).
- * Retries service request with payment proof.
+ * returns payment instructions for the client to execute payment locally.
+ * Client should then call execute_payment tool, then submit_payment with signature.
  *
  * @param registry - Service registry instance
- * @param paymentRouter - Payment router with intelligent failover
  * @param args - Purchase parameters
- * @returns MCP response with service result and payment details
+ * @returns MCP response with payment instructions (402) or service result (200)
  *
  * @example
- * const result = await purchaseService(registry, paymentRouter, {
+ * const result = await purchaseService(registry, {
  *   serviceId: '123e4567-e89b-12d3-a456-426614174000',
  *   data: { text: 'Analyze this sentiment' },
  *   maxPayment: '$1.00'
  * });
  *
- * // On success returns:
+ * // On 402 Payment Required returns:
  * // {
- * //   success: true,
- * //   serviceResult: { ... },
- * //   payment: {
- * //     transactionSignature: "...",
- * //     amount: "$0.01",
- * //     provider: "x402",
- * //     status: "confirmed"
- * //   }
+ * //   status: 402,
+ * //   message: 'Payment Required',
+ * //   transactionId: 'tx-...',
+ * //   paymentInstructions: { amount, recipient, token, network },
+ * //   nextSteps: [...]
  * // }
  */
 export async function purchaseService(
   registry: ServiceRegistry,
-  paymentRouter: PaymentRouter,
-  args: PurchaseServiceArgs
+  args: PurchaseServiceArgs,
+  limitManager?: SpendingLimitManager,
+  userId?: string
 ) {
   try {
     // Step 1: Validate input
@@ -94,10 +90,11 @@ export async function purchaseService(
       };
     }
 
-    // Step 3: Check price limit
+    // Step 3: Check price limit (user-provided maxPayment)
     // Handle both pricing formats: perRequest or amount
     const priceString = service.pricing.perRequest || service.pricing.amount || '0';
     const servicePrice = parseFloat(priceString.toString().replace('$', ''));
+    const servicePriceFormatted = `$${servicePrice.toFixed(2)}`;
 
     if (maxPayment) {
       const maxPrice = parseFloat(maxPayment.replace('$', ''));
@@ -108,13 +105,40 @@ export async function purchaseService(
             type: 'text',
             text: JSON.stringify({
               error: `Service price $${servicePrice} exceeds maximum payment ${maxPayment}`,
-              servicePrice: `$${servicePrice}`,
+              servicePrice: servicePriceFormatted,
               maxPayment
             })
           }],
           isError: true
         };
       }
+    }
+
+    // Step 3.5: Check spending limits (if enabled and userId provided)
+    if (limitManager && userId) {
+      const limitCheck = await limitManager.checkLimit(userId, servicePriceFormatted);
+      if (!limitCheck.allowed) {
+        logger.warn(`Spending limit exceeded for ${userId}: ${limitCheck.reason}`);
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              error: 'Spending limit exceeded',
+              reason: limitCheck.reason,
+              servicePrice: servicePriceFormatted,
+              currentSpending: limitCheck.currentSpending,
+              limits: limitCheck.limits,
+              hint: 'Use check_spending to view your spending or set_spending_limits to adjust limits'
+            })
+          }],
+          isError: true
+        };
+      }
+
+      logger.info(`✓ Spending limit check passed for ${userId}`, {
+        amount: servicePriceFormatted,
+        remaining: limitCheck.currentSpending
+      });
     }
 
     // Step 4: Make initial request to service
@@ -145,90 +169,50 @@ export async function purchaseService(
           throw new Error('No payment options in 402 response');
         }
 
-        // Convert x402 format to PaymentDetails
-        const paymentDetails: PaymentDetails = {
-          recipient: paymentOption.receiverAddress || paymentOption.payTo || service.provider,
-          amount: BigInt(paymentOption.amount || paymentOption.maxAmountRequired || '0'),
-          currency: 'USDC',
-          tokenAddress: paymentOption.tokenAddress || paymentOption.asset || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-          network: (paymentOption.chainId || paymentOption.network || 'solana-devnet') as any,
-          metadata: {
-            serviceId: service.id,
-            serviceName: service.name
-          }
-        };
+        // Extract payment details from x402 response
+        const recipient = paymentOption.receiverAddress || paymentOption.payTo || service.provider;
+        const amount = paymentOption.amount || paymentOption.maxAmountRequired || '0';
+        const tokenAddress = paymentOption.tokenAddress || paymentOption.asset || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // USDC devnet
+        const network = (paymentOption.chainId || paymentOption.network || 'solana-devnet');
 
-        // Execute payment AUTOMATICALLY by MCP server using PaymentRouter!
-        logger.info('🤖 Executing autonomous payment via PaymentRouter...');
+        // Return 402 Payment Required with instructions for client to pay
+        logger.info('💳 Service requires payment - returning 402 instructions');
 
-        try {
-          const paymentResult = await paymentRouter.executePayment(paymentDetails);
+        // Create pending transaction ID
+        const transactionId = `tx-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-          if (!paymentResult.success) {
-            throw new Error(paymentResult.error || 'Payment failed');
-          }
+        // TODO: Store pending transaction in database via registry
+        // await registry.createTransaction({...});
 
-          logger.info('✅ Payment executed successfully:', {
-            signature: paymentResult.signature,
-            provider: paymentResult.provider
-          });
-
-          // Now retry the service request with payment proof
-          const paymentProof = {
-            network: paymentDetails.network,
-            txHash: paymentResult.signature,
-            from: await paymentRouter.getWalletAddress(),
-            to: paymentDetails.recipient,
-            amount: paymentDetails.amount.toString(),
-            asset: paymentDetails.tokenAddress
-          };
-
-          const serviceResponse = await axios.post(
-            service.endpoint,
-            data,
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Payment': JSON.stringify(paymentProof)
+        // Return payment instructions for client to execute locally
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              status: 402,
+              message: 'Payment Required',
+              transactionId,
+              service: {
+                id: service.id,
+                name: service.name,
+                endpoint: service.endpoint,
               },
-              timeout: 30000
-            }
-          );
-
-          logger.info('✅ Service completed successfully');
-
-          // Return service result directly
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                success: true,
-                serviceResult: serviceResponse.data,
-                payment: {
-                  transactionSignature: paymentResult.signature,
-                  amount: `$${servicePrice}`,
-                  provider: paymentResult.provider,
-                  status: 'confirmed'
-                }
-              }, null, 2)
-            }]
-          };
-
-        } catch (paymentError: any) {
-          logger.error('Payment execution failed:', paymentError.message);
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                error: 'Autonomous payment failed',
-                details: paymentError.message,
-                service: service.name,
-                price: `$${servicePrice}`
-              }, null, 2)
-            }],
-            isError: true
-          };
-        }
+              paymentInstructions: {
+                transactionId,
+                amount,
+                currency: 'USDC',
+                recipient,
+                token: tokenAddress,
+                network,
+              },
+              nextSteps: [
+                '1. Call execute_payment tool with these paymentInstructions',
+                '2. Get the transaction signature from execute_payment',
+                '3. Call submit_payment with the signature to complete purchase'
+              ]
+            }, null, 2)
+          }]
+        };
       }
 
       // If status 200, service didn't require payment (unlikely for x402 services)

@@ -1,11 +1,19 @@
 import { Service, ServiceFilters } from './types';
 
 /**
- * Type-Safe API client for AgentMarket MCP backend
- * Connects to the MCP server running on localhost:3333
+ * Type-Safe API client for Sentient Exchange MCP backend
+ * Connects to the API server on port 8081 (dev) or same origin (production)
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3333';
+// In production, use same origin. In dev, use localhost:8081
+const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    return window.location.origin; // Production - same domain
+  }
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 // API Response Types
 interface ApiResponse<T> {
@@ -340,7 +348,7 @@ export class MarketplaceAPI {
     const ws = new WebSocket(`ws://localhost:3333`);
 
     ws.onopen = () => {
-      console.log('✓ WebSocket connected to AgentMarket API');
+      console.log('✓ WebSocket connected to Sentient Exchange API');
     };
 
     ws.onmessage = onMessage;

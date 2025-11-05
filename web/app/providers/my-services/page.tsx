@@ -243,7 +243,7 @@ export default function MyServicesPage() {
                 </div>
 
                 <p className="mt-6 text-sm text-gray-500">
-                  New to AgentMarket? Connect your wallet to start providing AI services and earn revenue.
+                  New to Sentient Exchange? Connect your wallet to start providing AI services and earn revenue.
                 </p>
               </div>
             </motion.div>

@@ -12,7 +12,7 @@ interface ProgressiveDeliverableProps {
 // Template slides that appear progressively
 const SLIDE_TEMPLATES = [
   { title: 'Problem', preview: 'Identifying the core problem developers face...' },
-  { title: 'Solution', preview: 'Introducing AgentMarket AI-powered solution...' },
+  { title: 'Solution', preview: 'Introducing Sentient Exchange AI-powered solution...' },
   { title: 'Market Opportunity', preview: 'Analyzing total addressable market...' },
   { title: 'Business Model', preview: 'Defining pricing and revenue strategy...' },
   { title: 'Go-to-Market Strategy', preview: 'Planning distribution channels...' },

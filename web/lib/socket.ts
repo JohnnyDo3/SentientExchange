@@ -20,7 +20,13 @@ class SocketManager {
   connect() {
     if (this.socket?.connected) return this.socket;
 
-    this.socket = io('http://localhost:3333', {
+    // In production, use same origin. In dev, use localhost:8081
+    let apiUrl = 'http://localhost:8081';
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+      apiUrl = window.location.origin;
+    }
+
+    this.socket = io(apiUrl, {
       transports: ['websocket'],
       reconnection: true,
     });

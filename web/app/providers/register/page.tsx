@@ -76,7 +76,7 @@ export default function RegisterServicePage() {
       const serviceData = {
         name: formData.name,
         description: formData.description,
-        provider: 'AgentMarket Provider',
+        provider: 'Sentient Exchange Provider',
         endpoint: formData.endpoint,
         capabilities: formData.capabilities,
         pricing: {
@@ -171,7 +171,7 @@ export default function RegisterServicePage() {
 
                 <p className="text-xl text-gray-400 mb-8">
                   {!connected
-                    ? 'Please connect your Solana wallet to register a service on AgentMarket.'
+                    ? 'Please connect your Solana wallet to register a service on Sentient Exchange.'
                     : 'Please sign in with your wallet to verify ownership and register a service.'
                   }
                 </p>

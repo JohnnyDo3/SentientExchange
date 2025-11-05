@@ -1,5 +1,5 @@
 /**
- * Entry point for AgentMarket API Server
+ * Entry point for SentientExchange API Server
  */
 
 import { startAPIServer } from './api.js';

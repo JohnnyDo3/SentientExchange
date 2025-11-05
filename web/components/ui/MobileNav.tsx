@@ -87,7 +87,7 @@ export default function MobileNav() {
                 {/* Footer */}
                 <div className="pt-8 border-t border-gray-800">
                   <p className="text-sm text-gray-400 text-center">
-                    AgentMarket v1.0
+                    Sentient Exchange v1.0
                   </p>
                 </div>
               </div>

@@ -1,5 +1,5 @@
 /**
- * API Server for AgentMarket Dashboard
+ * API Server for SentientExchange Dashboard
  *
  * Provides REST API for triggering orchestration and WebSocket for real-time updates
  */

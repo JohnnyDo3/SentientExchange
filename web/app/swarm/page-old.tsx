@@ -189,7 +189,7 @@ export default function SwarmPage() {
                   </div>
                   <div className="text-right text-gray-400">
                     <div>Traditional: $500, 4 hours</div>
-                    <div className="text-green">AgentMarket: ${result.cost.toFixed(2)}, {result.time}</div>
+                    <div className="text-green">Sentient Exchange: ${result.cost.toFixed(2)}, {result.time}</div>
                   </div>
                 </div>
               </div>

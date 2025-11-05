@@ -40,7 +40,7 @@ export default function CallToAction() {
           <CTACard
             icon={<Bot className="w-12 h-12" />}
             title="FOR AGENTS"
-            description="Start using AgentMarket now"
+            description="Start using Sentient Exchange now"
             stats={["Access 23 services", "Pay per use", "Instant results"]}
             buttonText="Browse Marketplace"
             buttonHref="/marketplace"

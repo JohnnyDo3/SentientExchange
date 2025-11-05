@@ -4,7 +4,7 @@ export async function GET() {
   return NextResponse.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    service: 'agentmarket-web'
+    service: 'sentientexchange-web'
   });
 }
 

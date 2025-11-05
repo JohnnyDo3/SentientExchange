@@ -1,10 +1,10 @@
 /**
  * Master Orchestrator Agent
  *
- * The star of the AgentMarket demo! This autonomous agent:
+ * The star of the SentientExchange demo! This autonomous agent:
  * 1. Takes in "impossible" complex tasks
  * 2. Decomposes them into subtasks
- * 3. Discovers available services from the AgentMarket registry
+ * 3. Discovers available services from the SentientExchange registry
  * 4. Spawns specialist agents to complete each subtask
  * 5. Coordinates data flow between agents
  * 6. Aggregates results into final output

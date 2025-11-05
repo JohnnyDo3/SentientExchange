@@ -1,17 +1,18 @@
 import { logger } from '../utils/logger';
 import Joi from 'joi';
 import { ServiceRegistry } from '../registry/ServiceRegistry';
-import { PaymentRouter } from '../payment/PaymentRouter';
-import { DirectSolanaProvider } from '../payment/DirectSolanaProvider';
+import { SolanaVerifier } from '../payment/SolanaVerifier';
 import { Database } from '../registry/database';
 import axios from 'axios';
+import bs58 from 'bs58';
 
 /**
  * Arguments for submit_payment tool
  */
 export interface SubmitPaymentArgs {
+  transactionId: string;
+  signature: string;
   serviceId: string;
-  transactionSignature: string;
   requestData: any;
 }
 
@@ -19,8 +20,9 @@ export interface SubmitPaymentArgs {
  * Validation schema for submit_payment
  */
 const submitPaymentSchema = Joi.object({
+  transactionId: Joi.string().required().description('Transaction ID from purchase_service'),
+  signature: Joi.string().required().description('Transaction signature from execute_payment'),
   serviceId: Joi.string().required().description('Service ID from payment instruction'),
-  transactionSignature: Joi.string().required().description('Transaction signature from client wallet'),
   requestData: Joi.object().required().description('Original request data for the service')
 });
 
@@ -28,17 +30,17 @@ const submitPaymentSchema = Joi.object({
  * Submit payment and complete service purchase
  *
  * Client has executed payment and provides transaction signature.
- * This tool verifies the payment on-chain and retries the service request.
+ * This tool verifies the payment on-chain using SolanaVerifier and retries the service request.
  *
  * @param registry - Service registry instance
- * @param paymentRouter - Payment router for verification
+ * @param verifier - Solana blockchain verifier
  * @param db - Database instance
  * @param args - Transaction signature and service details
  * @returns MCP response with service result or error
  */
 export async function submitPayment(
   registry: ServiceRegistry,
-  paymentRouter: PaymentRouter,
+  verifier: SolanaVerifier,
   db: Database,
   args: SubmitPaymentArgs
 ): Promise<any> {
@@ -56,13 +58,16 @@ export async function submitPayment(
       };
     }
 
-    const { serviceId, transactionSignature, requestData } = value;
+    const { transactionId, signature, serviceId, requestData } = value;
 
-    logger.info(`Submitting payment for service: ${serviceId}`);
-    logger.info(`Transaction signature: ${transactionSignature}`);
+    logger.info(`Submitting payment for transaction: ${transactionId}`);
+    logger.info(`Service ID: ${serviceId}`);
+    logger.info(`Transaction signature: ${signature}`);
 
-    // Validate signature format
-    if (!DirectSolanaProvider.isValidSignature(transactionSignature)) {
+    // Validate signature format (basic check)
+    try {
+      bs58.decode(signature);
+    } catch {
       logger.error('Invalid transaction signature format');
       return {
         content: [{
@@ -88,6 +93,39 @@ export async function submitPayment(
       };
     }
 
+    // Verify payment on-chain
+    logger.info('🔍 Verifying payment on blockchain...');
+
+    const priceString = (service.pricing.perRequest || service.pricing.amount || "0").replace('$', '');
+    const priceInCents = Math.round(parseFloat(priceString) * 100); // Convert dollars to cents
+    const priceInTokenUnits = BigInt(priceInCents * 10000); // USDC has 6 decimals, so $0.01 = 10000 units
+
+    const verificationResult = await verifier.verifyPayment({
+      signature,
+      expectedAmount: priceInTokenUnits,
+      expectedRecipient: service.provider, // Service provider's wallet address
+      expectedToken: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC devnet
+      network: (service.pricing.network || process.env.NETWORK || 'devnet') as any,
+    });
+
+    if (!verificationResult.verified) {
+      logger.error('❌ Payment verification failed:', verificationResult.error);
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            error: 'Payment verification failed',
+            details: verificationResult.error,
+            transactionId,
+            signature,
+          })
+        }],
+        isError: true
+      };
+    }
+
+    logger.info('✅ Payment verified successfully on-chain');
+
     // Retry service request with payment proof (X-Payment header)
     logger.info(`Retrying service request with payment proof...`);
     logger.info(`Service endpoint: ${service.endpoint}`);
@@ -95,7 +133,7 @@ export async function submitPayment(
     // Construct payment proof object for x402 protocol
     const paymentProof = {
       network: service.pricing.network || 'solana-devnet',
-      txHash: transactionSignature,
+      txHash: signature,
       from: 'client-wallet', // Client manages their own wallet
       to: service.provider,
       amount: (service.pricing.perRequest || service.pricing.amount || "0").replace('$', ''), // Remove $ sign
@@ -124,7 +162,7 @@ export async function submitPayment(
           request, response, paymentHash, timestamp
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          `tx-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+          transactionId,
           serviceId,
           'client-wallet', // Client manages their own wallet
           service.provider,
@@ -133,7 +171,7 @@ export async function submitPayment(
           'completed',
           JSON.stringify(requestData),
           JSON.stringify(response.data),
-          transactionSignature,
+          signature,
           new Date().toISOString()
         ]
       );
@@ -151,7 +189,8 @@ export async function submitPayment(
             success: true,
             serviceResult: response.data,
             payment: {
-              transactionSignature,
+              transactionId,
+              signature,
               amount: (service.pricing.perRequest || service.pricing.amount || "0"),
               status: 'confirmed'
             }
@@ -169,7 +208,7 @@ export async function submitPayment(
           request, response, paymentHash, error, timestamp
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          `tx-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+          transactionId + '-failed',
           serviceId,
           'client-wallet',
           service.provider,
@@ -178,7 +217,7 @@ export async function submitPayment(
           'failed',
           JSON.stringify(requestData),
           null,
-          transactionSignature,
+          signature,
           serviceError.message,
           new Date().toISOString()
         ]
@@ -191,7 +230,8 @@ export async function submitPayment(
             error: 'Service request failed after payment',
             details: serviceError.response?.data || serviceError.message,
             payment: {
-              transactionSignature,
+              transactionId,
+              signature,
               amount: (service.pricing.perRequest || service.pricing.amount || "0"),
               status: 'confirmed',
               note: 'Payment was successful but service failed. Contact service provider for refund.'

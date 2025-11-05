@@ -1,5 +1,5 @@
 /**
- * Service listing in AgentMarket marketplace
+ * Service listing in SentientExchange marketplace
  */
 export interface Service {
   id: string; // UUID

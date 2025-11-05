@@ -1,5 +1,5 @@
 /**
- * AgentMarket MCP Server
+ * SentientExchange MCP Server
  *
  * Main server class that implements the Model Context Protocol.
  * Provides tools for AI agents to discover, purchase, and rate AI services
@@ -16,21 +16,25 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { ServiceRegistry } from './registry/ServiceRegistry.js';
 import { Database } from './registry/database.js';
-import { PaymentRouter } from './payment/PaymentRouter.js';
-import { createPaymentRouter } from './payment/PaymentFactory.js';
+import { SolanaVerifier } from './payment/SolanaVerifier.js';
+import { SpendingLimitManager } from './payment/SpendingLimitManager.js';
 import { logger } from './utils/logger.js';
 
 // Import all tool functions
 import { discoverServices } from './tools/discover.js';
 import { getServiceDetails } from './tools/details.js';
 import { purchaseService } from './tools/purchase.js';
+import { executePayment } from './tools/execute-payment.js';
 import { submitPayment } from './tools/submit-payment.js';
 import { rateService } from './tools/rate.js';
 import { listAllServices } from './tools/list.js';
 import { getTransaction } from './tools/transaction.js';
+import { setSpendingLimits, checkSpending, resetSpendingLimits } from './tools/spending-limits.js';
+import { discoverAndPrepareService } from './tools/smart-discover-prepare.js';
+import { completeServiceWithPayment } from './tools/smart-execute-complete.js';
 
 /**
- * AgentMarket MCP Server
+ * SentientExchange MCP Server
  *
  * Integrates all components to provide a complete AI service marketplace:
  * - Service discovery and management
@@ -38,11 +42,12 @@ import { getTransaction } from './tools/transaction.js';
  * - USDC transactions on Solana blockchain
  * - Reputation and rating system
  */
-export class AgentMarketServer {
+export class SentientExchangeServer {
   private server: Server;
   private db: Database;
   private registry: ServiceRegistry;
-  private paymentRouter: PaymentRouter;
+  private solanaVerifier: SolanaVerifier;
+  private spendingLimitManager: SpendingLimitManager;
 
   constructor() {
     // Create MCP server instance
@@ -55,7 +60,7 @@ export class AgentMarketServer {
         capabilities: {
           tools: {},
         },
-        instructions: `AgentMarket MCP Server - AI Service Marketplace on Solana
+        instructions: `SentientExchange MCP Server - AI Service Marketplace on Solana
 
 This server provides tools for discovering, purchasing, and rating AI services with x402 payment protocol using USDC on Solana blockchain.
 
@@ -63,16 +68,26 @@ Available Tools:
 1. discover_services - Search for AI services by capability, price, or rating
 2. get_service_details - Get detailed information about a specific service
 3. purchase_service - Request service (returns payment instruction if 402)
-4. submit_payment - Complete purchase with transaction signature
-5. rate_service - Submit ratings and reviews for completed transactions
-6. list_all_services - List all available services with pagination
-7. get_transaction - Retrieve transaction details by ID
+4. execute_payment - Execute payment locally with your Solana wallet
+5. submit_payment - Complete purchase with transaction signature
+6. rate_service - Submit ratings and reviews for completed transactions
+7. list_all_services - List all available services with pagination
+8. get_transaction - Retrieve transaction details by ID
+9. set_spending_limits - Configure your spending limits (per-transaction, daily, monthly)
+10. check_spending - View your current spending and remaining budget
+11. reset_spending_limits - Remove all spending limits
+
+SMART TOOLS (Reduce workflow from 5 calls to 3):
+12. discover_and_prepare_service - Discover best service + health check + prepare payment (replaces discover + details + purchase)
+13. complete_service_with_payment - Verify payment + submit + auto-retry with backups (replaces submit_payment with retry logic)
 
 Payment Flow:
-- Client manages their own Solana wallet
-- purchase_service returns payment instructions when needed
-- Client executes payment using provided script or manual wallet
-- submit_payment completes service request with tx signature
+- Client manages their own Solana wallet (configured in MCP client)
+- purchase_service returns payment instructions when needed (402 response)
+- Client calls execute_payment which uses local SOLANA_PRIVATE_KEY
+- execute_payment returns transaction signature
+- Client calls submit_payment with signature to complete purchase
+- Server verifies payment on-chain via SolanaVerifier
 
 The system uses the x402 payment protocol for autonomous agent-to-agent payments on Solana.`,
       }
@@ -83,9 +98,10 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
       process.env.DATABASE_PATH || './data/agentmarket.db'
     );
 
-    // Payment router will be initialized in initialize()
-    this.paymentRouter = null as any;
+    // Registry, verifier, and spending limit manager will be initialized in initialize()
     this.registry = null as any;
+    this.solanaVerifier = null as any;
+    this.spendingLimitManager = null as any;
 
     this.setupToolHandlers();
   }
@@ -95,7 +111,7 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
    */
   async initialize(): Promise<void> {
     try {
-      logger.info('Initializing AgentMarket MCP Server...');
+      logger.info('Initializing SentientExchange MCP Server...');
 
       // Initialize database
       logger.info('Initializing database...');
@@ -108,25 +124,24 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
       await this.registry.initialize();
       logger.info('Service registry initialized');
 
-      // Initialize payment router with x402 + fallback
-      logger.info('Initializing payment router...');
-      this.paymentRouter = await createPaymentRouter({
-        network: process.env.NETWORK || 'devnet',
-        rpcUrl: process.env.SOLANA_RPC_URL,
-        secretKey: process.env.SOLANA_PRIVATE_KEY,
-        paymentMode: (process.env.PAYMENT_MODE as any) || 'hybrid'
-      });
-      logger.info('Payment router initialized');
+      // Initialize Solana verifier for on-chain payment verification
+      logger.info('Initializing Solana verifier...');
+      this.solanaVerifier = new SolanaVerifier();
+      logger.info('Solana verifier initialized');
 
-      const walletAddress = await this.paymentRouter.getWalletAddress();
-      const paymentMode = process.env.PAYMENT_MODE || 'hybrid';
+      // Initialize spending limit manager
+      logger.info('Initializing spending limit manager...');
+      this.spendingLimitManager = new SpendingLimitManager(this.db);
+      await this.spendingLimitManager.initialize();
+      logger.info('Spending limit manager initialized');
 
-      logger.info('AgentMarket MCP Server initialized successfully!');
+      logger.info('SentientExchange MCP Server initialized successfully!');
       logger.info(`Network: Solana ${process.env.NETWORK || 'devnet'}`);
-      logger.info(`Payment Mode: ${paymentMode} (x402 + fallback)`);
-      logger.info(`Wallet Address: ${walletAddress}`);
+      logger.info(`Payment Protocol: x402 with client-side execution`);
+      logger.info(`Verification: Direct on-chain via Solana RPC`);
+      logger.info(`Spending Limits: Enabled`);
     } catch (error: any) {
-      logger.error('Failed to initialize AgentMarket MCP Server:', error);
+      logger.error('Failed to initialize SentientExchange MCP Server:', error);
       throw error;
     }
   }
@@ -215,26 +230,73 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
             },
           },
           {
+            name: 'execute_payment',
+            description:
+              'Execute payment locally using your configured wallet. Takes payment instructions from purchase_service and returns transaction signature. This tool runs CLIENT-SIDE with your local SOLANA_PRIVATE_KEY from MCP client environment.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                paymentInstructions: {
+                  type: 'object',
+                  description: 'Payment instructions from purchase_service 402 response',
+                  properties: {
+                    transactionId: {
+                      type: 'string',
+                      description: 'Transaction ID from payment instruction',
+                    },
+                    amount: {
+                      type: 'string',
+                      description: 'Amount in token base units (e.g., "1000000" for 1 USDC)',
+                    },
+                    currency: {
+                      type: 'string',
+                      description: 'Currency symbol (e.g., "USDC", "SOL")',
+                    },
+                    recipient: {
+                      type: 'string',
+                      description: 'Recipient wallet address (base58 public key)',
+                    },
+                    token: {
+                      type: 'string',
+                      description: 'Token mint address for SPL tokens (omit for native SOL)',
+                    },
+                    network: {
+                      type: 'string',
+                      description: 'Solana network (mainnet-beta, devnet, testnet)',
+                      enum: ['mainnet-beta', 'devnet', 'testnet'],
+                    },
+                  },
+                  required: ['transactionId', 'amount', 'currency', 'recipient', 'network'],
+                },
+              },
+              required: ['paymentInstructions'],
+            },
+          },
+          {
             name: 'submit_payment',
             description:
               'Complete service purchase after payment execution. Provide transaction signature from your Solana wallet. Server verifies payment on-chain and completes service request.',
             inputSchema: {
               type: 'object',
               properties: {
+                transactionId: {
+                  type: 'string',
+                  description: 'Transaction ID from payment instruction',
+                },
+                signature: {
+                  type: 'string',
+                  description: 'Solana transaction signature from execute_payment (base58-encoded)',
+                },
                 serviceId: {
                   type: 'string',
                   description: 'Service ID from payment instruction',
-                },
-                transactionSignature: {
-                  type: 'string',
-                  description: 'Solana transaction signature (base58-encoded)',
                 },
                 requestData: {
                   type: 'object',
                   description: 'Original request data for the service',
                 },
               },
-              required: ['serviceId', 'transactionSignature', 'requestData'],
+              required: ['transactionId', 'signature', 'serviceId', 'requestData'],
             },
           },
           {
@@ -295,6 +357,139 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
               required: ['transactionId'],
             },
           },
+          {
+            name: 'set_spending_limits',
+            description:
+              'Set spending limits to control your AI agent\'s budget. You can set per-transaction, daily, and monthly limits. All limits are optional - only set what you want to control.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                perTransaction: {
+                  type: 'string',
+                  description: 'Maximum amount per single transaction (e.g., "$5.00")',
+                },
+                daily: {
+                  type: 'string',
+                  description: 'Maximum total spending per day (e.g., "$50.00")',
+                },
+                monthly: {
+                  type: 'string',
+                  description: 'Maximum total spending per month (e.g., "$500.00")',
+                },
+                enabled: {
+                  type: 'boolean',
+                  description: 'Enable or disable spending limits (default: true)',
+                },
+              },
+            },
+          },
+          {
+            name: 'check_spending',
+            description:
+              'Check your current spending statistics and remaining budget. Optionally test if a hypothetical transaction would be allowed.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                amount: {
+                  type: 'string',
+                  description: 'Optional: Test if this amount would be allowed (e.g., "$10.00")',
+                },
+              },
+            },
+          },
+          {
+            name: 'reset_spending_limits',
+            description:
+              'Remove all spending limits. After this, you can make unlimited purchases (until you set new limits).',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+            },
+          },
+          {
+            name: 'discover_and_prepare_service',
+            description:
+              'SMART TOOL: Discover best service + health check + prepare payment in one call. Finds the best service matching your criteria, verifies it\'s healthy, checks spending limits, makes initial request to get payment details, and returns everything ready for payment execution. Use this instead of calling discover_services + get_service_details + purchase_service separately.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                capability: {
+                  type: 'string',
+                  description: 'Service capability to search for (e.g., "sentiment-analysis", "image-analysis")',
+                },
+                requestData: {
+                  type: 'object',
+                  description: 'Data to send to the service',
+                },
+                requirements: {
+                  type: 'object',
+                  description: 'Optional filtering requirements',
+                  properties: {
+                    maxPrice: {
+                      type: 'string',
+                      description: 'Maximum price (e.g., "$1.00")',
+                    },
+                    minRating: {
+                      type: 'number',
+                      description: 'Minimum rating (1-5)',
+                    },
+                    mustSupportBatch: {
+                      type: 'boolean',
+                      description: 'Must support batch processing',
+                    },
+                    preferredProviders: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description: 'Preferred service providers',
+                    },
+                  },
+                },
+                checkHealth: {
+                  type: 'boolean',
+                  description: 'Health check services before selection (default: true)',
+                  default: true,
+                },
+                maxPayment: {
+                  type: 'string',
+                  description: 'Maximum acceptable payment (e.g., "$1.00")',
+                },
+                userId: {
+                  type: 'string',
+                  description: 'Optional user ID for spending limit checks',
+                },
+                maxRetries: {
+                  type: 'number',
+                  description: 'Max backup services to try on failure (default: 2)',
+                  default: 2,
+                },
+              },
+              required: ['capability', 'requestData'],
+            },
+          },
+          {
+            name: 'complete_service_with_payment',
+            description:
+              'SMART TOOL: Complete service purchase with payment verification and automatic retry. After executing payment via execute_payment, use this to verify payment on-chain, submit to service, and get result. If primary service fails, automatically retries with backup services. Use this instead of submit_payment for better reliability.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                sessionId: {
+                  type: 'string',
+                  description: 'Session ID from discover_and_prepare_service',
+                },
+                signature: {
+                  type: 'string',
+                  description: 'Transaction signature from execute_payment',
+                },
+                retryOnFailure: {
+                  type: 'boolean',
+                  description: 'Retry with backup services if primary fails (default: true)',
+                  default: true,
+                },
+              },
+              required: ['sessionId', 'signature'],
+            },
+          },
         ],
       };
     });
@@ -305,6 +500,11 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
 
       logger.info(`Tool called: ${name}`);
       logger.debug('Tool arguments:', args);
+
+      // Get user ID from environment (their Solana wallet address)
+      // In MCP, each client provides their own wallet via SOLANA_PRIVATE_KEY
+      // We derive the public key for tracking spending limits
+      const userId = process.env.USER_WALLET_ADDRESS || 'default-user';
 
       try {
         switch (name) {
@@ -317,14 +517,18 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
           case 'purchase_service':
             return await purchaseService(
               this.registry,
-              this.paymentRouter,
-              args as any || {}
+              args as any || {},
+              this.spendingLimitManager,
+              userId
             );
+
+          case 'execute_payment':
+            return await executePayment(args as any || {});
 
           case 'submit_payment':
             return await submitPayment(
               this.registry,
-              this.paymentRouter,
+              this.solanaVerifier,
               this.db,
               args as any || {}
             );
@@ -337,6 +541,41 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
 
           case 'get_transaction':
             return await getTransaction(this.db, args as any || {});
+
+          case 'set_spending_limits':
+            return await setSpendingLimits(
+              this.spendingLimitManager,
+              userId,
+              args as any || {}
+            );
+
+          case 'check_spending':
+            return await checkSpending(
+              this.spendingLimitManager,
+              userId,
+              args as any || {}
+            );
+
+          case 'reset_spending_limits':
+            return await resetSpendingLimits(
+              this.spendingLimitManager,
+              userId
+            );
+
+          case 'discover_and_prepare_service':
+            return await discoverAndPrepareService(
+              this.registry,
+              args as any,
+              this.spendingLimitManager
+            );
+
+          case 'complete_service_with_payment':
+            return await completeServiceWithPayment(
+              this.registry,
+              this.solanaVerifier,
+              this.db,
+              args as any
+            );
 
           default:
             throw new Error(`Unknown tool: ${name}`);
@@ -369,7 +608,7 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
 
       logger.info('✓ MCP server started successfully');
       logger.info('✓ Ready to accept connections from Claude Desktop');
-      logger.info('✓ All 7 tools registered and ready');
+      logger.info('✓ All 8 tools registered and ready');
     } catch (error: any) {
       logger.error('Failed to start MCP server:', error);
       throw error;
@@ -381,7 +620,7 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
    */
   async shutdown(): Promise<void> {
     try {
-      logger.info('Shutting down AgentMarket MCP Server...');
+      logger.info('Shutting down SentientExchange MCP Server...');
 
       if (this.db) {
         await this.db.close();
@@ -391,7 +630,7 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
       await this.server.close();
       logger.info('MCP server closed');
 
-      logger.info('✓ AgentMarket MCP Server shutdown complete');
+      logger.info('✓ SentientExchange MCP Server shutdown complete');
     } catch (error: any) {
       logger.error('Error during shutdown:', error);
       throw error;
