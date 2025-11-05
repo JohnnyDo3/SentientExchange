@@ -23,11 +23,10 @@ const apiServer = spawn('node', ['dist/server/index.js'], {
 });
 
 // Start Next.js Web App on Railway PORT
-const webApp = spawn('npm', ['run', 'start'], {
+const webApp = spawn('node_modules/.bin/next', ['start', '-p', RAILWAY_PORT], {
   cwd: path.join(__dirname, 'web'),
   stdio: 'inherit',
-  env: { ...process.env, PORT: RAILWAY_PORT, API_URL: `http://localhost:${API_PORT}` },
-  shell: true
+  env: { ...process.env, PORT: RAILWAY_PORT, API_URL: `http://localhost:${API_PORT}` }
 });
 
 apiServer.on('error', (err) => {
