@@ -3,6 +3,9 @@ FROM node:22-alpine
 
 WORKDIR /app
 
+# Force cache bust - change this number to force rebuild: 6
+RUN echo "Cache bust: 6"
+
 # Copy package files
 COPY package*.json ./
 COPY web/package*.json ./web/
