@@ -50,14 +50,15 @@
 
 ### Phase 3: Update Configurations ✅ COMPLETE
 
-- [x] **Updated `.github/workflows/ci.yml`** (added `--max-warnings=0`)
-  - CI will now enforce zero ESLint warnings
-  - Prevents warnings from accumulating over time
+- [x] **Updated `.github/workflows/ci.yml`** (ESLint check in CI)
+  - CI runs ESLint on every push/PR
+  - Zero warnings enforcement deferred (27 warnings in codebase to fix gradually)
+  - Prevents build-breaking errors while allowing gradual improvement
 
 - [x] **Fixed 2 ESLint import warnings**
   - `security.ts`: Changed `rateLimit` → `rateLimitMiddleware` (5 occurrences)
   - `SQLiteAdapter.ts`: Changed `sqlite3` → `sqlite3Module` (2 occurrences)
-  - ESLint now passes with **0 warnings** ✅
+  - Fixed 2 import warnings in new test files ✅
 
 - [x] **Deferred coverage threshold increase** (pragmatic decision)
   - Current: 25% threshold, ~40% actual coverage
@@ -70,8 +71,8 @@
 - [x] **31 test suites passing** (⬆️ +3 suites)
 - [x] **Critical files have excellent coverage**:
   - Payment execution, verification, spending limits
-- [x] **CI now enforces zero warnings**
-- [x] **Zero ESLint warnings**
+- [x] **CI runs ESLint checks** (warnings allowed for gradual improvement)
+- [x] **Fixed 2 ESLint warnings** (in modified files)
 
 ---
 
@@ -155,9 +156,10 @@
 
 ### ESLint Warnings
 
-- **Starting**: 2 warnings
-- **Current**: 2 warnings (not fixed yet)
-- **Target**: 0 warnings
+- **Starting**: 2 warnings (in files we modified)
+- **Current**: 27 warnings total (apiServer.ts, jwt.ts, siwe.ts, etc.)
+- **Fixed**: 2 import warnings in security.ts and SQLiteAdapter.ts
+- **Target**: Gradual reduction (deferred zero warnings enforcement)
 
 ### Security Vulnerabilities
 
@@ -174,7 +176,7 @@
 Ready for comprehensive commit with:
 
 - 66 new tests (927 total)
-- 0 ESLint warnings
+- ESLint running in CI (2 import warnings fixed in modified files)
 - Critical payment files at 98-100% coverage
 - Security vulnerabilities documented
 - SSE migration docs finalized
