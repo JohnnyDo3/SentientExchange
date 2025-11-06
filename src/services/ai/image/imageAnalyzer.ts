@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { logger } from '../../../utils/logger.js';
 
 export interface ImageAnalysisRequest {
   image: string; // Base64-encoded image or URL
@@ -34,9 +35,9 @@ export class ImageAnalyzer {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (apiKey) {
       this.client = new Anthropic({ apiKey });
-      console.log('✓ Image Analyzer initialized with Claude Vision API');
+      logger.info('Image Analyzer initialized with Claude Vision API');
     } else {
-      console.warn('⚠ ANTHROPIC_API_KEY not set - using mock responses');
+      logger.warn('ANTHROPIC_API_KEY not set - using mock responses');
     }
   }
 
@@ -105,7 +106,7 @@ export class ImageAnalyzer {
         },
       };
     } catch (error: any) {
-      console.error('Image analysis failed:', error.message);
+      logger.error('Image analysis failed:', error.message);
       throw new Error(`Image analysis failed: ${error.message}`);
     }
   }

@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { logger } from '../middleware/logger.js';
+import { logger } from '../../../utils/logger.js';
 
 interface SentimentResult {
   overall: {

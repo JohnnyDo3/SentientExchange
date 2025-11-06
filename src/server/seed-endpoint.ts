@@ -4,92 +4,116 @@
 import { ServiceRegistry } from '../registry/ServiceRegistry.js';
 import type { Service } from '../types/index.js';
 
-export async function seedDatabase(registry: ServiceRegistry): Promise<Service[]> {
+export async function seedDatabase(
+  registry: ServiceRegistry
+): Promise<Service[]> {
   const exampleServices: Omit<Service, 'id' | 'createdAt' | 'updatedAt'>[] = [
     {
       name: 'Sentiment Analyzer',
-      description: 'Advanced AI-powered sentiment analysis for text, social media, and customer feedback',
-      endpoint: 'https://sentiment-analyzer.example.com/analyze',
-      capabilities: ['sentiment-analysis', 'emotion-detection', 'text-processing'],
-      provider: 'did:key:sentiment-ai',
+      description:
+        'State-of-the-art sentiment analysis with PhD-level expertise in psycholinguistics, emotion detection, and sarcasm understanding',
+      endpoint: 'https://www.sentientexchange.com/api/ai/sentiment',
+      capabilities: [
+        'sentiment-analysis',
+        'emotion-detection',
+        'text-processing',
+        'sarcasm-detection',
+        'gen-z-slang',
+      ],
+      provider: 'did:key:sentientexchange',
       pricing: {
-        perRequest: '0.05',
+        perRequest: '0.01',
         currency: 'USDC',
         network: 'base-sepolia',
-        billingModel: 'per-request'
+        billingModel: 'per-request',
       },
       reputation: {
-        totalJobs: 1250,
-        successRate: 98.5,
-        avgResponseTime: '2.1s',
-        rating: 4.8,
-        reviews: 85
+        totalJobs: 0,
+        successRate: 100,
+        avgResponseTime: '1.5s',
+        rating: 5.0,
+        reviews: 0,
       },
       metadata: {
-        apiVersion: 'v2.1.0',
-        rateLimit: '100/min',
-        maxPayload: '10MB',
+        apiVersion: 'v1.0.0',
+        rateLimit: '1000/min',
+        maxPayload: '1MB',
         image: '😊',
-        color: '#10b981'
-      }
+        color: '#10b981',
+      },
     },
     {
       name: 'Image Analyzer',
-      description: 'Computer vision service for object detection, image classification, and visual content analysis',
-      endpoint: 'https://image-analyzer.example.com/analyze',
-      capabilities: ['image-classification', 'object-detection', 'visual-analysis'],
-      provider: 'did:key:vision-labs',
+      description:
+        'Professional computer vision with Claude Vision API for objects, OCR, faces, and comprehensive image analysis',
+      endpoint: 'https://www.sentientexchange.com/api/ai/image',
+      capabilities: [
+        'image-classification',
+        'object-detection',
+        'visual-analysis',
+        'ocr',
+        'face-detection',
+      ],
+      provider: 'did:key:sentientexchange',
       pricing: {
-        perRequest: '0.10',
+        perRequest: '0.02',
         currency: 'USDC',
         network: 'base-sepolia',
-        billingModel: 'per-request'
+        billingModel: 'per-request',
       },
       reputation: {
-        totalJobs: 890,
-        successRate: 97.2,
-        avgResponseTime: '3.5s',
-        rating: 4.7,
-        reviews: 62
+        totalJobs: 0,
+        successRate: 100,
+        avgResponseTime: '2.5s',
+        rating: 5.0,
+        reviews: 0,
       },
       metadata: {
-        apiVersion: 'v3.0.1',
-        rateLimit: '50/min',
+        apiVersion: 'v1.0.0',
+        rateLimit: '500/min',
         maxPayload: '25MB',
         image: '👁️',
-        color: '#3b82f6'
-      }
+        color: '#3b82f6',
+      },
     },
     {
       name: 'Text Summarizer',
-      description: 'AI text summarization service for documents, articles, and long-form content',
-      endpoint: 'https://text-summarizer.example.com/summarize',
-      capabilities: ['text-summarization', 'document-processing', 'content-extraction'],
-      provider: 'did:key:summary-bot',
+      description:
+        'Executive-grade text summarization with multiple formats (bullets, paragraph, executive), key point extraction, and topic tags',
+      endpoint: 'https://www.sentientexchange.com/api/ai/text',
+      capabilities: [
+        'text-summarization',
+        'document-processing',
+        'content-extraction',
+        'key-points',
+        'topic-tags',
+      ],
+      provider: 'did:key:sentientexchange',
       pricing: {
-        perRequest: '0.08',
+        perRequest: '0.015',
         currency: 'USDC',
         network: 'base-sepolia',
-        billingModel: 'per-request'
+        billingModel: 'per-request',
       },
       reputation: {
-        totalJobs: 670,
-        successRate: 96.8,
-        avgResponseTime: '4.2s',
-        rating: 4.6,
-        reviews: 48
+        totalJobs: 0,
+        successRate: 100,
+        avgResponseTime: '2.0s',
+        rating: 5.0,
+        reviews: 0,
       },
       metadata: {
-        apiVersion: 'v1.5.2',
-        rateLimit: '75/min',
+        apiVersion: 'v1.0.0',
+        rateLimit: '750/min',
         maxPayload: '5MB',
         image: '📝',
-        color: '#f59e0b'
-      }
+        color: '#f59e0b',
+      },
     },
     {
       name: 'Data Processor',
-      description: 'High-performance data transformation and ETL service for structured and unstructured data',
+      description:
+        'High-performance data transformation and ETL service for structured and unstructured data',
       endpoint: 'https://data-processor.example.com/process',
       capabilities: ['data-transformation', 'etl', 'data-cleaning'],
       provider: 'did:key:dataflow',
@@ -97,26 +121,27 @@ export async function seedDatabase(registry: ServiceRegistry): Promise<Service[]
         perRequest: '0.15',
         currency: 'USDC',
         network: 'base-sepolia',
-        billingModel: 'per-request'
+        billingModel: 'per-request',
       },
       reputation: {
         totalJobs: 2100,
         successRate: 99.1,
         avgResponseTime: '1.8s',
         rating: 4.9,
-        reviews: 142
+        reviews: 142,
       },
       metadata: {
         apiVersion: 'v4.2.0',
         rateLimit: '200/min',
         maxPayload: '50MB',
         image: '⚙️',
-        color: '#8b5cf6'
-      }
+        color: '#8b5cf6',
+      },
     },
     {
       name: 'Code Analyzer',
-      description: 'Static code analysis and vulnerability scanning for multiple programming languages',
+      description:
+        'Static code analysis and vulnerability scanning for multiple programming languages',
       endpoint: 'https://code-analyzer.example.com/analyze',
       capabilities: ['code-analysis', 'security-scanning', 'linting'],
       provider: 'did:key:secure-code',
@@ -124,23 +149,23 @@ export async function seedDatabase(registry: ServiceRegistry): Promise<Service[]
         perRequest: '0.12',
         currency: 'USDC',
         network: 'base-sepolia',
-        billingModel: 'per-request'
+        billingModel: 'per-request',
       },
       reputation: {
         totalJobs: 1540,
         successRate: 98.7,
         avgResponseTime: '5.3s',
         rating: 4.8,
-        reviews: 97
+        reviews: 97,
       },
       metadata: {
         apiVersion: 'v2.8.5',
         rateLimit: '30/min',
         maxPayload: '15MB',
         image: '🔍',
-        color: '#ef4444'
-      }
-    }
+        color: '#ef4444',
+      },
+    },
   ];
 
   const seededServices: Service[] = [];

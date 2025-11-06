@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { logger } from '../../../utils/logger.js';
 
 export interface SummarizationRequest {
   text: string;
@@ -42,9 +43,9 @@ export class TextSummarizer {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (apiKey) {
       this.client = new Anthropic({ apiKey });
-      console.log('✓ Text Summarizer initialized with Claude API');
+      logger.info('Text Summarizer initialized with Claude API');
     } else {
-      console.warn('⚠ ANTHROPIC_API_KEY not set - using mock responses');
+      logger.warn('ANTHROPIC_API_KEY not set - using mock responses');
     }
   }
 
@@ -125,7 +126,7 @@ export class TextSummarizer {
         },
       };
     } catch (error: any) {
-      console.error('Summarization failed:', error.message);
+      logger.error('Summarization failed:', error.message);
       throw new Error(`Summarization failed: ${error.message}`);
     }
   }
