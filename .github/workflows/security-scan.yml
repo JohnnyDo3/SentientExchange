@@ -40,7 +40,7 @@ jobs:
           args: --severity-threshold=medium --json-file-output=snyk-report.json
 
       - name: Upload Snyk report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: snyk-security-report
