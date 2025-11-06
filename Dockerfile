@@ -3,8 +3,8 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Force cache bust - change this number to force rebuild: 7
-RUN echo "Cache bust: 7"
+# Force cache bust - change this number to force rebuild: 8
+RUN echo "Cache bust: 8"
 
 # Copy package files
 COPY package*.json ./
@@ -22,6 +22,9 @@ RUN echo "=== Checking src/types directory ===" && ls -la src/types/ && echo "==
 
 # Build the application
 RUN npm run build
+
+# Debug - check if dist was created
+RUN echo "=== Checking dist directory ===" && ls -la dist/ && echo "=== Checking dist/server ===" && ls -la dist/server/
 
 # Remove devDependencies after build to reduce image size
 RUN npm prune --production
