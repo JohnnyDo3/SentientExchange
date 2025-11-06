@@ -1,6 +1,6 @@
 // Mock dependencies BEFORE imports
 const mockCoinbase = {
-  configure: jest.fn()
+  configure: jest.fn(),
 };
 
 const mockWalletCreate = jest.fn();
@@ -10,8 +10,8 @@ jest.mock('@coinbase/coinbase-sdk', () => ({
   Coinbase: mockCoinbase,
   Wallet: {
     create: mockWalletCreate,
-    import: mockWalletImport
-  }
+    import: mockWalletImport,
+  },
 }));
 
 const mockFsExistsSync = jest.fn();
@@ -23,14 +23,14 @@ jest.mock('fs', () => ({
   existsSync: mockFsExistsSync,
   readFileSync: mockFsReadFileSync,
   writeFileSync: mockFsWriteFileSync,
-  mkdirSync: mockFsMkdirSync
+  mkdirSync: mockFsMkdirSync,
 }));
 
 const mockPathDirname = jest.fn();
 const mockPathResolve = jest.fn();
 jest.mock('path', () => ({
   dirname: mockPathDirname,
-  resolve: mockPathResolve
+  resolve: mockPathResolve,
 }));
 
 import { WalletManager } from '../../../src/payment/WalletManager';
@@ -42,17 +42,17 @@ describe('WalletManager', () => {
 
   const mockConfig = {
     networkId: 'base-sepolia',
-    walletDataPath: './data/test-wallet.json'
+    walletDataPath: './data/test-wallet.json',
   };
 
   const mockWalletData = {
     walletId: 'test-wallet-id',
-    seed: 'test-seed-phrase'
+    seed: 'test-seed-phrase',
   };
 
   const mockEnv = {
     CDP_API_KEY_NAME: 'test-key-name',
-    CDP_API_KEY_PRIVATE_KEY: 'test-private-key'
+    CDP_API_KEY_PRIVATE_KEY: 'test-private-key',
   };
 
   beforeEach(() => {
@@ -64,20 +64,20 @@ describe('WalletManager', () => {
       getId: jest.fn().mockReturnValue('0xTestAddress123'),
       faucet: jest.fn().mockResolvedValue({
         wait: jest.fn().mockResolvedValue(undefined),
-        getTransactionHash: jest.fn().mockReturnValue('0xFaucetTxHash')
-      })
+        getTransactionHash: jest.fn().mockReturnValue('0xFaucetTxHash'),
+      }),
     };
 
     // Setup mock wallet
     mockWallet = {
       getId: jest.fn().mockReturnValue('test-wallet-id'),
       getDefaultAddress: jest.fn().mockResolvedValue(mockAddress),
-      export: jest.fn().mockResolvedValue(mockWalletData),
+      export: jest.fn().mockReturnValue(mockWalletData), // Synchronous, not async
       getBalance: jest.fn().mockResolvedValue({ toString: () => '1000000' }),
       createTransfer: jest.fn().mockResolvedValue({
         wait: jest.fn().mockResolvedValue(undefined),
-        getTransactionHash: jest.fn().mockReturnValue('0xTransferTxHash')
-      })
+        getTransactionHash: jest.fn().mockReturnValue('0xTransferTxHash'),
+      }),
     };
 
     // Reset all mocks
@@ -85,7 +85,9 @@ describe('WalletManager', () => {
     mockWalletImport.mockReset().mockResolvedValue(mockWallet);
     mockWalletCreate.mockReset().mockResolvedValue(mockWallet);
     mockFsExistsSync.mockReset().mockReturnValue(false);
-    mockFsReadFileSync.mockReset().mockReturnValue(JSON.stringify(mockWalletData));
+    mockFsReadFileSync
+      .mockReset()
+      .mockReturnValue(JSON.stringify(mockWalletData));
     mockFsWriteFileSync.mockReset();
     mockFsMkdirSync.mockReset();
     mockPathDirname.mockReset().mockReturnValue('./data');
@@ -108,7 +110,7 @@ describe('WalletManager', () => {
     it('should use provided wallet file path', () => {
       const customConfig = {
         networkId: 'base-sepolia',
-        walletDataPath: './custom/wallet.json'
+        walletDataPath: './custom/wallet.json',
       };
       const customManager = new WalletManager(customConfig);
       expect(customManager).toBeDefined();
@@ -116,7 +118,7 @@ describe('WalletManager', () => {
 
     it('should use default wallet file path when not provided', () => {
       const minimalConfig = {
-        networkId: 'base-sepolia'
+        networkId: 'base-sepolia',
       };
       const defaultManager = new WalletManager(minimalConfig);
       expect(defaultManager).toBeDefined();
@@ -129,7 +131,7 @@ describe('WalletManager', () => {
 
       expect(mockCoinbase.configure).toHaveBeenCalledWith({
         apiKeyName: mockEnv.CDP_API_KEY_NAME,
-        privateKey: mockEnv.CDP_API_KEY_PRIVATE_KEY
+        privateKey: mockEnv.CDP_API_KEY_PRIVATE_KEY,
       });
     });
 
@@ -150,7 +152,7 @@ describe('WalletManager', () => {
       await walletManager.initialize();
 
       expect(mockWalletCreate).toHaveBeenCalledWith({
-        networkId: mockConfig.networkId
+        networkId: mockConfig.networkId,
       });
       expect(walletManager.isReady()).toBe(true);
     });
@@ -263,7 +265,7 @@ describe('WalletManager', () => {
 
     it('should throw error on mainnet', async () => {
       const mainnetManager = new WalletManager({
-        networkId: 'base-mainnet'
+        networkId: 'base-mainnet',
       });
       await mainnetManager.initialize();
 
@@ -303,14 +305,14 @@ describe('WalletManager', () => {
         amount: parseFloat(amount),
         assetId: 'usdc',
         destination: recipientAddress,
-        gasless: true
+        gasless: true,
       });
     });
 
     it('should wait for transfer confirmation', async () => {
       const mockTransfer = {
         wait: jest.fn().mockResolvedValue(undefined),
-        getTransactionHash: jest.fn().mockReturnValue('0xTransferTxHash')
+        getTransactionHash: jest.fn().mockReturnValue('0xTransferTxHash'),
       };
       mockWallet.createTransfer.mockResolvedValue(mockTransfer);
 
@@ -328,7 +330,9 @@ describe('WalletManager', () => {
     });
 
     it('should handle transfer creation errors', async () => {
-      mockWallet.createTransfer.mockRejectedValue(new Error('Insufficient funds'));
+      mockWallet.createTransfer.mockRejectedValue(
+        new Error('Insufficient funds')
+      );
 
       await expect(
         walletManager.transferUsdc(recipientAddress, amount)
@@ -342,7 +346,7 @@ describe('WalletManager', () => {
         amount: 0,
         assetId: 'usdc',
         destination: recipientAddress,
-        gasless: true
+        gasless: true,
       });
     });
 
@@ -355,7 +359,7 @@ describe('WalletManager', () => {
         amount: parseFloat(largeAmount),
         assetId: 'usdc',
         destination: recipientAddress,
-        gasless: true
+        gasless: true,
       });
     });
   });
@@ -394,9 +398,7 @@ describe('WalletManager', () => {
     });
 
     it('should throw if wallet not initialized', () => {
-      expect(() => walletManager.getWallet()).toThrow(
-        'Wallet not initialized'
-      );
+      expect(() => walletManager.getWallet()).toThrow('Wallet not initialized');
     });
   });
 
