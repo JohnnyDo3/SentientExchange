@@ -11,7 +11,7 @@ AgentMarket is an AI-native service marketplace that enables autonomous AI agent
 - **Runtime**: Node.js 20+
 - **Language**: TypeScript 5.0+
 - **MCP SDK**: @modelcontextprotocol/sdk
-- **Transport**: stdio (standard MCP pattern)
+- **Transport**: stdio (local) + SSE (remote via Railway)
 - **Payment Protocol**: x402 (HTTP 402 Payment Required)
 - **Blockchain**: Base Sepolia (testnet) / Base (mainnet)
 - **Wallet**: Coinbase CDP Wallet Smart Accounts
@@ -211,10 +211,12 @@ Bash scripts for common tasks:
 
 ### Core Components
 
-1. **MCP Server** (`src/server.ts`)
+1. **MCP Server** (`src/server.ts` + `src/api/apiServer.ts`)
    - Implements the Model Context Protocol server
    - Exposes tools for service discovery, purchasing, and rating
-   - Uses stdio transport for communication with MCP clients (Claude Desktop)
+   - Supports two transport modes:
+     - **stdio**: Local communication with Claude Desktop (stdio transport)
+     - **SSE**: Remote communication via HTTPS/Railway (Server-Sent Events)
 
 2. **Service Registry** (`src/registry/ServiceRegistry.ts`)
    - Manages service listings with in-memory cache + SQLite persistence
@@ -242,12 +244,30 @@ The server exposes four MCP tools to AI clients:
 
 ### Data Flow
 
+**Local Mode (stdio)**:
+
 ```
 Claude Desktop (MCP Client)
     ↓ (MCP over stdio)
-AgentMarket MCP Server
+AgentMarket MCP Server (local)
     ↓ (discover_services)
 Service Registry (SQLite + cache)
+    ↓ (purchase_service)
+X402 Payment Client
+    ↓ (HTTP 402 + payment)
+External x402 Service
+```
+
+**Remote Mode (SSE)**:
+
+```
+Claude Desktop / API Client
+    ↓ (HTTPS + SSE)
+AgentMarket API Server (Railway)
+    ↓ (MCP over SSE)
+AgentMarket MCP Server
+    ↓ (discover_services)
+Service Registry (PostgreSQL + cache)
     ↓ (purchase_service)
 X402 Payment Client
     ↓ (HTTP 402 + payment)
@@ -528,7 +548,8 @@ Located in `tests/unit/`:
 
 Located in `tests/integration/`:
 
-- `e2e.test.ts`: End-to-end workflows (limited due to stdio transport)
+- `e2e.test.ts`: End-to-end workflows
+- `api-server.test.ts`: SSE transport and API endpoint tests
 
 ### Manual Testing
 
@@ -636,7 +657,12 @@ The x402 protocol extends HTTP with a 402 Payment Required status code. Services
 
 ### MCP Protocol
 
-Model Context Protocol enables AI assistants to access tools and resources. This server exposes tools via stdio transport, allowing Claude Desktop to discover services and make payments on behalf of users.
+Model Context Protocol enables AI assistants to access tools and resources. This server exposes tools via two transport modes:
+
+- **stdio**: Local communication with Claude Desktop
+- **SSE (Server-Sent Events)**: Remote communication via HTTPS (deployed on Railway)
+
+Both modes allow AI clients to discover services and make payments on behalf of users.
 
 ## References
 

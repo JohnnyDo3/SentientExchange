@@ -5,7 +5,7 @@
  * Extracted from original database.ts implementation.
  */
 
-import sqlite3 from 'sqlite3';
+import sqlite3Module from 'sqlite3';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs';
@@ -13,10 +13,16 @@ import { DatabaseAdapter } from '../DatabaseAdapter.js';
 import { logger } from '../../utils/logger.js';
 
 export class SQLiteAdapter implements DatabaseAdapter {
-  private db: sqlite3.Database;
-  private runAsync: (sql: string, ...params: any[]) => Promise<void>;
-  private getAsync: <T = any>(sql: string, ...params: any[]) => Promise<T | undefined>;
-  private allAsync: <T = any>(sql: string, ...params: any[]) => Promise<T[]>;
+  private db: sqlite3Module.Database;
+  private runAsync: (sql: string, ...params: unknown[]) => Promise<void>;
+  private getAsync: <T = unknown>(
+    sql: string,
+    ...params: unknown[]
+  ) => Promise<T | undefined>;
+  private allAsync: <T = unknown>(
+    sql: string,
+    ...params: unknown[]
+  ) => Promise<T[]>;
 
   constructor(private dbPath: string) {
     // Ensure data directory exists
@@ -26,7 +32,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     }
 
     // Initialize SQLite database
-    this.db = new sqlite3.Database(dbPath);
+    this.db = new sqlite3Module.Database(dbPath);
 
     // Promisify database methods for async/await
     this.runAsync = promisify(this.db.run.bind(this.db));
@@ -118,28 +124,47 @@ export class SQLiteAdapter implements DatabaseAdapter {
     `);
 
     // Create indexes for performance
-    await this.runAsync(`CREATE INDEX IF NOT EXISTS idx_services_capabilities ON services(capabilities)`);
-    await this.runAsync(`CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider)`);
-    await this.runAsync(`CREATE INDEX IF NOT EXISTS idx_services_deleted ON services(deleted_at)`);
-    await this.runAsync(`CREATE INDEX IF NOT EXISTS idx_transactions_service ON transactions(serviceId)`);
-    await this.runAsync(`CREATE INDEX IF NOT EXISTS idx_transactions_buyer ON transactions(buyer)`);
-    await this.runAsync(`CREATE INDEX IF NOT EXISTS idx_ratings_service ON ratings(serviceId)`);
-    await this.runAsync(`CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id)`);
-    await this.runAsync(`CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp)`);
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_services_capabilities ON services(capabilities)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_services_deleted ON services(deleted_at)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_transactions_service ON transactions(serviceId)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_transactions_buyer ON transactions(buyer)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_ratings_service ON ratings(serviceId)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp)`
+    );
 
     logger.info('✓ SQLite schema initialized');
   }
 
-  async run(sql: string, params?: any[]): Promise<void> {
-    await this.runAsync(sql, params);
+  async run(sql: string, params?: unknown[]): Promise<void> {
+    await this.runAsync(sql, ...(params || []));
   }
 
-  async get<T = any>(sql: string, params?: any[]): Promise<T | undefined> {
-    return await this.getAsync(sql, params);
+  async get<T = unknown>(
+    sql: string,
+    params?: unknown[]
+  ): Promise<T | undefined> {
+    return await this.getAsync<T>(sql, ...(params || []));
   }
 
-  async all<T = any>(sql: string, params?: any[]): Promise<T[]> {
-    return await this.allAsync(sql, params);
+  async all<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+    return await this.allAsync<T>(sql, ...(params || []));
   }
 
   async close(): Promise<void> {
@@ -155,7 +180,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return 'sqlite';
   }
 
-  convertPlaceholders(sql: string, paramCount: number): string {
+  convertPlaceholders(sql: string, _paramCount: number): string {
     // SQLite uses ? placeholders - no conversion needed
     return sql;
   }

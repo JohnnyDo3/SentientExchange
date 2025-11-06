@@ -52,7 +52,9 @@
       "Bash(awk:*)",
       "Bash(xargs:*)",
       "Bash(node fix-purchase-tests.js:*)",
-      "Bash(railway logs:*)"
+      "Bash(railway logs:*)",
+      "Bash(bash:*)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []

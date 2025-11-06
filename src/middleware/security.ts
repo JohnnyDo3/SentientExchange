@@ -1,6 +1,6 @@
 import { logger, securityLogger } from '../utils/logger.js';
 import { Request, Response, NextFunction } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimitMiddleware from 'express-rate-limit';
 import helmet from 'helmet';
 import crypto from 'crypto';
 
@@ -12,7 +12,7 @@ import crypto from 'crypto';
  */
 
 // Rate Limiting Configuration
-export const apiLimiter = rateLimit({
+export const apiLimiter = rateLimitMiddleware({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Max 100 requests per 15 minutes per IP
   message: {
@@ -26,7 +26,7 @@ export const apiLimiter = rateLimit({
 });
 
 // Stricter rate limit for write operations (POST, PUT, DELETE)
-export const writeLimiter = rateLimit({
+export const writeLimiter = rateLimitMiddleware({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20, // Max 20 write operations per 15 minutes
   message: {
@@ -38,7 +38,7 @@ export const writeLimiter = rateLimit({
 });
 
 // Very strict rate limit for service registration
-export const registrationLimiter = rateLimit({
+export const registrationLimiter = rateLimitMiddleware({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 5, // Max 5 registrations per hour
   message: {
@@ -50,7 +50,7 @@ export const registrationLimiter = rateLimit({
 });
 
 // Rate limit for MCP SSE connections
-export const mcpConnectionLimiter = rateLimit({
+export const mcpConnectionLimiter = rateLimitMiddleware({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10, // Max 10 new SSE connections per 15 minutes per IP
   message: {
@@ -62,7 +62,7 @@ export const mcpConnectionLimiter = rateLimit({
 });
 
 // Rate limit for MCP messages
-export const mcpMessageLimiter = rateLimit({
+export const mcpMessageLimiter = rateLimitMiddleware({
   windowMs: 1 * 60 * 1000, // 1 minute
   max: 60, // Max 60 messages per minute (1 per second average)
   message: {
@@ -100,7 +100,10 @@ export const helmetConfig = helmet({
 
 // CORS Configuration
 export const corsOptions = {
-  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+  origin: function (
+    origin: string | undefined,
+    callback: (err: Error | null, allow?: boolean) => void
+  ) {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
 
@@ -113,7 +116,10 @@ export const corsOptions = {
       ...(process.env.ALLOWED_ORIGINS?.split(',') || []),
     ];
 
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
+    if (
+      allowedOrigins.indexOf(origin) !== -1 ||
+      process.env.NODE_ENV === 'development'
+    ) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -121,13 +127,23 @@ export const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Payment', 'X-Request-ID', 'X-CSRF-Token'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Payment',
+    'X-Request-ID',
+    'X-CSRF-Token',
+  ],
   exposedHeaders: ['X-CSRF-Token'],
   maxAge: 86400, // 24 hours
 };
 
 // Request size limiting middleware
-export function requestSizeLimit(req: Request, res: Response, next: NextFunction) {
+export function requestSizeLimit(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   const contentLength = req.headers['content-length'];
 
   if (contentLength) {
@@ -146,14 +162,22 @@ export function requestSizeLimit(req: Request, res: Response, next: NextFunction
 }
 
 // Error sanitization middleware
-export function errorHandler(err: any, req: Request, res: Response, next: NextFunction) {
+export function errorHandler(
+  err: Error & { status?: number; message?: string; name?: string },
+  req: Request,
+  res: Response,
+  _next: NextFunction
+) {
   logger.error('API Error:', err);
 
   // Don't leak internal error details in production
   const isProd = process.env.NODE_ENV === 'production';
 
   // Validation errors (safe to expose)
-  if (err.name === 'ValidationError' || err.message?.includes('Validation failed')) {
+  if (
+    err.name === 'ValidationError' ||
+    err.message?.includes('Validation failed')
+  ) {
     return res.status(400).json({
       success: false,
       error: err.message,
@@ -186,7 +210,8 @@ export function errorHandler(err: any, req: Request, res: Response, next: NextFu
 
 // Request ID middleware (for tracking and debugging)
 export function requestId(req: Request, res: Response, next: NextFunction) {
-  const id = req.headers['x-request-id'] as string ||
+  const id =
+    (req.headers['x-request-id'] as string) ||
     `${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
   req.headers['x-request-id'] = id;
@@ -218,10 +243,14 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
 }
 
 // Input sanitization middleware
-export function sanitizeRequest(req: Request, res: Response, next: NextFunction) {
+export function sanitizeRequest(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   // Sanitize query parameters
   if (req.query) {
-    Object.keys(req.query).forEach(key => {
+    Object.keys(req.query).forEach((key) => {
       if (typeof req.query[key] === 'string') {
         req.query[key] = (req.query[key] as string).trim();
       }
@@ -236,15 +265,27 @@ export function sanitizeRequest(req: Request, res: Response, next: NextFunction)
   next();
 }
 
-function sanitizeObject(obj: any): void {
-  Object.keys(obj).forEach(key => {
-    if (typeof obj[key] === 'string') {
-      // Remove null bytes
-      obj[key] = obj[key].replace(/\0/g, '');
-      // Trim whitespace
-      obj[key] = obj[key].trim();
-    } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-      sanitizeObject(obj[key]);
+function sanitizeObject(obj: Record<string, unknown>): void {
+  Object.keys(obj).forEach((key) => {
+    const value = obj[key];
+    if (typeof value === 'string') {
+      // Remove null bytes and trim whitespace
+      let sanitized = value.replace(/\0/g, '');
+      sanitized = sanitized.trim();
+      obj[key] = sanitized;
+    } else if (Array.isArray(value)) {
+      // Recursively sanitize objects within arrays
+      value.forEach((item, index) => {
+        if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+          sanitizeObject(value[index] as Record<string, unknown>);
+        }
+      });
+    } else if (
+      typeof value === 'object' &&
+      value !== null &&
+      !Array.isArray(value)
+    ) {
+      sanitizeObject(value as Record<string, unknown>);
     }
   });
 }
@@ -253,7 +294,11 @@ function sanitizeObject(obj: any): void {
  * Generate CSRF token middleware
  * Generates a unique token for each session and sends it in response header
  */
-export function generateCsrfToken(req: Request, res: Response, next: NextFunction) {
+export function generateCsrfToken(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   // Generate a new CSRF token if not present
   if (!req.headers['x-csrf-token']) {
     const token = crypto.randomBytes(32).toString('hex');
@@ -274,9 +319,17 @@ export function generateCsrfToken(req: Request, res: Response, next: NextFunctio
  * CSRF protection for state-changing operations
  * Validates CSRF token using double-submit cookie pattern
  */
-export function csrfProtection(req: Request, res: Response, next: NextFunction) {
+export function csrfProtection(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   // Skip CSRF for read operations
-  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+  if (
+    req.method === 'GET' ||
+    req.method === 'HEAD' ||
+    req.method === 'OPTIONS'
+  ) {
     return next();
   }
 
@@ -308,7 +361,26 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
   }
 
   // Tokens must match (constant-time comparison to prevent timing attacks)
-  if (!crypto.timingSafeEqual(Buffer.from(headerToken), Buffer.from(cookieToken))) {
+  // First check if tokens have the same length (timingSafeEqual requires equal-length buffers)
+  if (headerToken.length !== cookieToken.length) {
+    // Security event: CSRF token mismatch (possible attack)
+    securityLogger.csrfViolation({
+      path: req.path,
+      method: req.method,
+      ip: req.ip,
+      hasHeader: true,
+      hasCookie: true,
+    });
+
+    return res.status(403).json({
+      success: false,
+      error: 'CSRF token invalid - possible cross-site request forgery attempt',
+    });
+  }
+
+  if (
+    !crypto.timingSafeEqual(Buffer.from(headerToken), Buffer.from(cookieToken))
+  ) {
     // Security event: CSRF token mismatch (possible attack)
     securityLogger.csrfViolation({
       path: req.path,
