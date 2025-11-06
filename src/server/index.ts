@@ -2,7 +2,7 @@
  * Entry point for SentientExchange API Server
  */
 
-import { startAPIServer } from './api.js';
+import { startAPIServer } from './api';
 
 // Use Railway's PORT environment variable, or default to 3333 for local development
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3333;
