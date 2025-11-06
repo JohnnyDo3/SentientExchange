@@ -3,8 +3,8 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Force cache bust - change this number to force rebuild: 8
-RUN echo "Cache bust: 8"
+# Force cache bust - change this number to force rebuild: 9
+RUN echo "Cache bust: 9"
 
 # Copy package files
 COPY package*.json ./
