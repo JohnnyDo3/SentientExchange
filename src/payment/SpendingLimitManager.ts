@@ -26,6 +26,28 @@ export interface SpendingStats {
 }
 
 /**
+ * Database row types for internal use
+ */
+interface SpendingLimitRow {
+  userId: string;
+  perTransaction: string;
+  daily: string;
+  monthly: string;
+  enabled: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface SpendingTotalRow {
+  total: number | null;
+  count: number;
+}
+
+interface LastTransactionRow {
+  timestamp: string;
+}
+
+/**
  * Manages user spending limits and tracks spending history
  * Prevents overspending and provides budget management for AI agents
  */
@@ -103,7 +125,7 @@ export class SpendingLimitManager {
    * Get spending limits for a user
    */
   async getLimits(userId: string): Promise<SpendingLimit | null> {
-    const row: any = await this.db.get(
+    const row = await this.db.get<SpendingLimitRow>(
       'SELECT * FROM spending_limits WHERE userId = ?',
       [userId]
     );
@@ -130,7 +152,7 @@ export class SpendingLimitManager {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
     // Get today's spending
-    const todayRow: any = await this.db.get(
+    const todayRow = await this.db.get<SpendingTotalRow>(
       `SELECT SUM(CAST(REPLACE(amount, '$', '') AS REAL)) as total, COUNT(*) as count
        FROM transactions
        WHERE buyer = ? AND status = 'completed' AND timestamp >= ?`,
@@ -138,7 +160,7 @@ export class SpendingLimitManager {
     );
 
     // Get this month's spending
-    const monthRow: any = await this.db.get(
+    const monthRow = await this.db.get<SpendingTotalRow>(
       `SELECT SUM(CAST(REPLACE(amount, '$', '') AS REAL)) as total
        FROM transactions
        WHERE buyer = ? AND status = 'completed' AND timestamp >= ?`,
@@ -146,7 +168,7 @@ export class SpendingLimitManager {
     );
 
     // Get last transaction
-    const lastTx: any = await this.db.get(
+    const lastTx = await this.db.get<LastTransactionRow>(
       `SELECT timestamp FROM transactions
        WHERE buyer = ? AND status = 'completed'
        ORDER BY timestamp DESC LIMIT 1`,

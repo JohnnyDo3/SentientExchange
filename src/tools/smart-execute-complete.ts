@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { getErrorMessage } from '../types/errors';
 import Joi from 'joi';
 import { ServiceRegistry } from '../registry/ServiceRegistry';
 import { SolanaVerifier } from '../payment/SolanaVerifier';
@@ -46,7 +47,7 @@ export async function completeServiceWithPayment(
   verifier: SolanaVerifier,
   db: Database,
   args: CompleteServiceWithPaymentArgs
-): Promise<any> {
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {
     // Validate input
     const { error, value } = completeServiceSchema.validate(args);
@@ -56,7 +57,7 @@ export async function completeServiceWithPayment(
         content: [{
           type: 'text',
           text: JSON.stringify({
-            error: `Validation error: ${error.message}`
+            error: `Validation error: ${getErrorMessage(error)}`
           })
         }],
         isError: true
@@ -295,13 +296,13 @@ export async function completeServiceWithPayment(
       isError: true
     };
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error in completeServiceWithPayment:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: error.message || 'Unknown error during service completion',
+          error: getErrorMessage(error) || 'Unknown error during service completion',
         })
       }],
       isError: true
@@ -314,16 +315,16 @@ export async function completeServiceWithPayment(
  */
 async function attemptServiceCompletion(
   service: Service,
-  requestData: any,
+  requestData: Record<string, unknown>,
   signature: string,
   transactionId: string,
   verifier: SolanaVerifier,
   db: Database,
-  registry: ServiceRegistry
+  _registry: ServiceRegistry
 ): Promise<{
   success: boolean;
-  serviceResult?: any;
-  payment?: any;
+  serviceResult?: unknown;
+  payment?: Record<string, unknown>;
   error?: string;
   responseTime?: number;
 }> {
@@ -342,7 +343,7 @@ async function attemptServiceCompletion(
       expectedAmount: priceInTokenUnits,
       expectedRecipient: service.provider,
       expectedToken: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC devnet
-      network: (service.pricing.network || process.env.NETWORK || 'devnet') as any,
+      network: (service.pricing.network || process.env.NETWORK || 'devnet') as 'mainnet-beta' | 'devnet' | 'testnet',
     });
 
     if (!verificationResult.verified) {
@@ -419,9 +420,9 @@ async function attemptServiceCompletion(
       responseTime,
     };
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     const responseTime = Date.now() - startTime;
-    logger.error(`❌ Service ${service.name} failed:`, error.message);
+    logger.error(`❌ Service ${service.name} failed:`, getErrorMessage(error));
 
     // Log failed transaction
     try {
@@ -441,17 +442,17 @@ async function attemptServiceCompletion(
           JSON.stringify(requestData),
           null,
           signature,
-          error.message,
+          getErrorMessage(error),
           new Date().toISOString(),
         ]
       );
-    } catch (dbError) {
+    } catch (dbError: unknown) {
       logger.error('Failed to log transaction:', dbError);
     }
 
     return {
       success: false,
-      error: error.response?.data?.error || error.message || 'Service request failed',
+      error: (error && typeof error === 'object' && 'response' in error && error.response && typeof error.response === 'object' && 'data' in error.response && error.response.data && typeof error.response.data === 'object' && 'error' in error.response.data ? String(error.response.data.error) : null) || getErrorMessage(error) || 'Service request failed',
       payment: {
         transactionId,
         signature,

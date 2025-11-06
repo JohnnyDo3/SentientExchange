@@ -1,6 +1,7 @@
 import { Connection, Keypair, PublicKey, Transaction, SystemProgram, sendAndConfirmTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { logger } from '../utils/logger.js';
+import { getErrorMessage } from '../types/errors';
 import Joi from 'joi';
 import bs58 from 'bs58';
 
@@ -59,7 +60,7 @@ export async function executePayment(args: ExecutePaymentArgs) {
         content: [{
           type: 'text',
           text: JSON.stringify({
-            error: `Validation error: ${error.message}`
+            error: `Validation error: ${getErrorMessage(error)}`
           })
         }],
         isError: true
@@ -140,14 +141,14 @@ export async function executePayment(args: ExecutePaymentArgs) {
       }]
     };
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('❌ Payment execution failed:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: `Payment execution failed: ${error.message}`,
-          details: error.toString(),
+          error: `Payment execution failed: ${getErrorMessage(error)}`,
+          details: String(error),
         })
       }],
       isError: true

@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { getErrorMessage } from '../types/errors';
 import Joi from 'joi';
 import { ServiceRegistry } from '../registry/ServiceRegistry';
 import { SpendingLimitManager } from '../payment/SpendingLimitManager';
@@ -9,14 +10,13 @@ import {
   rankServices,
 } from '../utils/health-check';
 import axios from 'axios';
-import type { Service } from '../types';
 
 /**
  * Arguments for discover_and_prepare_service tool
  */
 export interface DiscoverAndPrepareArgs {
   capability: string;
-  requestData: any;
+  requestData: Record<string, unknown>;
   requirements?: {
     maxPrice?: string;
     minRating?: number;
@@ -34,7 +34,7 @@ export interface DiscoverAndPrepareArgs {
  */
 const discoverAndPrepareSchema = Joi.object({
   capability: Joi.string().required().description('Service capability to search for (e.g., "sentiment-analysis")'),
-  requestData: Joi.any().required().description('Data to send to the service'),
+  requestData: Joi.object().unknown(true).required().description('Data to send to the service'),
   requirements: Joi.object({
     maxPrice: Joi.string().pattern(/^\$\d+(\.\d{1,2})?$/).optional(),
     minRating: Joi.number().min(0).max(5).optional(),
@@ -74,7 +74,7 @@ export async function discoverAndPrepareService(
         content: [{
           type: 'text',
           text: JSON.stringify({
-            error: `Validation error: ${error.message}`
+            error: `Validation error: ${getErrorMessage(error)}`
           })
         }],
         isError: true
@@ -342,12 +342,13 @@ export async function discoverAndPrepareService(
         requestData,
         transactionId: `tx-${Date.now()}-${Math.random().toString(36).substring(7)}`,
         paymentInstructions: {
+          transactionId: `tx-${Date.now()}-${Math.random().toString(36).substring(7)}`,
           amount,
           currency: 'USDC',
           recipient,
           token: tokenAddress,
           network,
-        } as any,
+        },
       });
 
       logger.info(`✅ Payment ready - Session: ${session.sessionId}`);
@@ -393,14 +394,14 @@ export async function discoverAndPrepareService(
         }]
       };
 
-    } catch (requestError: any) {
-      logger.error('Service request failed:', requestError.message);
+    } catch (requestError: unknown) {
+      logger.error('Service request failed:', getErrorMessage(requestError));
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             error: 'Failed to contact service',
-            details: requestError.message,
+            details: getErrorMessage(requestError),
             service: {
               id: selectedService.id,
               name: selectedService.name,
@@ -418,13 +419,13 @@ export async function discoverAndPrepareService(
       };
     }
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error in discoverAndPrepareService:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: error.message || 'Unknown error during service discovery and preparation',
+          error: getErrorMessage(error) || 'Unknown error during service discovery and preparation',
         })
       }],
       isError: true

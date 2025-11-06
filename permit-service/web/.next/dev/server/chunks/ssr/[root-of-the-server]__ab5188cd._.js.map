@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 14, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/johnn/Desktop/agentMarket-mcp/permit-service/web/app/sign-in/%5B%5B...sign-in%5D%5D/page.tsx"],"sourcesContent":["import { SignIn } from '@clerk/nextjs'\n\nexport default function SignInPage() {\n  return (\n    <div className=\"min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8\">\n      <div className=\"max-w-md w-full\">\n        <div className=\"text-center mb-8\">\n          <h2 className=\"text-3xl font-bold text-navy-900\">Welcome Back</h2>\n          <p className=\"mt-2 text-gray-600\">Sign in to access your permits and dashboard</p>\n        </div>\n        <SignIn\n          appearance={{\n            elements: {\n              rootBox: \"mx-auto\",\n              card: \"shadow-lg rounded-lg\",\n            },\n          }}\n        />\n      </div>\n    </div>\n  )\n}\n"],"names":[],"mappings":";;;;;AAAA;;;AAEe,SAAS;IACtB,qBACE,2SAAC;QAAI,WAAU;kBACb,cAAA,2SAAC;YAAI,WAAU;;8BACb,2SAAC;oBAAI,WAAU;;sCACb,2SAAC;4BAAG,WAAU;sCAAmC;;;;;;sCACjD,2SAAC;4BAAE,WAAU;sCAAqB;;;;;;;;;;;;8BAEpC,2SAAC,6PAAM;oBACL,YAAY;wBACV,UAAU;4BACR,SAAS;4BACT,MAAM;wBACR;oBACF;;;;;;;;;;;;;;;;;AAKV","debugId":null}}]
-}

@@ -1,5 +1,6 @@
 import { WalletManager } from '../payment/WalletManager';
 import { logger } from '../utils/logger';
+import { getErrorMessage } from '../types/errors';
 
 /**
  * Check the current USDC balance in the wallet
@@ -41,13 +42,13 @@ export async function checkWalletBalance(
       }]
     };
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error in checkWalletBalance:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: error.message
+          error: getErrorMessage(error)
         })
       }]
     };

@@ -6,3 +6,4 @@
 
 export * from './service';
 export * from './transaction';
+export * from './errors';

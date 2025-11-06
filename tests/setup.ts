@@ -1,6 +1,9 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
+// Load custom Jest matchers
+import './utils/matchers';
+
 // Load environment variables from root .env file for tests
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 

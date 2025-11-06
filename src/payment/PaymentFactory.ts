@@ -31,7 +31,7 @@ export async function createPaymentRouter(
   const rpcUrl = config?.rpcUrl || process.env.SOLANA_RPC_URL;
   const secretKey = config?.secretKey || process.env.SOLANA_PRIVATE_KEY;
   const paymentMode = config?.paymentMode ||
-                      (process.env.PAYMENT_MODE as any) ||
+                      (process.env.PAYMENT_MODE as 'x402' | 'direct' | 'hybrid' | undefined) ||
                       'hybrid';
 
   logger.info('Creating payment router', {
@@ -108,7 +108,7 @@ export async function createPaymentRouter(
 /**
  * Normalize network name to x402 format
  */
-function normalizeNetworkName(network: string): any {
+function normalizeNetworkName(network: string): string {
   const normalized = network.toLowerCase();
 
   // Map common network names to x402 format

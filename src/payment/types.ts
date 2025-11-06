@@ -3,8 +3,6 @@
  * Abstraction layer for different payment implementations
  */
 
-import { Transaction } from '../types/transaction';
-
 /**
  * Payment details extracted from x402 Payment Required response
  */
@@ -14,7 +12,7 @@ export interface PaymentDetails {
   currency: string; // Token symbol (e.g., 'USDC')
   tokenAddress: string; // Token mint/contract address
   network: 'solana-devnet' | 'solana' | 'base-sepolia' | 'base' | 'avalanche-fuji' | 'avalanche' | 'iotex' | 'sei' | 'sei-testnet';
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**

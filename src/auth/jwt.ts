@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { InvalidTokenError, getErrorMessage } from '../types/errors';
 
 /**
  * JWT authentication utilities
@@ -43,14 +44,17 @@ export function verifyToken(token: string): TokenPayload {
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
     return decoded;
-  } catch (error: any) {
-    if (error.name === 'TokenExpiredError') {
-      throw new Error('Token has expired');
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    if (error instanceof Error) {
+      if (error.name === 'TokenExpiredError') {
+        throw new InvalidTokenError('Token has expired');
+      }
+      if (error.name === 'JsonWebTokenError') {
+        throw new InvalidTokenError('Invalid token');
+      }
     }
-    if (error.name === 'JsonWebTokenError') {
-      throw new Error('Invalid token');
-    }
-    throw new Error(`Token verification failed: ${error.message}`);
+    throw new InvalidTokenError(`Token verification failed: ${message}`);
   }
 }
 
@@ -73,7 +77,7 @@ export function extractToken(authHeader?: string): string | null {
 /**
  * Extract token from httpOnly cookie (preferred method - XSS safe)
  */
-export function extractTokenFromCookie(cookies?: any): string | null {
+export function extractTokenFromCookie(cookies?: Record<string, string>): string | null {
   if (!cookies) {
     return null;
   }
@@ -89,7 +93,8 @@ export function isTokenExpired(token: string): boolean {
   try {
     verifyToken(token);
     return false;
-  } catch (error: any) {
-    return error.message.includes('expired');
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    return message.includes('expired');
   }
 }

@@ -4,6 +4,26 @@ import { Database } from './database';
 import { randomUUID } from 'crypto';
 
 /**
+ * Database row types (matches schema structure with JSON strings)
+ */
+interface ServiceRow {
+  id: string;
+  name: string;
+  description: string;
+  provider: string;
+  endpoint: string;
+  capabilities: string; // JSON string
+  pricing: string; // JSON string
+  reputation: string; // JSON string
+  metadata: string; // JSON string
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * Service Registry
  *
  * Manages service listings with in-memory cache and SQLite persistence.
@@ -30,7 +50,7 @@ export class ServiceRegistry {
    */
   async initialize(): Promise<void> {
     // Only load non-deleted services
-    const services = await this.db.all<any>('SELECT * FROM services WHERE deleted_at IS NULL');
+    const services = await this.db.all<ServiceRow>('SELECT * FROM services WHERE deleted_at IS NULL');
 
     for (const row of services) {
       const service = this.deserializeService(row);
@@ -156,7 +176,7 @@ export class ServiceRegistry {
     }
 
     // Check if service is soft deleted
-    const row: any = await this.db.get('SELECT deleted_at FROM services WHERE id = ?', [id]);
+    const row = await this.db.get<{ deleted_at: string | null }>('SELECT deleted_at FROM services WHERE id = ?', [id]);
     if (row?.deleted_at) {
       throw new Error(`Service has been deleted: ${id}`);
     }
@@ -239,7 +259,7 @@ export class ServiceRegistry {
    */
   async restoreService(id: string, restoredBy?: string): Promise<Service> {
     // Get the service from database (including soft-deleted ones)
-    const row: any = await this.db.get('SELECT * FROM services WHERE id = ?', [id]);
+    const row = await this.db.get<ServiceRow>('SELECT * FROM services WHERE id = ?', [id]);
 
     if (!row) {
       throw new Error(`Service not found: ${id}`);
@@ -300,17 +320,17 @@ export class ServiceRegistry {
   /**
    * Deserialize a database row into a Service object
    */
-  private deserializeService(row: any): Service {
+  private deserializeService(row: ServiceRow): Service {
     return {
       id: row.id,
       name: row.name,
       description: row.description,
       provider: row.provider,
       endpoint: row.endpoint,
-      capabilities: JSON.parse(row.capabilities),
-      pricing: JSON.parse(row.pricing),
-      reputation: JSON.parse(row.reputation),
-      metadata: JSON.parse(row.metadata),
+      capabilities: JSON.parse(row.capabilities) as string[],
+      pricing: JSON.parse(row.pricing) as Service['pricing'],
+      reputation: JSON.parse(row.reputation) as Service['reputation'],
+      metadata: JSON.parse(row.metadata) as Service['metadata'],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

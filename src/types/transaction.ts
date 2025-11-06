@@ -12,11 +12,11 @@ export interface Transaction {
   request: {
     method: string; // HTTP method (e.g., "POST")
     endpoint: string; // Full API endpoint URL
-    payload: any; // Request data
+    payload: Record<string, unknown>; // Request data
   };
   response?: {
     status: number; // HTTP status code
-    data: any; // Response data
+    data: unknown; // Response data
     responseTime: number; // Response time in milliseconds
   };
   paymentHash?: string; // On-chain transaction hash

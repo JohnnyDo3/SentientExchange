@@ -1,9 +1,10 @@
 import { logger } from '../utils/logger';
+import { ServiceError as _ServiceError, PaymentError as _PaymentError, ValidationError as _ValidationError, getErrorMessage } from '../types/errors';
 import Joi from 'joi';
 import { randomUUID } from 'crypto';
 import { ServiceRegistry } from '../registry/ServiceRegistry';
 import { Database } from '../registry/database';
-import { Transaction } from '../types/transaction';
+import { Transaction as _Transaction } from '../types/transaction';
 
 /**
  * Arguments for rate_service tool
@@ -51,14 +52,20 @@ export async function rateService(
         content: [{
           type: 'text',
           text: JSON.stringify({
-            error: `Validation error: ${error.message}`
+            error: `Validation error: ${getErrorMessage(error)}`
           })
         }]
       };
     }
 
     // Step 2: Get transaction from database
-    const transaction = await db.get<any>(
+    interface TransactionRow {
+      id: string;
+      serviceId: string;
+      buyer: string;
+      status: string;
+    }
+    const transaction = await db.get<TransactionRow>(
       'SELECT * FROM transactions WHERE id = ?',
       [value.transactionId]
     );
@@ -114,13 +121,13 @@ export async function rateService(
       }]
     };
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error in rateService:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: error.message
+          error: getErrorMessage(error)
         })
       }]
     };

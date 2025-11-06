@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { getErrorMessage } from '../types/errors';
 import Joi from 'joi';
 import { ServiceRegistry } from '../registry/ServiceRegistry';
 import { SolanaVerifier } from '../payment/SolanaVerifier';
@@ -13,7 +14,7 @@ export interface SubmitPaymentArgs {
   transactionId: string;
   signature: string;
   serviceId: string;
-  requestData: any;
+  requestData: Record<string, unknown>;
 }
 
 /**
@@ -43,7 +44,7 @@ export async function submitPayment(
   verifier: SolanaVerifier,
   db: Database,
   args: SubmitPaymentArgs
-): Promise<any> {
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {
     // Validate arguments
     const { error, value } = submitPaymentSchema.validate(args);
@@ -105,7 +106,7 @@ export async function submitPayment(
       expectedAmount: priceInTokenUnits,
       expectedRecipient: service.provider, // Service provider's wallet address
       expectedToken: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC devnet
-      network: (service.pricing.network || process.env.NETWORK || 'devnet') as any,
+      network: (service.pricing.network || process.env.NETWORK || 'devnet') as 'mainnet-beta' | 'devnet' | 'testnet',
     });
 
     if (!verificationResult.verified) {
@@ -198,8 +199,9 @@ export async function submitPayment(
         }]
       };
 
-    } catch (serviceError: any) {
-      logger.error('Service request failed after payment:', serviceError.message);
+    } catch (serviceError: unknown) {
+      const errorMessage = getErrorMessage(serviceError);
+      logger.error('Service request failed after payment:', errorMessage);
 
       // Log failed transaction
       await db.run(
@@ -218,7 +220,7 @@ export async function submitPayment(
           JSON.stringify(requestData),
           null,
           signature,
-          serviceError.message,
+          errorMessage,
           new Date().toISOString()
         ]
       );
@@ -228,7 +230,7 @@ export async function submitPayment(
           type: 'text',
           text: JSON.stringify({
             error: 'Service request failed after payment',
-            details: serviceError.response?.data || serviceError.message,
+            details: (serviceError && typeof serviceError === 'object' && 'response' in serviceError && serviceError.response && typeof serviceError.response === 'object' && 'data' in serviceError.response ? serviceError.response.data : null) || errorMessage,
             payment: {
               transactionId,
               signature,
@@ -242,13 +244,13 @@ export async function submitPayment(
       };
     }
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error in submit_payment:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: error.message || 'Unknown error during payment submission'
+          error: getErrorMessage(error) || 'Unknown error during payment submission'
         })
       }],
       isError: true

@@ -98,7 +98,7 @@ export function validatePaymentAddresses(
 
     const result = validateChainAddress(
       address,
-      chain as any
+      chain as 'ethereum' | 'base' | 'polygon' | 'arbitrum' | 'optimism' | 'solana' | 'evm'
     );
 
     if (!result.valid) {

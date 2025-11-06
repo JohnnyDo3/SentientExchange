@@ -13,6 +13,7 @@ import {
   PaymentResult,
   PaymentProviderConfig
 } from './types';
+import { PaymentError, getErrorMessage } from '../types/errors';
 
 export class X402Provider implements PaymentProvider {
   name = 'X402Provider';
@@ -30,7 +31,7 @@ export class X402Provider implements PaymentProvider {
 
   async initialize(): Promise<void> {
     try {
-      const network = this.config.network as any;
+      const network = this.config.network;
 
       // For Solana networks, create keypair from secret key
       if (network.includes('solana')) {
@@ -59,15 +60,14 @@ export class X402Provider implements PaymentProvider {
         // For EVM networks
         throw new Error('EVM networks not yet implemented in X402Provider');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       logger.error('X402Provider initialization failed:', error);
-      throw new Error(`X402Provider init failed: ${error.message}`);
+      throw new PaymentError(`X402Provider init failed: ${message}`);
     }
   }
 
   async executePayment(details: PaymentDetails): Promise<PaymentResult> {
-    const startTime = Date.now();
-
     try {
       if (!this.keypair) {
         throw new Error('X402Provider not initialized');
@@ -95,11 +95,12 @@ export class X402Provider implements PaymentProvider {
         // For EVM payments
         throw new Error('EVM payments not yet implemented in X402Provider');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       logger.error('X402 payment execution failed:', error);
       return {
         success: false,
-        error: error.message,
+        error: message,
         provider: 'x402',
         timestamp: new Date(),
         details
@@ -176,9 +177,10 @@ export class X402Provider implements PaymentProvider {
         details
       };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       logger.error('Solana payment execution failed:', error);
-      throw error;
+      throw new PaymentError(`Solana payment execution failed: ${message}`);
     }
   }
 
@@ -200,8 +202,9 @@ export class X402Provider implements PaymentProvider {
       return status.value.confirmationStatus === 'confirmed' ||
              status.value.confirmationStatus === 'finalized';
 
-    } catch (error: any) {
-      logger.error('Payment verification failed:', error);
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
+      logger.error('Payment verification failed:', message);
       return false;
     }
   }
@@ -237,10 +240,11 @@ export class X402Provider implements PaymentProvider {
       }
 
       return { healthy: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       return {
         healthy: false,
-        message: `Health check failed: ${error.message}`
+        message: `Health check failed: ${message}`
       };
     }
   }

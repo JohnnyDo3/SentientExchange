@@ -1,4 +1,5 @@
 import { SiweMessage } from 'siwe';
+import { AuthenticationError, getErrorMessage } from '../types/errors';
 
 /**
  * SIWE (Sign-In with Ethereum) authentication utilities
@@ -97,8 +98,9 @@ export async function verifySiweMessage(
       address: fields.data.address,
       chainId: fields.data.chainId,
     };
-  } catch (error: any) {
-    throw new Error(`SIWE verification failed: ${error.message}`);
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    throw new AuthenticationError(`SIWE verification failed: ${message}`);
   }
 }
 

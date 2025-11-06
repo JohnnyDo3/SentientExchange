@@ -1,5 +1,6 @@
-import { Connection, PublicKey, ParsedTransactionWithMeta, ConfirmedSignatureInfo } from '@solana/web3.js';
+import { Connection, ParsedTransactionWithMeta } from '@solana/web3.js';
 import { logger } from '../utils/logger.js';
+import { getErrorMessage } from '../types/errors.js';
 
 /**
  * Details to verify in a payment transaction
@@ -103,11 +104,12 @@ export class SolanaVerifier {
         // Native SOL transfer
         return this.verifySolTransfer(tx, expectedAmount, expectedRecipient);
       }
-    } catch (error: any) {
-      logger.error('Payment verification failed', { signature, error: error.message });
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
+      logger.error('Payment verification failed', { signature, error: message });
       return {
         verified: false,
-        error: `Verification error: ${error.message}`,
+        error: `Verification error: ${message}`,
       };
     }
   }
@@ -192,12 +194,13 @@ export class SolanaVerifier {
         transaction: tx,
         error: 'No token transfer found in transaction',
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       logger.error('Token transfer verification failed', error);
       return {
         verified: false,
         transaction: tx,
-        error: `Token verification error: ${error.message}`,
+        error: `Token verification error: ${message}`,
       };
     }
   }
@@ -266,12 +269,13 @@ export class SolanaVerifier {
         actualAmount,
         actualRecipient: expectedRecipient,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       logger.error('SOL transfer verification failed', error);
       return {
         verified: false,
         transaction: tx,
-        error: `SOL verification error: ${error.message}`,
+        error: `SOL verification error: ${message}`,
       };
     }
   }

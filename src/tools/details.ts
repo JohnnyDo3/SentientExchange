@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { getErrorMessage } from '../types/errors';
 import Joi from 'joi';
 import { ServiceRegistry } from '../registry/ServiceRegistry';
 
@@ -40,7 +41,7 @@ export async function getServiceDetails(
         content: [{
           type: 'text',
           text: JSON.stringify({
-            error: `Validation error: ${error.message}`
+            error: `Validation error: ${getErrorMessage(error)}`
           })
         }]
       };
@@ -71,13 +72,13 @@ export async function getServiceDetails(
       }]
     };
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error in getServiceDetails:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: error.message
+          error: getErrorMessage(error)
         })
       }]
     };

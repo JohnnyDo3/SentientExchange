@@ -1,0 +1,121 @@
+
+> agentmarket-mcp@1.0.0 lint
+> eslint src/**/*.ts
+
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\api\apiServer.ts
+  324:25  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  331:47  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  387:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  535:18  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  568:25  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  625:42  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\middleware\security.ts
+    3:8   warning  Using exported name 'rateLimit' as identifier for default import  import/no-named-as-default
+  149:35  warning  Unexpected any. Specify a different type                          @typescript-eslint/no-explicit-any
+  239:30  warning  Unexpected any. Specify a different type                          @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\orchestrator\MasterOrchestrator.ts
+   25:12  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   43:16  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   64:27  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  280:26  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  281:37  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  351:97  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  413:55  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  413:95  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  416:23  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  473:15  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\payment\WalletManager.ts
+  155:26  warning  Unexpected `await` of a non-Promise (non-"Thenable") value  @typescript-eslint/await-thenable
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\payment\X402Client.ts
+   6:10  warning  'PaymentError' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  44:11  warning  Unexpected any. Specify a different type                                        @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\payment\X402Provider.ts
+  71:11  warning  'startTime' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\payment\types.ts
+   6:10  warning  'Transaction' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  17:29  warning  Unexpected any. Specify a different type                                       @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\registry\adapters\SQLiteAdapter.ts
+  8:8  warning  Using exported name 'sqlite3' as identifier for default import  import/no-named-as-default
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\balance.ts
+  3:10  warning  'ServiceError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+  3:24  warning  'PaymentError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+  3:38  warning  'ValidationError' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\details.ts
+  2:10  warning  'ServiceError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+  2:24  warning  'PaymentError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+  2:38  warning  'ValidationError' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\discover.ts
+   2:10  warning  'ServiceError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+   2:24  warning  'PaymentError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+   2:38  warning  'ValidationError' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  60:18  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\execute-payment.ts
+  4:10  warning  'ServiceError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+  4:24  warning  'PaymentError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+  4:38  warning  'ValidationError' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\list.ts
+  2:10  warning  'ServiceError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+  2:24  warning  'PaymentError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+  2:38  warning  'ValidationError' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\purchase.ts
+   2:10  warning  'ServiceError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+   2:24  warning  'PaymentError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+   2:38  warning  'ValidationError' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  13:9   warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\rate.ts
+  62:38  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\smart-discover-prepare.ts
+    2:10  warning  'ServiceError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+    2:24  warning  'PaymentError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+    2:38  warning  'ValidationError' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+   13:15  warning  'Service' is defined but never used. Allowed unused vars must match /^_/u          @typescript-eslint/no-unused-vars
+   20:16  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+  351:14  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\smart-execute-complete.ts
+    2:10  warning  'ServiceError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+    2:24  warning  'PaymentError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+    2:38  warning  'ValidationError' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+   50:12  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+  318:16  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+  326:19  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+  327:13  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+  346:80  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+  455:25  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\spending-limits.ts
+    2:10  warning  'ServiceError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+    2:24  warning  'PaymentError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+    2:38  warning  'ValidationError' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  148:21  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\submit-payment.ts
+    2:10  warning  'ServiceError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+    2:24  warning  'PaymentError' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+    2:38  warning  'ValidationError' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+   17:16  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+   47:12  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+  109:80  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+  233:39  warning  Unexpected any. Specify a different type                                           @typescript-eslint/no-explicit-any
+
+C:\Users\johnn\Desktop\agentMarket-mcp\src\tools\transaction.ts
+  52:38  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 74 problems (0 errors, 74 warnings)
+

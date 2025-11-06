@@ -14,6 +14,7 @@ import { OrchestrationWebSocket } from './websocket.js';
 import { logger } from '../utils/logger.js';
 import { seedDatabase } from './seed-endpoint.js';
 import path from 'path';
+import { getErrorMessage, getErrorStatusCode } from '../types/errors.js';
 
 const app = express();
 const server = createServer(app);
@@ -64,11 +65,13 @@ app.get('/api/services', async (req, res) => {
       count: services.length,
       services,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error fetching services:', error);
-    res.status(500).json({
+    const message = getErrorMessage(error);
+    const statusCode = getErrorStatusCode(error);
+    res.status(statusCode).json({
       success: false,
-      error: error.message,
+      error: message,
     });
   }
 });
@@ -96,11 +99,13 @@ app.post('/api/orchestrate', async (req, res) => {
       success: true,
       result,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Orchestration failed:', error);
-    res.status(500).json({
+    const message = getErrorMessage(error);
+    const statusCode = getErrorStatusCode(error);
+    res.status(statusCode).json({
       success: false,
-      error: error.message,
+      error: message,
     });
   }
 });
@@ -133,11 +138,13 @@ app.post('/api/admin/seed', async (req, res) => {
       message: `Successfully seeded ${services.length} services`,
       services: services.map(s => ({ id: s.id, name: s.name }))
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Failed to seed database:', error);
-    res.status(500).json({
+    const message = getErrorMessage(error);
+    const statusCode = getErrorStatusCode(error);
+    res.status(statusCode).json({
       success: false,
-      error: error.message
+      error: message
     });
   }
 });

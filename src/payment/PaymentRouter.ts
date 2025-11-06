@@ -11,6 +11,7 @@ import {
   PaymentResult,
   PaymentRouterConfig
 } from './types';
+import { PaymentError, getErrorMessage } from '../types/errors';
 
 export class PaymentRouter {
   private config: PaymentRouterConfig;
@@ -39,9 +40,10 @@ export class PaymentRouter {
         await this.config.fallbackProvider.initialize();
         logger.info('Fallback provider initialized:', this.config.fallbackProvider.name);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       logger.error('PaymentRouter initialization failed:', error);
-      throw error;
+      throw new PaymentError(`PaymentRouter initialization failed: ${message}`);
     }
   }
 
@@ -81,8 +83,8 @@ export class PaymentRouter {
         lastError = primaryHealth.message;
       }
 
-    } catch (error: any) {
-      lastError = error.message;
+    } catch (error: unknown) {
+      lastError = getErrorMessage(error);
       logger.error('Primary provider error:', error);
     }
 
@@ -124,11 +126,12 @@ export class PaymentRouter {
 
         return result;
 
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
         logger.error('Fallback provider error:', error);
         return {
           success: false,
-          error: `All providers failed. Primary: ${lastError}, Fallback: ${error.message}`,
+          error: `All providers failed. Primary: ${lastError}, Fallback: ${message}`,
           provider: 'fallback',
           timestamp: new Date(),
           details
@@ -181,8 +184,8 @@ export class PaymentRouter {
           await this.sleep(delay);
         }
 
-      } catch (error: any) {
-        lastError = error.message;
+      } catch (error: unknown) {
+        lastError = getErrorMessage(error);
         logger.error(`Attempt ${attempt} failed:`, error);
 
         if (attempt < maxRetries) {
@@ -248,8 +251,9 @@ export class PaymentRouter {
       }
 
       return false;
-    } catch (error: any) {
-      logger.error('Payment verification failed:', error);
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
+      logger.error('Payment verification failed:', message);
       return false;
     }
   }

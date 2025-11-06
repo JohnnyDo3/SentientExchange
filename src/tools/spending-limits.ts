@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger.js';
+import { getErrorMessage } from '../types/errors';
 import Joi from 'joi';
 import { SpendingLimitManager } from '../payment/SpendingLimitManager.js';
 
@@ -61,7 +62,7 @@ export async function setSpendingLimits(
         content: [{
           type: 'text',
           text: JSON.stringify({
-            error: `Validation error: ${error.message}`,
+            error: `Validation error: ${getErrorMessage(error)}`,
             hint: 'Use format $X.XX for all amounts'
           })
         }],
@@ -92,13 +93,13 @@ export async function setSpendingLimits(
         }, null, 2)
       }]
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error setting spending limits:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: error.message || 'Failed to set spending limits'
+          error: getErrorMessage(error) || 'Failed to set spending limits'
         })
       }],
       isError: true
@@ -133,7 +134,7 @@ export async function checkSpending(
         content: [{
           type: 'text',
           text: JSON.stringify({
-            error: `Validation error: ${error.message}`
+            error: `Validation error: ${getErrorMessage(error)}`
           })
         }],
         isError: true
@@ -144,7 +145,34 @@ export async function checkSpending(
     const limits = await limitManager.getLimits(userId);
     const stats = await limitManager.getSpendingStats(userId);
 
-    const response: any = {
+    interface CheckSpendingResponse {
+      currentSpending: {
+        today: string;
+        thisMonth: string;
+        transactionCount: number;
+        lastTransaction: string;
+      };
+      limits?: {
+        perTransaction: string;
+        daily: string;
+        monthly: string;
+        enabled: boolean;
+      } | string;
+      allowedAmount?: string;
+      recommendedLimits?: Record<string, unknown>;
+      remaining?: {
+        today: string;
+        thisMonth: string;
+      };
+      note?: string;
+      hypotheticalTransaction?: {
+        amount: string;
+        allowed: boolean;
+        reason: string;
+      };
+    }
+
+    const response: CheckSpendingResponse = {
       currentSpending: {
         today: stats.totalToday,
         thisMonth: stats.totalThisMonth,
@@ -192,13 +220,13 @@ export async function checkSpending(
         text: JSON.stringify(response, null, 2)
       }]
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error checking spending:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: error.message || 'Failed to check spending'
+          error: getErrorMessage(error) || 'Failed to check spending'
         })
       }],
       isError: true
@@ -231,13 +259,13 @@ export async function resetSpendingLimits(
         }, null, 2)
       }]
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error resetting spending limits:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: error.message || 'Failed to reset spending limits'
+          error: getErrorMessage(error) || 'Failed to reset spending limits'
         })
       }],
       isError: true

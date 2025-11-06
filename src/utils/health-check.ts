@@ -5,7 +5,11 @@ export interface HealthCheckResult {
   serviceId: string;
   status: 'healthy' | 'unhealthy' | 'unknown';
   responseTime?: number;
-  details?: any;
+  details?: {
+    status?: string;
+    healthy?: boolean;
+    [key: string]: unknown;
+  };
   error?: string;
 }
 

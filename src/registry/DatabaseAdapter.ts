@@ -17,7 +17,7 @@ export interface DatabaseAdapter {
    * @param params Parameters to bind to placeholders
    * @returns Result of the operation
    */
-  run(sql: string, params?: any[]): Promise<void>;
+  run(sql: string, params?: unknown[]): Promise<void>;
 
   /**
    * Execute a query and return a single row
@@ -25,7 +25,7 @@ export interface DatabaseAdapter {
    * @param params Parameters to bind to placeholders
    * @returns Single row or undefined
    */
-  get<T = any>(sql: string, params?: any[]): Promise<T | undefined>;
+  get<T = unknown>(sql: string, params?: unknown[]): Promise<T | undefined>;
 
   /**
    * Execute a query and return all rows
@@ -33,7 +33,7 @@ export interface DatabaseAdapter {
    * @param params Parameters to bind to placeholders
    * @returns Array of rows
    */
-  all<T = any>(sql: string, params?: any[]): Promise<T[]>;
+  all<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>;
 
   /**
    * Close the database connection

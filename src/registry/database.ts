@@ -41,21 +41,21 @@ export class Database {
   /**
    * Execute a SQL query (INSERT, UPDATE, DELETE)
    */
-  async run(query: string, params?: any[]): Promise<void> {
+  async run(query: string, params?: unknown[]): Promise<void> {
     await this.adapter.run(query, params);
   }
 
   /**
    * Get a single row from database
    */
-  async get<T>(query: string, params?: any[]): Promise<T | undefined> {
+  async get<T = unknown>(query: string, params?: unknown[]): Promise<T | undefined> {
     return await this.adapter.get<T>(query, params);
   }
 
   /**
    * Get all matching rows from database
    */
-  async all<T>(query: string, params?: any[]): Promise<T[]> {
+  async all<T = unknown>(query: string, params?: unknown[]): Promise<T[]> {
     return await this.adapter.all<T>(query, params);
   }
 
@@ -80,7 +80,7 @@ export class Database {
     entityType: string,
     entityId: string,
     action: 'CREATE' | 'UPDATE' | 'DELETE' | 'READ',
-    changes?: any,
+    changes?: unknown,
     performedBy?: string,
     ipAddress?: string,
     userAgent?: string
@@ -108,8 +108,8 @@ export class Database {
   /**
    * Get audit history for an entity
    */
-  async getAuditHistory(entityType: string, entityId: string, limit = 50): Promise<any[]> {
-    return await this.all(
+  async getAuditHistory(entityType: string, entityId: string, limit = 50): Promise<AuditLog[]> {
+    return await this.all<AuditLog>(
       `SELECT * FROM audit_logs
        WHERE entity_type = ? AND entity_id = ?
        ORDER BY timestamp DESC
@@ -123,7 +123,7 @@ export class Database {
    */
   async migrate(version: number): Promise<void> {
     // Check current schema version
-    const versionInfo: any = await this.get(
+    const versionInfo = await this.get<{ value: string }>(
       'SELECT value FROM metadata WHERE key = ?',
       ['schema_version']
     );

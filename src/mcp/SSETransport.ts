@@ -18,18 +18,19 @@ import { SpendingLimitManager } from '../payment/SpendingLimitManager.js';
 import { logger } from '../utils/logger.js';
 import { Request, Response } from 'express';
 
-// Import all tool functions (same as server.ts)
-import { discoverServices } from '../tools/discover.js';
-import { getServiceDetails } from '../tools/details.js';
-import { purchaseService } from '../tools/purchase.js';
-import { executePayment } from '../tools/execute-payment.js';
-import { submitPayment } from '../tools/submit-payment.js';
-import { rateService } from '../tools/rate.js';
-import { listAllServices } from '../tools/list.js';
-import { getTransaction } from '../tools/transaction.js';
-import { setSpendingLimits, checkSpending, resetSpendingLimits } from '../tools/spending-limits.js';
-import { discoverAndPrepareService } from '../tools/smart-discover-prepare.js';
-import { completeServiceWithPayment } from '../tools/smart-execute-complete.js';
+// Import all tool functions and their types
+import { discoverServices, type DiscoverServicesArgs } from '../tools/discover.js';
+import { getServiceDetails, type GetServiceDetailsArgs } from '../tools/details.js';
+import { purchaseService, type PurchaseServiceArgs } from '../tools/purchase.js';
+import { executePayment, type ExecutePaymentArgs } from '../tools/execute-payment.js';
+import { submitPayment, type SubmitPaymentArgs } from '../tools/submit-payment.js';
+import { rateService, type RateServiceArgs } from '../tools/rate.js';
+import { listAllServices, type ListAllServicesArgs } from '../tools/list.js';
+import { getTransaction, type GetTransactionArgs } from '../tools/transaction.js';
+import { setSpendingLimits, checkSpending, resetSpendingLimits, type SetSpendingLimitsArgs, type CheckSpendingArgs } from '../tools/spending-limits.js';
+import { discoverAndPrepareService, type DiscoverAndPrepareArgs } from '../tools/smart-discover-prepare.js';
+import { completeServiceWithPayment, type CompleteServiceWithPaymentArgs } from '../tools/smart-execute-complete.js';
+import { getErrorMessage } from '../types/errors.js';
 
 import {
   CallToolRequestSchema,
@@ -289,52 +290,59 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
       });
 
       try {
-        let result: any;
+        // Type-safe result from tool handlers
+        type ToolResult = {
+          content: Array<{ type: string; text: string }>;
+          isError?: boolean;
+        };
+
+        let result: ToolResult;
         switch (name) {
           case 'discover_services':
-            result = await discoverServices(this.registry, args as any);
+            result = await discoverServices(this.registry, args as unknown as DiscoverServicesArgs);
             break;
           case 'get_service_details':
-            result = await getServiceDetails(this.registry, args as any);
+            result = await getServiceDetails(this.registry, args as unknown as GetServiceDetailsArgs);
             break;
           case 'purchase_service':
-            result = await purchaseService(this.registry, args as any, this.spendingLimitManager);
+            result = await purchaseService(this.registry, args as unknown as PurchaseServiceArgs, this.spendingLimitManager);
             break;
           case 'execute_payment':
-            result = await executePayment(args as any);
+            result = await executePayment(args as unknown as ExecutePaymentArgs);
             break;
           case 'submit_payment':
-            result = await submitPayment(this.registry, this.solanaVerifier, this.db, args as any);
+            result = await submitPayment(this.registry, this.solanaVerifier, this.db, args as unknown as SubmitPaymentArgs);
             break;
           case 'rate_service':
-            result = await rateService(this.registry, this.db, args as any);
+            result = await rateService(this.registry, this.db, args as unknown as RateServiceArgs);
             break;
           case 'list_all_services':
-            result = await listAllServices(this.registry, args as any);
+            result = await listAllServices(this.registry, args as unknown as ListAllServicesArgs);
             break;
           case 'get_transaction':
-            result = await getTransaction(this.db, args as any);
+            result = await getTransaction(this.db, args as unknown as GetTransactionArgs);
             break;
           case 'set_spending_limits': {
-            const { userId, ...limitsArgs } = args as any;
+            const typedArgs = args as unknown as SetSpendingLimitsArgs & { userId: string };
+            const { userId, ...limitsArgs } = typedArgs;
             result = await setSpendingLimits(this.spendingLimitManager, userId, limitsArgs);
             break;
           }
           case 'check_spending': {
-            const { userId } = args as any;
-            result = await checkSpending(this.spendingLimitManager, userId);
+            const typedArgs = args as unknown as CheckSpendingArgs & { userId: string };
+            result = await checkSpending(this.spendingLimitManager, typedArgs.userId);
             break;
           }
           case 'reset_spending_limits': {
-            const { userId } = args as any;
-            result = await resetSpendingLimits(this.spendingLimitManager, userId);
+            const typedArgs = args as unknown as { userId: string };
+            result = await resetSpendingLimits(this.spendingLimitManager, typedArgs.userId);
             break;
           }
           case 'discover_and_prepare_service':
-            result = await discoverAndPrepareService(this.registry, args as any, this.spendingLimitManager);
+            result = await discoverAndPrepareService(this.registry, args as unknown as DiscoverAndPrepareArgs, this.spendingLimitManager);
             break;
           case 'complete_service_with_payment':
-            result = await completeServiceWithPayment(this.registry, this.solanaVerifier, this.db, args as any);
+            result = await completeServiceWithPayment(this.registry, this.solanaVerifier, this.db, args as unknown as CompleteServiceWithPaymentArgs);
             break;
           default:
             throw new Error(`Unknown tool: ${name}`);
@@ -349,19 +357,19 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
         });
 
         return result;
-      } catch (error: any) {
+      } catch (error: unknown) {
         const duration = Date.now() - startTime;
         logger.error(`MCP Tool Error: ${name}`, {
           tool: name,
           duration: `${duration}ms`,
-          error: error.message,
+          error: getErrorMessage(error),
           success: false,
         });
 
         return {
           content: [{
             type: 'text',
-            text: `Error: ${error.message}`,
+            text: `Error: ${getErrorMessage(error)}`,
           }],
           isError: true,
         };
@@ -424,7 +432,7 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
       });
     } catch (error) {
       logger.error('Error establishing SSE stream', {
-        error: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? getErrorMessage(error) : String(error),
         ip: clientIp,
       });
       if (!res.headersSent) {
@@ -479,12 +487,13 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
 
     try {
       // handlePostMessage expects (req, res, parsedBody)
-      await transport.handlePostMessage(req as any, res as any, req.body);
+      // The SDK types expect IncomingMessage and ServerResponse, which are compatible with Express Request/Response
+      await transport.handlePostMessage(req as unknown as Request, res as unknown as Response, req.body);
     } catch (error) {
       logger.error('Error handling MCP message', {
         sessionId,
         ip: clientIp,
-        error: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? getErrorMessage(error) : String(error),
       });
       if (!res.headersSent) {
         res.status(500).send('Error handling message');

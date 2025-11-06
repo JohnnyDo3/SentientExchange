@@ -1,7 +1,8 @@
-import { Coinbase, Wallet, Address } from '@coinbase/coinbase-sdk';
+import { Coinbase, Wallet } from '@coinbase/coinbase-sdk';
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger, securityLogger } from '../utils/logger';
+import { WalletError, WalletInitializationError, PaymentError, getErrorMessage } from '../types/errors';
 
 interface WalletConfig {
   networkId: string; // 'base-sepolia' or 'base-mainnet'
@@ -82,9 +83,10 @@ export class WalletManager {
 
       this.isInitialized = true;
       logger.info('WalletManager initialized successfully');
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       logger.error('Failed to initialize WalletManager:', error);
-      throw new Error(`WalletManager initialization failed: ${error.message}`);
+      throw new WalletInitializationError(`WalletManager initialization failed: ${message}`);
     }
   }
 
@@ -125,9 +127,9 @@ export class WalletManager {
       const address = await this.wallet.getDefaultAddress();
       logger.info('Wallet address:', address.getId());
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error loading/creating wallet:', error);
-      throw error;
+      throw new WalletError(getErrorMessage(error));
     }
   }
 
@@ -150,15 +152,15 @@ export class WalletManager {
       }
 
       // Export wallet data
-      const walletData = await this.wallet.export();
+      const walletData = this.wallet.export();
 
       // Save to file
       fs.writeFileSync(walletPath, JSON.stringify(walletData, null, 2));
 
       logger.info('Wallet data saved to:', walletPath);
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Failed to save wallet data:', error);
-      throw error;
+      throw new WalletError(getErrorMessage(error));
     }
   }
 
@@ -187,8 +189,8 @@ export class WalletManager {
     try {
       const balance = await this.wallet.getBalance(asset);
       return balance.toString();
-    } catch (error: any) {
-      logger.warn(`Failed to get ${asset} balance:`, error.message);
+    } catch (error: unknown) {
+      logger.warn(`Failed to get ${asset} balance:`, getErrorMessage(error));
       return '0';
     }
   }
@@ -222,9 +224,10 @@ export class WalletManager {
       logger.info('Faucet funds received! Transaction:', txHash);
 
       return txHash || '';
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       logger.error('Failed to request faucet funds:', error);
-      throw new Error(`Faucet request failed: ${error.message}`);
+      throw new WalletError(`Faucet request failed: ${message}`);
     }
   }
 
@@ -275,9 +278,10 @@ export class WalletManager {
       logger.info('Note: Confirmation will complete in background');
 
       return txHash;
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       logger.error('USDC transfer failed:', error);
-      throw new Error(`Transfer failed: ${error.message}`);
+      throw new PaymentError(`Transfer failed: ${message}`);
     }
   }
 

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken, extractToken, extractTokenFromCookie, TokenPayload } from '../auth/jwt.js';
 import { securityLogger } from '../utils/logger.js';
+import { getErrorMessage } from '../types/errors.js';
 
 /**
  * Authentication middleware
@@ -54,10 +55,11 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     req.user = payload;
 
     next();
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Security event: Token verification failed
+    const message = getErrorMessage(error);
     securityLogger.authFailure({
-      reason: `Token verification failed: ${error.message}`,
+      reason: `Token verification failed: ${message}`,
       ip: req.ip,
       userAgent: req.headers['user-agent'],
     });
@@ -65,7 +67,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     res.status(401).json({
       success: false,
       error: 'Invalid authentication token',
-      message: error.message,
+      message,
     });
   }
 }

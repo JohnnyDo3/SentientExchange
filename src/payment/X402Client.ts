@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { Transaction } from '../types';
 import { WalletManager } from './WalletManager';
 import { logger } from '../utils/logger';
+import { getErrorMessage } from '../types/errors';
 
 /**
  * x402 Payment Client
@@ -40,7 +41,7 @@ export class X402Client {
   async makePayment(
     endpoint: string,
     method: string,
-    data: any,
+    data: Record<string, unknown>,
     maxPayment: string
   ): Promise<Transaction> {
     // Ensure wallet is initialized
@@ -210,11 +211,12 @@ export class X402Client {
         logger.error(`[x402] ${transaction.error}`);
       }
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Handle network errors, payment failures, etc.
+      const message = getErrorMessage(error);
       transaction.status = 'failed';
-      transaction.error = error.message;
-      logger.error(`[x402] Transaction failed: ${error.message}`);
+      transaction.error = message;
+      logger.error(`[x402] Transaction failed: ${message}`);
     }
 
     return transaction;

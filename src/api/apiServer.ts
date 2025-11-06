@@ -28,11 +28,14 @@ import {
   validateRating,
 } from '../validation/schemas.js';
 import { generateNonce, verifySiweMessage } from '../auth/siwe.js';
-import { generateToken, verifyToken } from '../auth/jwt.js';
-import { requireAuth, optionalAuth, checkOwnership } from '../middleware/auth.js';
+import { generateToken } from '../auth/jwt.js';
+import { requireAuth, checkOwnership } from '../middleware/auth.js';
 import { SSETransportManager } from '../mcp/SSETransport.js';
-import { SolanaVerifier } from '../payment/SolanaVerifier.js';
-import { SpendingLimitManager } from '../payment/SpendingLimitManager.js';
+import { SolanaVerifier as _SolanaVerifier } from '../payment/SolanaVerifier.js';
+import { SpendingLimitManager as _SpendingLimitManager } from '../payment/SpendingLimitManager.js';
+import { getErrorMessage } from '../types/errors.js';
+import type { Service } from '../types/service.js';
+import type { Transaction } from '../types/transaction.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -48,8 +51,8 @@ const db = new Database(dbPathOrUrl);
 const registry = new ServiceRegistry(db);
 
 // Initialize payment verification (for MCP smart tools)
-const solanaVerifier = new SolanaVerifier();
-const spendingLimitManager = new SpendingLimitManager(db);
+const solanaVerifier = new _SolanaVerifier();
+const spendingLimitManager = new _SpendingLimitManager(db);
 
 // Initialize SSE Transport for remote MCP connections
 const sseTransport = new SSETransportManager(registry, db, solanaVerifier, spendingLimitManager);
@@ -176,14 +179,14 @@ app.post('/api/auth/nonce', (req, res, next) => {
       nonce,
       message: 'Sign this message to authenticate',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
 
 // POST /api/auth/verify - Verify SIWE signature and return JWT
 // SECURITY: Sets JWT in httpOnly cookie (XSS-safe) + returns in body (backwards compatibility)
-app.post('/api/auth/verify', async (req, res, next) => {
+app.post('/api/auth/verify', async (req, res, _next) => {
   try {
     const { message, signature } = req.body;
 
@@ -223,10 +226,11 @@ app.post('/api/auth/verify', async (req, res, next) => {
       chainId,
       message: 'Authentication successful',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Security event: Authentication failed
+    const message = getErrorMessage(error);
     securityLogger.authFailure({
-      reason: `SIWE verification failed: ${error.message}`,
+      reason: `SIWE verification failed: ${message}`,
       ip: req.ip,
       userAgent: req.headers['user-agent'],
     });
@@ -234,7 +238,7 @@ app.post('/api/auth/verify', async (req, res, next) => {
     res.status(401).json({
       success: false,
       error: 'Authentication failed',
-      message: error.message,
+      message: message,
     });
   }
 });
@@ -274,7 +278,7 @@ app.get('/api/services', async (req, res, next) => {
   try {
     const services = registry.getAllServices();
     res.json({ success: true, count: services.length, services });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
@@ -294,7 +298,7 @@ app.get('/api/services/my-services', requireAuth, async (req, res, next) => {
       count: myServices.length,
       services: myServices
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
@@ -307,7 +311,7 @@ app.get('/api/services/:id', async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Service not found' });
     }
     res.json({ success: true, service });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
@@ -319,21 +323,25 @@ app.post('/api/services', requireAuth, registrationLimiter, writeLimiter, async 
     const validatedData = validateService(req.body);
 
     // Create service record
-    const serviceInput: any = {
+    const serviceInput: Omit<Service, 'id' | 'createdAt' | 'updatedAt'> = {
       name: validatedData.name,
       description: validatedData.description,
       provider: validatedData.provider,
       endpoint: validatedData.endpoint,
       capabilities: validatedData.capabilities,
       pricing: {
-        perRequest: (validatedData.pricing as any).perRequest,
+        perRequest: validatedData.pricing?.perRequest,
+        currency: validatedData.pricing?.currency || 'USDC',
       },
       reputation: {
+        totalJobs: 0,
+        successRate: 100,
+        avgResponseTime: '0s',
         rating: 5.0,
         reviews: 0,
-        totalJobs: 0,
       },
       metadata: {
+        apiVersion: 'v1',
         walletAddress: validatedData.walletAddress,
         paymentAddresses: validatedData.paymentAddresses,
         image: validatedData.image || '🔮',
@@ -353,7 +361,7 @@ app.post('/api/services', requireAuth, registrationLimiter, writeLimiter, async 
       service,
       message: 'Service registered successfully',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
@@ -382,13 +390,13 @@ app.put('/api/services/:id', requireAuth, writeLimiter, async (req, res, next) =
     const validatedData = validateServiceUpdate(req.body);
 
     // Prepare update object
-    const updates: any = {};
+    const updates: Partial<Service> = {};
     if (validatedData.name) updates.name = validatedData.name;
     if (validatedData.description) updates.description = validatedData.description;
     if (validatedData.provider) updates.provider = validatedData.provider;
     if (validatedData.endpoint) updates.endpoint = validatedData.endpoint;
     if (validatedData.capabilities) updates.capabilities = validatedData.capabilities;
-    if (validatedData.pricing) updates.pricing = { perRequest: validatedData.pricing.perRequest };
+    if (validatedData.pricing) updates.pricing = { perRequest: validatedData.pricing.perRequest, currency: validatedData.pricing.currency || 'USDC' };
 
     // Update metadata fields
     if (validatedData.image || validatedData.color || validatedData.walletAddress || validatedData.paymentAddresses) {
@@ -412,7 +420,7 @@ app.put('/api/services/:id', requireAuth, writeLimiter, async (req, res, next) =
       service,
       message: 'Service updated successfully',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
@@ -447,7 +455,7 @@ app.delete('/api/services/:id', requireAuth, writeLimiter, async (req, res, next
       success: true,
       message: 'Service deleted successfully',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
@@ -476,7 +484,7 @@ app.post('/api/services/search', async (req, res, next) => {
       limit,
       services: paginatedResults,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
@@ -516,7 +524,7 @@ app.post('/api/services/:id/rate', writeLimiter, async (req, res, next) => {
       service,
       message: 'Rating submitted successfully',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
@@ -530,7 +538,7 @@ app.get('/api/stats', async (req, res, next) => {
   try {
     const services = registry.getAllServices();
     const query = 'SELECT COUNT(*) as count, SUM(CAST(SUBSTR(amount, 2) AS REAL)) as volume FROM transactions WHERE status = "completed"';
-    const stats: any = await db.get(query);
+    const stats = await db.get<{ count: number; volume: number }>(query);
 
     res.json({
       success: true,
@@ -541,7 +549,7 @@ app.get('/api/stats', async (req, res, next) => {
         agents: 47, // Mock data
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
@@ -563,7 +571,13 @@ app.get('/api/transactions/recent', async (req, res, next) => {
       LIMIT ?
     `;
 
-    const transactions: any[] = await db.all(query, [limit]);
+    interface TransactionRow {
+      id: string;
+      service_name: string;
+      amount: string;
+      timestamp: string;
+    }
+    const transactions = await db.all<TransactionRow>(query, [limit]);
 
     res.json({
       success: true,
@@ -575,7 +589,7 @@ app.get('/api/transactions/recent', async (req, res, next) => {
         timestamp: t.timestamp,
       })),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
@@ -597,7 +611,7 @@ app.get('/api/services/:id/audit', async (req, res, next) => {
       count: history.length,
       audit: history,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });
@@ -620,7 +634,7 @@ io.on('connection', (socket) => {
 });
 
 // Helper function to broadcast transactions
-export function broadcastTransaction(tx: any) {
+export function broadcastTransaction(tx: Transaction) {
   io.emit('new-transaction', tx);
 }
 
@@ -655,20 +669,28 @@ async function start() {
 }
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, closing server gracefully...');
-  httpServer.close(async () => {
-    await db.close();
-    process.exit(0);
-  });
+process.on('SIGTERM', () => {
+  void (async () => {
+    logger.info('SIGTERM received, closing server gracefully...');
+    httpServer.close(() => {
+      void (async () => {
+        await db.close();
+        process.exit(0);
+      })();
+    });
+  })();
 });
 
-process.on('SIGINT', async () => {
-  logger.info('\nSIGINT received, closing server gracefully...');
-  httpServer.close(async () => {
-    await db.close();
-    process.exit(0);
-  });
+process.on('SIGINT', () => {
+  void (async () => {
+    logger.info('\nSIGINT received, closing server gracefully...');
+    httpServer.close(() => {
+      void (async () => {
+        await db.close();
+        process.exit(0);
+      })();
+    });
+  })();
 });
 
 if (require.main === module) {

@@ -42,6 +42,7 @@ const ServiceSchemaBase = z.object({
         const amount = parseFloat(price.replace('$', ''));
         return amount >= 0.001 && amount <= 100;
       }, 'Price must be between $0.001 and $100'),
+    currency: z.string().optional().default('USDC'),
   }),
 
   walletAddress: z.string()
@@ -183,7 +184,7 @@ export function validateService(data: unknown): ServiceInput {
   const result = ServiceSchema.safeParse(data);
 
   if (!result.success) {
-    const errors = result.error.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`);
+    const errors = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`);
     throw new Error(`Validation failed: ${errors.join(', ')}`);
   }
 
@@ -203,7 +204,7 @@ export function validateServiceUpdate(data: unknown): ServiceUpdate {
   const result = ServiceUpdateSchema.safeParse(data);
 
   if (!result.success) {
-    const errors = result.error.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`);
+    const errors = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`);
     throw new Error(`Validation failed: ${errors.join(', ')}`);
   }
 
@@ -221,7 +222,7 @@ export function validatePurchase(data: unknown): PurchaseRequest {
   const result = PurchaseRequestSchema.safeParse(data);
 
   if (!result.success) {
-    const errors = result.error.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`);
+    const errors = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`);
     throw new Error(`Validation failed: ${errors.join(', ')}`);
   }
 
@@ -233,7 +234,7 @@ export function validateRating(data: unknown): Rating {
   const result = RatingSchema.safeParse(data);
 
   if (!result.success) {
-    const errors = result.error.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`);
+    const errors = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`);
     throw new Error(`Validation failed: ${errors.join(', ')}`);
   }
 
@@ -251,7 +252,7 @@ export function validateSearch(data: unknown): SearchQuery {
   const result = SearchSchema.safeParse(data);
 
   if (!result.success) {
-    const errors = result.error.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`);
+    const errors = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`);
     throw new Error(`Validation failed: ${errors.join(', ')}`);
   }
 

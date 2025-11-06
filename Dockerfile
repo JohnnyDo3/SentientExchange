@@ -3,8 +3,8 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Force cache bust - change this number to force rebuild: 6
-RUN echo "Cache bust: 6"
+# Force cache bust - change this number to force rebuild: 7
+RUN echo "Cache bust: 7"
 
 # Copy package files
 COPY package*.json ./
@@ -16,6 +16,9 @@ RUN cd web && npm ci --include=dev
 
 # Copy source
 COPY . .
+
+# Debug - check if types directory exists
+RUN echo "=== Checking src/types directory ===" && ls -la src/types/ && echo "=== Content of errors.ts ===" && head -30 src/types/errors.ts && echo "=== tsconfig.json ===" && cat tsconfig.json
 
 # Build the application
 RUN npm run build

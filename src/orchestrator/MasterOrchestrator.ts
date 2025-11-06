@@ -16,14 +16,13 @@
 import { ServiceRegistry } from '../registry/ServiceRegistry.js';
 import { Service } from '../types/index.js';
 import { logger } from '../utils/logger.js';
-import axios from 'axios';
 
 export interface Task {
   id: string;
   description: string;
   status: 'pending' | 'in-progress' | 'completed' | 'failed';
   assignedTo?: string;
-  result?: any;
+  result?: unknown;
   cost?: number;
   startTime?: number;
   endTime?: number;
@@ -41,7 +40,7 @@ export interface SpecialistAgent {
 
 export interface OrchestrationResult {
   success: boolean;
-  finalOutput: any;
+  finalOutput: unknown;
   metadata: {
     totalTime: number;
     totalCost: number;
@@ -62,7 +61,13 @@ export interface OrchestrationResult {
 export class MasterOrchestrator {
   private registry: ServiceRegistry;
   private agents: Map<string, SpecialistAgent> = new Map();
-  private timeline: Array<any> = [];
+  private timeline: Array<{
+    timestamp: number;
+    event: string;
+    agent?: string;
+    service?: string;
+    cost?: number;
+  }> = [];
   private startTime: number = 0;
   private totalCost: number = 0;
 
@@ -125,7 +130,7 @@ export class MasterOrchestrator {
         agents: Array.from(this.agents.values()),
         timeline: this.timeline,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('❌ Orchestration failed:', error);
       this.logEvent('orchestration-failed', undefined, undefined, 0);
 
@@ -209,7 +214,7 @@ export class MasterOrchestrator {
   /**
    * Spawn specialist agents based on task requirements
    */
-  private async spawnSpecialistAgents(tasks: Task[], services: Service[]): Promise<SpecialistAgent[]> {
+  private async spawnSpecialistAgents(tasks: Task[], _services: Service[]): Promise<SpecialistAgent[]> {
     const specialists: SpecialistAgent[] = [];
 
     // Research Agent
@@ -278,8 +283,8 @@ export class MasterOrchestrator {
     agents: SpecialistAgent[],
     tasks: Task[],
     services: Service[]
-  ): Promise<Map<string, any>> {
-    const results = new Map<string, any>();
+  ): Promise<Map<string, unknown>> {
+    const results = new Map<string, unknown>();
 
     for (const agent of agents) {
       logger.info(`🤖 ${agent.name} starting work on ${agent.tasks.length} tasks`);
@@ -349,7 +354,7 @@ export class MasterOrchestrator {
   /**
    * Execute a service (mock for demo - in production would make real x402 payment request)
    */
-  private async executeService(service: Service, task: Task, agent: SpecialistAgent): Promise<any> {
+  private async executeService(service: Service, _task: Task, _agent: SpecialistAgent): Promise<Record<string, unknown>> {
     // For demo: Return mock realistic data based on service type
     await this.simulateProcessingTime();
 
@@ -411,18 +416,19 @@ export class MasterOrchestrator {
   /**
    * Aggregate results from all agents into final output
    */
-  private async aggregateResults(results: Map<string, any>, originalRequest: string): Promise<any> {
+  private async aggregateResults(results: Map<string, unknown>, originalRequest: string): Promise<Record<string, unknown>> {
     logger.info('📦 Aggregating results from all agents...');
 
-    const aggregated: any = {
+    const aggregated: Record<string, unknown> = {
       request: originalRequest,
       timestamp: new Date().toISOString(),
       results: {},
     };
 
     // Group results by agent
-    for (const [agent, agentData] of this.agents) {
-      aggregated.results[agentData.name] = {
+    const resultsObj = aggregated.results as Record<string, unknown>;
+    for (const [_agent, agentData] of this.agents) {
+      resultsObj[agentData.name] = {
         role: agentData.role,
         tasksCompleted: agentData.tasks.filter(t => t.status === 'completed').length,
         servicesHired: agentData.servicesHired,
@@ -471,7 +477,7 @@ export class MasterOrchestrator {
   /**
    * Get current orchestration state (for real-time dashboard)
    */
-  getState(): any {
+  getState(): { agents: SpecialistAgent[]; timeline: Array<{ timestamp: number; event: string; agent?: string; service?: string; cost?: number }>; totalCost: number; elapsedTime: number } {
     return {
       agents: Array.from(this.agents.values()),
       timeline: this.timeline,

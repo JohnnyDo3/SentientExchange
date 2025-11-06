@@ -13,7 +13,7 @@ export interface PurchaseSession {
   healthCheckResults?: Record<string, 'healthy' | 'unhealthy' | 'unknown'>;
 
   // Request data
-  requestData?: any;
+  requestData?: Record<string, unknown>;
 
   // Payment phase
   transactionId?: string;
@@ -21,8 +21,12 @@ export interface PurchaseSession {
 
   // Execution phase
   signature?: string;
-  verificationResult?: any;
-  serviceResult?: any;
+  verificationResult?: {
+    valid: boolean;
+    error?: string;
+    transactionHash?: string;
+  };
+  serviceResult?: unknown;
 
   // Metadata
   createdAt: number;

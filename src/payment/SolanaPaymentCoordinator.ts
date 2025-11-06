@@ -1,7 +1,8 @@
-import { Connection, PublicKey, ParsedTransactionWithMeta } from '@solana/web3.js';
+import { Connection, ParsedTransactionWithMeta } from '@solana/web3.js';
 import { logger, securityLogger } from '../utils/logger';
 import { spawn } from 'child_process';
 import path from 'path';
+import { PaymentError as _PaymentError, PaymentVerificationError as _PaymentVerificationError, getErrorMessage } from '../types/errors';
 
 /**
  * Payment instruction returned to MCP clients
@@ -274,8 +275,9 @@ export class SolanaPaymentCoordinator {
         return this.verifySplTokenTransfer(tx, expectedRecipient, expectedAmount, tokenMint);
       }
 
-    } catch (error: any) {
-      logger.error('Transaction verification failed:', error);
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
+      logger.error('Transaction verification failed:', message);
       return false;
     }
   }
@@ -318,8 +320,9 @@ export class SolanaPaymentCoordinator {
       logger.info('✓ SOL transfer verified');
       return true;
 
-    } catch (error: any) {
-      logger.error('SOL transfer verification failed:', error);
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
+      logger.error('SOL transfer verification failed:', message);
       return false;
     }
   }
@@ -366,8 +369,9 @@ export class SolanaPaymentCoordinator {
       logger.info('✓ SPL token transfer verified');
       return true;
 
-    } catch (error: any) {
-      logger.error('SPL token transfer verification failed:', error);
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
+      logger.error('SPL token transfer verification failed:', message);
       return false;
     }
   }

@@ -9,6 +9,7 @@
 
 import { SentientExchangeServer } from './server.js';
 import { logger } from './utils/logger.js';
+import { getErrorMessage } from './types/errors.js';
 
 // Environment variables passed via MCP config (no dotenv needed for stdio transport)
 // Payment execution is client-side, server only coordinates
@@ -63,13 +64,18 @@ async function main() {
       process.exit(0);
     };
 
-    process.on('SIGINT', () => shutdown('SIGINT'));
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => {
+      void shutdown('SIGINT');
+    });
+    process.on('SIGTERM', () => {
+      void shutdown('SIGTERM');
+    });
 
     // Keep process alive
     process.stdin.resume();
-  } catch (error: any) {
-    logger.error('\n❌ Fatal Error:', error.message);
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    logger.error('\n❌ Fatal Error:', message);
     logger.error('Fatal error during startup:', error);
 
     if (server) {

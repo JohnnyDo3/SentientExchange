@@ -1,7 +1,8 @@
 import { logger } from '../utils/logger';
+import { ServiceError as _ServiceError, PaymentError as _PaymentError, ValidationError as _ValidationError, getErrorMessage } from '../types/errors';
 import Joi from 'joi';
 import { Database } from '../registry/database';
-import { Transaction } from '../types/transaction';
+import { Transaction as _Transaction } from '../types/transaction';
 
 /**
  * Arguments for get_transaction tool
@@ -41,14 +42,27 @@ export async function getTransaction(
         content: [{
           type: 'text',
           text: JSON.stringify({
-            error: `Validation error: ${error.message}`
+            error: `Validation error: ${getErrorMessage(error)}`
           })
         }]
       };
     }
 
     // Step 2: Query database for transaction
-    const transaction = await db.get<any>(
+    interface TransactionRow {
+      id: string;
+      serviceId: string;
+      buyer: string;
+      seller: string;
+      amount: string;
+      currency: string;
+      status: string;
+      paymentHash?: string;
+      request?: string;
+      response?: string;
+      timestamp: string;
+    }
+    const transaction = await db.get<TransactionRow>(
       'SELECT * FROM transactions WHERE id = ?',
       [value.transactionId]
     );
@@ -90,13 +104,13 @@ export async function getTransaction(
       }]
     };
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error in getTransaction:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: error.message
+          error: getErrorMessage(error)
         })
       }]
     };

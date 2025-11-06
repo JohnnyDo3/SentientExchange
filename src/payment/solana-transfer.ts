@@ -16,6 +16,7 @@ import {
   TOKEN_PROGRAM_ID
 } from '@solana/spl-token';
 import { logger } from '../utils/logger';
+import { PaymentError, getErrorMessage } from '../types/errors';
 
 /**
  * Execute a SPL token transfer on Solana
@@ -102,13 +103,14 @@ export async function executeTransfer(
 
     return signature;
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
     logger.error('Solana transfer failed:', {
-      error: error.message,
+      error: message,
       payer: payer.publicKey.toBase58(),
       recipient: recipient.toBase58()
     });
-    throw error;
+    throw new PaymentError(`Solana transfer failed: ${message}`);
   }
 }
 
@@ -131,8 +133,9 @@ export async function getTokenBalance(
 
     const balance = await connection.getTokenAccountBalance(tokenAccount.address);
     return BigInt(balance.value.amount);
-  } catch (error: any) {
-    logger.warn('Failed to get token balance:', error.message);
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    logger.warn('Failed to get token balance:', message);
     return BigInt(0);
   }
 }

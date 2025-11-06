@@ -128,7 +128,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     logger.info('✓ PostgreSQL schema initialized with JSONB optimization');
   }
 
-  async run(sql: string, params?: any[]): Promise<void> {
+  async run(sql: string, params?: unknown[]): Promise<void> {
     // Convert ? placeholders to $1, $2, etc.
     const convertedSql = this.convertPlaceholders(sql, params?.length || 0);
 
@@ -140,27 +140,27 @@ export class PostgresAdapter implements DatabaseAdapter {
     }
   }
 
-  async get<T = any>(sql: string, params?: any[]): Promise<T | undefined> {
+  async get<T = unknown>(sql: string, params?: unknown[]): Promise<T | undefined> {
     // Convert ? placeholders to $1, $2, etc.
     const convertedSql = this.convertPlaceholders(sql, params?.length || 0);
 
     const client: PoolClient = await this.pool.connect();
     try {
       const result = await client.query(convertedSql, params);
-      return result.rows[0];
+      return result.rows[0] as T | undefined;
     } finally {
       client.release();
     }
   }
 
-  async all<T = any>(sql: string, params?: any[]): Promise<T[]> {
+  async all<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
     // Convert ? placeholders to $1, $2, etc.
     const convertedSql = this.convertPlaceholders(sql, params?.length || 0);
 
     const client: PoolClient = await this.pool.connect();
     try {
       const result = await client.query(convertedSql, params);
-      return result.rows;
+      return result.rows as T[];
     } finally {
       client.release();
     }

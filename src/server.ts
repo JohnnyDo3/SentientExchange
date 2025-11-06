@@ -19,19 +19,20 @@ import { Database } from './registry/database.js';
 import { SolanaVerifier } from './payment/SolanaVerifier.js';
 import { SpendingLimitManager } from './payment/SpendingLimitManager.js';
 import { logger } from './utils/logger.js';
+import { getErrorMessage } from './types/errors.js';
 
-// Import all tool functions
-import { discoverServices } from './tools/discover.js';
-import { getServiceDetails } from './tools/details.js';
-import { purchaseService } from './tools/purchase.js';
-import { executePayment } from './tools/execute-payment.js';
-import { submitPayment } from './tools/submit-payment.js';
-import { rateService } from './tools/rate.js';
-import { listAllServices } from './tools/list.js';
-import { getTransaction } from './tools/transaction.js';
-import { setSpendingLimits, checkSpending, resetSpendingLimits } from './tools/spending-limits.js';
-import { discoverAndPrepareService } from './tools/smart-discover-prepare.js';
-import { completeServiceWithPayment } from './tools/smart-execute-complete.js';
+// Import all tool functions and their types
+import { discoverServices, type DiscoverServicesArgs } from './tools/discover.js';
+import { getServiceDetails, type GetServiceDetailsArgs } from './tools/details.js';
+import { purchaseService, type PurchaseServiceArgs } from './tools/purchase.js';
+import { executePayment, type ExecutePaymentArgs } from './tools/execute-payment.js';
+import { submitPayment, type SubmitPaymentArgs } from './tools/submit-payment.js';
+import { rateService, type RateServiceArgs } from './tools/rate.js';
+import { listAllServices, type ListAllServicesArgs } from './tools/list.js';
+import { getTransaction, type GetTransactionArgs } from './tools/transaction.js';
+import { setSpendingLimits, checkSpending, resetSpendingLimits, type SetSpendingLimitsArgs, type CheckSpendingArgs } from './tools/spending-limits.js';
+import { discoverAndPrepareService, type DiscoverAndPrepareArgs } from './tools/smart-discover-prepare.js';
+import { completeServiceWithPayment, type CompleteServiceWithPaymentArgs } from './tools/smart-execute-complete.js';
 
 /**
  * SentientExchange MCP Server
@@ -99,9 +100,10 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
     );
 
     // Registry, verifier, and spending limit manager will be initialized in initialize()
-    this.registry = null as any;
-    this.solanaVerifier = null as any;
-    this.spendingLimitManager = null as any;
+    // Using null assertion as they're guaranteed to be initialized before use
+    this.registry = null!;
+    this.solanaVerifier = null!;
+    this.spendingLimitManager = null!;
 
     this.setupToolHandlers();
   }
@@ -140,7 +142,7 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
       logger.info(`Payment Protocol: x402 with client-side execution`);
       logger.info(`Verification: Direct on-chain via Solana RPC`);
       logger.info(`Spending Limits: Enabled`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Failed to initialize SentientExchange MCP Server:', error);
       throw error;
     }
@@ -509,51 +511,51 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
       try {
         switch (name) {
           case 'discover_services':
-            return await discoverServices(this.registry, args as any || {});
+            return await discoverServices(this.registry, (args as unknown as DiscoverServicesArgs) || {});
 
           case 'get_service_details':
-            return await getServiceDetails(this.registry, args as any || {});
+            return await getServiceDetails(this.registry, (args as unknown as GetServiceDetailsArgs) || {});
 
           case 'purchase_service':
             return await purchaseService(
               this.registry,
-              args as any || {},
+              (args as unknown as PurchaseServiceArgs) || {},
               this.spendingLimitManager,
               userId
             );
 
           case 'execute_payment':
-            return await executePayment(args as any || {});
+            return await executePayment((args as unknown as ExecutePaymentArgs) || {});
 
           case 'submit_payment':
             return await submitPayment(
               this.registry,
               this.solanaVerifier,
               this.db,
-              args as any || {}
+              (args as unknown as SubmitPaymentArgs) || {}
             );
 
           case 'rate_service':
-            return await rateService(this.registry, this.db, args as any || {});
+            return await rateService(this.registry, this.db, (args as unknown as RateServiceArgs) || {});
 
           case 'list_all_services':
-            return await listAllServices(this.registry, args as any || {});
+            return await listAllServices(this.registry, (args as unknown as ListAllServicesArgs) || {});
 
           case 'get_transaction':
-            return await getTransaction(this.db, args as any || {});
+            return await getTransaction(this.db, (args as unknown as GetTransactionArgs) || {});
 
           case 'set_spending_limits':
             return await setSpendingLimits(
               this.spendingLimitManager,
               userId,
-              args as any || {}
+              (args as unknown as SetSpendingLimitsArgs) || {}
             );
 
           case 'check_spending':
             return await checkSpending(
               this.spendingLimitManager,
               userId,
-              args as any || {}
+              (args as unknown as CheckSpendingArgs) || {}
             );
 
           case 'reset_spending_limits':
@@ -565,7 +567,7 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
           case 'discover_and_prepare_service':
             return await discoverAndPrepareService(
               this.registry,
-              args as any,
+              args as unknown as DiscoverAndPrepareArgs,
               this.spendingLimitManager
             );
 
@@ -574,20 +576,21 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
               this.registry,
               this.solanaVerifier,
               this.db,
-              args as any
+              args as unknown as CompleteServiceWithPaymentArgs
             );
 
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         logger.error(`Error executing tool ${name}:`, error);
+        const message = getErrorMessage(error);
         return {
           content: [
             {
               type: 'text',
               text: JSON.stringify({
-                error: error.message || 'Unknown error occurred',
+                error: message || 'Unknown error occurred',
               }),
             },
           ],
@@ -609,7 +612,7 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
       logger.info('✓ MCP server started successfully');
       logger.info('✓ Ready to accept connections from Claude Desktop');
       logger.info('✓ All 8 tools registered and ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Failed to start MCP server:', error);
       throw error;
     }
@@ -631,7 +634,7 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
       logger.info('MCP server closed');
 
       logger.info('✓ SentientExchange MCP Server shutdown complete');
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error during shutdown:', error);
       throw error;
     }

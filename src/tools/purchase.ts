@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { getErrorMessage } from '../types/errors';
 import Joi from 'joi';
 import { ServiceRegistry } from '../registry/ServiceRegistry';
 import { SpendingLimitManager } from '../payment/SpendingLimitManager';
@@ -9,7 +10,7 @@ import axios from 'axios';
  */
 export interface PurchaseServiceArgs {
   serviceId: string;
-  data: any;
+  data: Record<string, unknown>;
   maxPayment?: string;
 }
 
@@ -64,7 +65,7 @@ export async function purchaseService(
         content: [{
           type: 'text',
           text: JSON.stringify({
-            error: `Validation error: ${error.message}`
+            error: `Validation error: ${getErrorMessage(error)}`
           })
         }],
         isError: true
@@ -243,14 +244,15 @@ export async function purchaseService(
         isError: true
       };
 
-    } catch (requestError: any) {
-      logger.error('Service request failed:', requestError.message);
+    } catch (requestError: unknown) {
+      const message = getErrorMessage(requestError);
+      logger.error('Service request failed:', message);
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             error: 'Failed to contact service',
-            details: requestError.message,
+            details: message,
             endpoint: service.endpoint
           })
         }],
@@ -258,13 +260,13 @@ export async function purchaseService(
       };
     }
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error in purchaseService:', error);
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          error: error.message || 'Unknown error during service purchase'
+          error: getErrorMessage(error) || 'Unknown error during service purchase'
         })
       }],
       isError: true

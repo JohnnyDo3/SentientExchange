@@ -4,7 +4,7 @@
  * Fallback provider when x402 facilitator is unavailable
  */
 
-import { Connection, PublicKey, Keypair, ParsedTransactionWithMeta } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { logger } from '../utils/logger';
 import {
@@ -14,6 +14,7 @@ import {
   PaymentProviderConfig
 } from './types';
 import { executeTransfer } from './solana-transfer';
+import { PaymentError, getErrorMessage } from '../types/errors';
 
 export class DirectSolanaProvider implements PaymentProvider {
   name = 'DirectSolanaProvider';
@@ -61,9 +62,10 @@ export class DirectSolanaProvider implements PaymentProvider {
       const blockHeight = await this.connection.getBlockHeight();
       logger.debug('Solana RPC connected', { blockHeight });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       logger.error('DirectSolanaProvider initialization failed:', error);
-      throw new Error(`DirectSolanaProvider init failed: ${error.message}`);
+      throw new PaymentError(`DirectSolanaProvider init failed: ${message}`);
     }
   }
 
@@ -110,11 +112,12 @@ export class DirectSolanaProvider implements PaymentProvider {
         details
       };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       logger.error('Direct Solana payment failed:', error);
       return {
         success: false,
-        error: error.message,
+        error: message,
         provider: 'direct-solana',
         timestamp: new Date(),
         details
@@ -145,8 +148,9 @@ export class DirectSolanaProvider implements PaymentProvider {
       logger.info('✓ Transaction verified');
       return true;
 
-    } catch (error: any) {
-      logger.error('Transaction verification failed:', error);
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
+      logger.error('Transaction verification failed:', message);
       return false;
     }
   }
@@ -201,8 +205,9 @@ export class DirectSolanaProvider implements PaymentProvider {
       logger.info('✓ SPL token transfer verified');
       return true;
 
-    } catch (error: any) {
-      logger.error('SPL token transfer verification failed:', error);
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
+      logger.error('SPL token transfer verification failed:', message);
       return false;
     }
   }
@@ -224,10 +229,11 @@ export class DirectSolanaProvider implements PaymentProvider {
       }
 
       return { healthy: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
       return {
         healthy: false,
-        message: `Health check failed: ${error.message}`
+        message: `Health check failed: ${message}`
       };
     }
   }
