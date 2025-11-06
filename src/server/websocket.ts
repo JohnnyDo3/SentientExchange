@@ -12,6 +12,7 @@ import { Server as HTTPServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { logger } from '../utils/logger.js';
 import { MasterOrchestrator } from '../orchestrator/MasterOrchestrator.js';
+import { getErrorMessage } from '../types/errors.js';
 
 export class OrchestrationWebSocket {
   private io: SocketIOServer;
@@ -53,8 +54,10 @@ export class OrchestrationWebSocket {
       // Handle recent transactions request
       socket.on('transactions:recent', async (data: { limit?: number }) => {
         try {
-          const transactions = await this.getRecentTransactions(data.limit || 20);
-          transactions.forEach(tx => socket.emit('transaction:new', tx));
+          const transactions = await this.getRecentTransactions(
+            data.limit || 20
+          );
+          transactions.forEach((tx) => socket.emit('transaction:new', tx));
         } catch (error) {
           logger.error('Failed to get transactions:', error);
         }
@@ -75,11 +78,11 @@ export class OrchestrationWebSocket {
 
           // Execute orchestration (mock for now - will connect to real orchestrator)
           await this.mockOrchestration(data.query);
-
-        } catch (error: any) {
+        } catch (error: unknown) {
           logger.error('❌ Orchestration failed:', error);
+          const message = getErrorMessage(error);
           this.io.emit('orchestration-error', {
-            error: error.message,
+            error: message,
             timestamp: Date.now(),
           });
         }
@@ -148,10 +151,26 @@ export class OrchestrationWebSocket {
 
     // Simulate spawning 4 agents
     const agents = [
-      { id: 'research-agent-1', name: 'Research Agent', role: 'Data Collection & Research' },
-      { id: 'analysis-agent-1', name: 'Market Analysis Agent', role: 'Market Analysis & Forecasting' },
-      { id: 'strategy-agent-1', name: 'Strategy Agent', role: 'Business Strategy & Planning' },
-      { id: 'creative-agent-1', name: 'Creative Agent', role: 'Content Creation & Visualization' },
+      {
+        id: 'research-agent-1',
+        name: 'Research Agent',
+        role: 'Data Collection & Research',
+      },
+      {
+        id: 'analysis-agent-1',
+        name: 'Market Analysis Agent',
+        role: 'Market Analysis & Forecasting',
+      },
+      {
+        id: 'strategy-agent-1',
+        name: 'Strategy Agent',
+        role: 'Business Strategy & Planning',
+      },
+      {
+        id: 'creative-agent-1',
+        name: 'Creative Agent',
+        role: 'Content Creation & Visualization',
+      },
     ];
 
     for (const agent of agents) {
@@ -165,14 +184,34 @@ export class OrchestrationWebSocket {
     // Simulate agents hiring services (micropayment pricing) - FASTER for better demo
     const hires = [
       { agent: 'Research Agent', service: 'Company Data API', cost: 0.08 },
-      { agent: 'Research Agent', service: 'News Aggregator', cost: 0.10 },
-      { agent: 'Market Analysis Agent', service: 'Market Research', cost: 0.35 },
-      { agent: 'Market Analysis Agent', service: 'Trend Forecaster', cost: 0.45 },
-      { agent: 'Market Analysis Agent', service: 'Pricing Optimizer', cost: 0.28 },
-      { agent: 'Strategy Agent', service: 'Channel Specialist Agent', cost: 0.65 },
-      { agent: 'Creative Agent', service: 'Copywriter', cost: 0.30 },
+      { agent: 'Research Agent', service: 'News Aggregator', cost: 0.1 },
+      {
+        agent: 'Market Analysis Agent',
+        service: 'Market Research',
+        cost: 0.35,
+      },
+      {
+        agent: 'Market Analysis Agent',
+        service: 'Trend Forecaster',
+        cost: 0.45,
+      },
+      {
+        agent: 'Market Analysis Agent',
+        service: 'Pricing Optimizer',
+        cost: 0.28,
+      },
+      {
+        agent: 'Strategy Agent',
+        service: 'Channel Specialist Agent',
+        cost: 0.65,
+      },
+      { agent: 'Creative Agent', service: 'Copywriter', cost: 0.3 },
       { agent: 'Creative Agent', service: 'Chart Generator', cost: 0.15 },
-      { agent: 'Creative Agent', service: 'Presentation Builder Agent', cost: 0.95 },
+      {
+        agent: 'Creative Agent',
+        service: 'Presentation Builder Agent',
+        cost: 0.95,
+      },
     ];
 
     let totalCost = 0;
@@ -194,68 +233,103 @@ export class OrchestrationWebSocket {
       request: query,
       timestamp: new Date().toISOString(),
       deliverable: {
-        title: "AI Coding Assistant Startup - Investor Pitch Deck",
+        title: 'AI Coding Assistant Startup - Investor Pitch Deck',
         slides: [
           {
-            title: "Problem",
-            content: "Developers spend 60% of their time debugging and searching for solutions instead of writing code.",
-            data: { timeSaved: "60%", marketSize: "$50B" }
+            title: 'Problem',
+            content:
+              'Developers spend 60% of their time debugging and searching for solutions instead of writing code.',
+            data: { timeSaved: '60%', marketSize: '$50B' },
           },
           {
-            title: "Solution",
-            content: "SentientExchange: AI-powered coding assistant that understands context, writes code, and debugs in real-time.",
-            features: ["Context-aware completions", "Real-time debugging", "Multi-language support"]
+            title: 'Solution',
+            content:
+              'SentientExchange: AI-powered coding assistant that understands context, writes code, and debugs in real-time.',
+            features: [
+              'Context-aware completions',
+              'Real-time debugging',
+              'Multi-language support',
+            ],
           },
           {
-            title: "Market Opportunity",
-            content: "TAM: $50B+ developer tools market growing at 22% CAGR",
-            data: { tam: "$50B+", growth: "22% CAGR", developers: "27M+ developers worldwide" }
+            title: 'Market Opportunity',
+            content: 'TAM: $50B+ developer tools market growing at 22% CAGR',
+            data: {
+              tam: '$50B+',
+              growth: '22% CAGR',
+              developers: '27M+ developers worldwide',
+            },
           },
           {
-            title: "Business Model",
-            content: "Freemium with enterprise plans: $0 (Free) → $20/mo (Pro) → Custom (Enterprise)",
-            pricing: { free: "$0", pro: "$20/mo", enterprise: "Custom" }
+            title: 'Business Model',
+            content:
+              'Freemium with enterprise plans: $0 (Free) → $20/mo (Pro) → Custom (Enterprise)',
+            pricing: { free: '$0', pro: '$20/mo', enterprise: 'Custom' },
           },
           {
-            title: "Go-to-Market Strategy",
-            content: "Developer community → Product-led growth → Enterprise sales",
-            channels: ["GitHub/GitLab integration", "VS Code Marketplace", "Developer communities", "Enterprise partnerships"]
+            title: 'Go-to-Market Strategy',
+            content:
+              'Developer community → Product-led growth → Enterprise sales',
+            channels: [
+              'GitHub/GitLab integration',
+              'VS Code Marketplace',
+              'Developer communities',
+              'Enterprise partnerships',
+            ],
           },
           {
-            title: "Traction",
-            content: "Early beta with 1,000+ developers, 4.8/5 rating, 85% daily active usage",
-            metrics: { users: "1,000+", rating: "4.8/5", dau: "85%" }
+            title: 'Traction',
+            content:
+              'Early beta with 1,000+ developers, 4.8/5 rating, 85% daily active usage',
+            metrics: { users: '1,000+', rating: '4.8/5', dau: '85%' },
           },
           {
-            title: "Team",
-            content: "Ex-Google/Meta engineers with 20+ years combined experience in AI/ML and developer tools",
-            team: ["CEO: AI Research (Ex-Google)", "CTO: Infrastructure (Ex-Meta)", "CPO: Product (Ex-GitHub)"]
+            title: 'Team',
+            content:
+              'Ex-Google/Meta engineers with 20+ years combined experience in AI/ML and developer tools',
+            team: [
+              'CEO: AI Research (Ex-Google)',
+              'CTO: Infrastructure (Ex-Meta)',
+              'CPO: Product (Ex-GitHub)',
+            ],
           },
           {
-            title: "The Ask",
-            content: "Raising $2M seed round to scale product, grow team, and expand market reach",
-            ask: { amount: "$2M", use: ["Product development 40%", "Team expansion 35%", "Marketing 25%"] }
-          }
-        ]
+            title: 'The Ask',
+            content:
+              'Raising $2M seed round to scale product, grow team, and expand market reach',
+            ask: {
+              amount: '$2M',
+              use: [
+                'Product development 40%',
+                'Team expansion 35%',
+                'Marketing 25%',
+              ],
+            },
+          },
+        ],
       },
       agentOutputs: {
-        "Research Agent": {
-          tasks: ["Market research", "Competitor analysis"],
-          findings: "27M developers worldwide, $50B TAM, key competitors: GitHub Copilot, Tabnine, Codeium"
+        'Research Agent': {
+          tasks: ['Market research', 'Competitor analysis'],
+          findings:
+            '27M developers worldwide, $50B TAM, key competitors: GitHub Copilot, Tabnine, Codeium',
         },
-        "Market Analysis Agent": {
-          tasks: ["Market sizing", "Pricing strategy"],
-          findings: "Optimal pricing: $20/mo with 30% conversion from free tier"
+        'Market Analysis Agent': {
+          tasks: ['Market sizing', 'Pricing strategy'],
+          findings:
+            'Optimal pricing: $20/mo with 30% conversion from free tier',
         },
-        "Strategy Agent": {
-          tasks: ["GTM strategy", "Channel planning"],
-          findings: "Product-led growth through VS Code marketplace, target 10K users in 6 months"
+        'Strategy Agent': {
+          tasks: ['GTM strategy', 'Channel planning'],
+          findings:
+            'Product-led growth through VS Code marketplace, target 10K users in 6 months',
         },
-        "Creative Agent": {
-          tasks: ["Copywriting", "Visualizations", "Deck assembly"],
-          findings: "8-slide narrative arc with data visualizations and compelling story"
-        }
-      }
+        'Creative Agent': {
+          tasks: ['Copywriting', 'Visualizations', 'Deck assembly'],
+          findings:
+            '8-slide narrative arc with data visualizations and compelling story',
+        },
+      },
     };
 
     this.io.emit('orchestration-completed', {
@@ -289,11 +363,14 @@ export class OrchestrationWebSocket {
 
     if (db) {
       try {
-        const result: any = await db.get(`
+        const result = await db.get<{ count: number; volume: number }>(
+          `
           SELECT COUNT(*) as count, SUM(CAST(amount AS REAL)) as volume
           FROM transactions
-          WHERE createdAt >= ? AND status = 'completed'
-        `, [todayTimestamp]);
+          WHERE timestamp >= ? AND status = 'completed'
+        `,
+          [todayTimestamp]
+        );
 
         transactionsToday = result?.count || 0;
         volumeToday = result?.volume || 0;
@@ -315,11 +392,30 @@ export class OrchestrationWebSocket {
    */
   private async getRecentTransactions(limit: number = 20) {
     const db = this.orchestrator?.getRegistry().getDatabase();
-    const transactions: any[] = [];
+
+    interface TransactionRow {
+      id: string;
+      serviceId: string;
+      agent: string | null;
+      service: string | null;
+      price: string;
+      status: string;
+      timestamp: string;
+    }
+
+    const transactions: Array<{
+      id: string;
+      agent: string;
+      service: string;
+      price: number;
+      timestamp: string;
+      status: string;
+    }> = [];
 
     if (db) {
       try {
-        const rows = await db.all(`
+        const rows = await db.all<TransactionRow>(
+          `
           SELECT
             t.id,
             t.serviceId,
@@ -327,14 +423,16 @@ export class OrchestrationWebSocket {
             s.name as service,
             t.amount as price,
             t.status,
-            t.createdAt as timestamp
+            t.timestamp as timestamp
           FROM transactions t
           LEFT JOIN services s ON t.serviceId = s.id
-          ORDER BY t.createdAt DESC
+          ORDER BY t.timestamp DESC
           LIMIT ?
-        `, [limit]);
+        `,
+          [limit]
+        );
 
-        return rows.map((row: any) => ({
+        return rows.map((row) => ({
           id: row.id,
           agent: row.agent?.substring(0, 8) + '...' || 'Anonymous',
           service: row.service || 'Unknown Service',
@@ -358,9 +456,11 @@ export class OrchestrationWebSocket {
     logger.info('🔗 Master Orchestrator connected to WebSocket');
 
     // Start broadcasting real stats every 30 seconds
-    setInterval(async () => {
-      const stats = await this.getMarketStats();
-      this.io.emit('stats:update', stats);
+    setInterval(() => {
+      void (async () => {
+        const stats = await this.getMarketStats();
+        this.io.emit('stats:update', stats);
+      })();
     }, 30000);
   }
 
@@ -368,7 +468,7 @@ export class OrchestrationWebSocket {
    * Helper to sleep for async delays
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
