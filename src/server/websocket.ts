@@ -12,7 +12,7 @@ import { Server as HTTPServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { logger } from '../utils/logger.js';
 import { MasterOrchestrator } from '../orchestrator/MasterOrchestrator.js';
-import { getErrorMessage } from '../types/errors.js';
+import { getErrorMessage } from '../types/errors';
 
 export class OrchestrationWebSocket {
   private io: SocketIOServer;
