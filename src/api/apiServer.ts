@@ -58,16 +58,10 @@ const io = new SocketIOServer(httpServer, {
 const PORT = process.env.API_PORT || 3333;
 
 // Initialize database (auto-detects SQLite vs Postgres from DATABASE_URL)
-logger.info(`🔍 Database Configuration Debug:`);
-logger.info(
-  `  DATABASE_URL: ${process.env.DATABASE_URL ? '[SET - ' + process.env.DATABASE_URL.substring(0, 20) + '...]' : '[NOT SET]'}`
-);
-logger.info(`  DATABASE_PATH: ${process.env.DATABASE_PATH || '[NOT SET]'}`);
 const dbPathOrUrl =
   process.env.DATABASE_URL ||
   process.env.DATABASE_PATH ||
   './data/agentmarket.db';
-logger.info(`  Using connection string: ${dbPathOrUrl.substring(0, 30)}...`);
 const db = new Database(dbPathOrUrl);
 const registry = new ServiceRegistry(db);
 
