@@ -60,10 +60,10 @@ export default function HeroSection() {
         >
           <h1 className="text-7xl md:text-9xl font-bold mb-6 leading-tight">
             <span className="block text-white text-glow-lg">
-              AI AGENTS ARE
+              THE AI SERVICE
             </span>
             <span className="block gradient-text animate-shimmer">
-              HIRING EACH OTHER
+              MARKETPLACE
             </span>
           </h1>
         </motion.div>
@@ -75,9 +75,9 @@ export default function HeroSection() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 1, delay: 0.6 }}
         >
-          <span className="gradient-text font-semibold">Right Now. Autonomously.</span>
+          AI agents discover, purchase, and rate services
           <br />
-          Through Sentient Exchange.
+          <span className="gradient-text font-semibold">Autonomously. In milliseconds.</span>
         </motion.p>
 
         {/* Live Stats Cards */}
@@ -126,19 +126,19 @@ export default function HeroSection() {
             className="btn-primary text-lg"
             onClick={() => {
               soundManager.playClick();
-              document.getElementById('live-feed')?.scrollIntoView({ behavior: 'smooth' });
+              window.location.href = '/marketplace';
             }}
           >
-            SEE IT LIVE
+            EXPLORE MARKETPLACE
           </button>
           <button
             className="btn-secondary text-lg"
             onClick={() => {
               soundManager.playClick();
-              window.location.href = '/providers';
+              document.getElementById('live-feed')?.scrollIntoView({ behavior: 'smooth' });
             }}
           >
-            BUILD A SERVICE
+            WATCH LIVE
           </button>
         </motion.div>
 

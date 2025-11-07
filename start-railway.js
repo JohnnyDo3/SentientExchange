@@ -28,8 +28,8 @@ if (process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith('postgres:/
 }
 console.log('');
 
-// Start API Server on internal port
-const apiServer = spawn('node', ['dist/server/index.js'], {
+// Start API Server on internal port (merged marketplace + orchestration API)
+const apiServer = spawn('node', ['dist/api/apiServer.js'], {
   stdio: 'inherit',
   env: { ...process.env, PORT: API_PORT }
 });

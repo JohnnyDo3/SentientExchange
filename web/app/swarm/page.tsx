@@ -201,10 +201,10 @@ export default function SwarmPage() {
         >
           <div className="flex items-center justify-center gap-3 mb-4">
             <Sparkles className="w-8 h-8 text-purple" />
-            <h1 className="text-5xl font-bold gradient-text">AGENT ORCHESTRATION</h1>
+            <h1 className="text-5xl font-bold gradient-text">MASTER ORCHESTRATOR</h1>
           </div>
           <p className="text-lg text-gray-400 max-w-2xl mx-auto">
-            Watch AI agents autonomously discover, hire, and coordinate services in real-time
+            AI agents autonomously discover, purchase, and coordinate services to complete complex tasks
           </p>
         </motion.div>
 
@@ -216,7 +216,7 @@ export default function SwarmPage() {
           transition={{ duration: 0.8, delay: 0.2 }}
         >
           <div className="glass rounded-2xl p-6">
-            <label className="block text-sm text-gray-400 mb-3">TASK FOR THE SWARM</label>
+            <label className="block text-sm text-gray-400 mb-3">ENTER YOUR TASK</label>
             <div className="flex gap-3">
               <input
                 type="text"

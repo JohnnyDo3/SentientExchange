@@ -42,6 +42,8 @@ import { x402Middleware } from '@sentientexchange/x402-middleware';
 import { ImageAnalyzer } from '../services/ai/image/imageAnalyzer.js';
 import { SentimentAnalyzer } from '../services/ai/sentiment/sentimentAnalyzer.js';
 import { TextSummarizer } from '../services/ai/text/textSummarizer.js';
+import { MasterOrchestrator } from '../orchestrator/MasterOrchestrator.js';
+import { seedDatabase } from '../server/seed-endpoint.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -70,6 +72,9 @@ const healthMonitor = new HealthMonitor(registry, db);
 const imageAnalyzer = new ImageAnalyzer();
 const sentimentAnalyzer = new SentimentAnalyzer();
 const textSummarizer = new TextSummarizer();
+
+// Initialize Master Orchestrator for /swarm page
+const orchestrator = new MasterOrchestrator(registry);
 
 // ============================================================================
 // MIDDLEWARE
@@ -992,6 +997,53 @@ app.get('/api/services/:id/audit', async (req, res, next) => {
 });
 
 // ============================================================================
+// ORCHESTRATION & SEED ENDPOINTS
+// ============================================================================
+
+// POST /api/orchestrate - Trigger Master Orchestrator (for /swarm page)
+app.post('/api/orchestrate', async (req, res, next) => {
+  try {
+    const { query } = req.body;
+
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Query is required',
+      });
+    }
+
+    logger.info(`🎯 Orchestration request: "${query}"`);
+
+    const result = await orchestrator.executeComplexTask(query);
+
+    res.json({
+      success: true,
+      result,
+    });
+  } catch (error: unknown) {
+    logger.error('Orchestration failed:', error);
+    next(error);
+  }
+});
+
+// POST /api/admin/seed - Seed database with example services
+app.post('/api/admin/seed', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    logger.info('🌱 Seeding database with example services...');
+    const services = await seedDatabase(registry);
+
+    res.json({
+      success: true,
+      message: `Successfully seeded ${services.length} services`,
+      services: services.map((s) => ({ id: s.id, name: s.name })),
+    });
+  } catch (error: unknown) {
+    logger.error('Failed to seed database:', error);
+    next(error);
+  }
+});
+
+// ============================================================================
 // AI SERVICES (with x402 payment)
 // ============================================================================
 
@@ -1191,6 +1243,35 @@ io.on('connection', (socket) => {
   // Send initial stats
   socket.emit('initial-stats', {
     services: registry.getAllServices().length,
+  });
+
+  // Orchestration event: Start orchestration via WebSocket
+  socket.on('start-orchestration', async (data: { query: string }) => {
+    logger.info(`🎯 Starting orchestration for: "${data.query}"`);
+
+    try {
+      // Broadcast that orchestration is starting
+      io.emit('orchestration-started', {
+        query: data.query,
+        timestamp: Date.now(),
+      });
+
+      // Execute orchestration with real-time events
+      const result = await orchestrator.executeComplexTask(data.query);
+
+      // Broadcast completion with final deliverable (result already has success: true)
+      io.emit('orchestration-completed', {
+        ...result,
+        timestamp: Date.now(),
+      });
+    } catch (error: unknown) {
+      logger.error('❌ Orchestration failed:', error);
+      const message = getErrorMessage(error);
+      io.emit('orchestration-error', {
+        error: message,
+        timestamp: Date.now(),
+      });
+    }
   });
 
   socket.on('disconnect', () => {

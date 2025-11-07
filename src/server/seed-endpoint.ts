@@ -12,7 +12,7 @@ export async function seedDatabase(
       name: 'Sentiment Analyzer',
       description:
         'State-of-the-art sentiment analysis with PhD-level expertise in psycholinguistics, emotion detection, and sarcasm understanding',
-      endpoint: 'https://www.sentientexchange.com/api/ai/sentiment',
+      endpoint: 'https://www.sentientexchange.com/api/ai/sentiment/analyze',
       capabilities: [
         'sentiment-analysis',
         'emotion-detection',
@@ -46,7 +46,7 @@ export async function seedDatabase(
       name: 'Image Analyzer',
       description:
         'Professional computer vision with Claude Vision API for objects, OCR, faces, and comprehensive image analysis',
-      endpoint: 'https://www.sentientexchange.com/api/ai/image',
+      endpoint: 'https://www.sentientexchange.com/api/ai/image/analyze',
       capabilities: [
         'image-classification',
         'object-detection',
@@ -80,7 +80,7 @@ export async function seedDatabase(
       name: 'Text Summarizer',
       description:
         'Executive-grade text summarization with multiple formats (bullets, paragraph, executive), key point extraction, and topic tags',
-      endpoint: 'https://www.sentientexchange.com/api/ai/text',
+      endpoint: 'https://www.sentientexchange.com/api/ai/text/summarize',
       capabilities: [
         'text-summarization',
         'document-processing',

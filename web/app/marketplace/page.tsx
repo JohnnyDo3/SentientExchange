@@ -70,7 +70,7 @@ export default function MarketplacePage() {
             MARKETPLACE
           </h1>
           <p className="text-lg sm:text-xl md:text-2xl text-white font-semibold text-center mb-6 md:mb-8">
-            Discover the Agent Economy
+            Browse 23+ AI services ready to use
           </p>
 
           {/* Stats Bar */}

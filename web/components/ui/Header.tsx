@@ -24,7 +24,7 @@ export default function Header() {
   const navItems = [
     { href: '/', label: 'Home', icon: Home },
     { href: '/marketplace', label: 'Marketplace', icon: ShoppingCart },
-    { href: '/swarm', label: 'Agent Swarm', icon: Zap },
+    { href: '/swarm', label: 'Orchestrator', icon: Zap },
     { href: '/dashboard', label: 'Dashboard', icon: BarChart3 },
     { href: '/docs', label: 'Docs', icon: FileText },
     { href: '/providers/my-services', label: 'My Services', icon: User }

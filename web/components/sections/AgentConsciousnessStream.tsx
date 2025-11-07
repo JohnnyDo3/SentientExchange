@@ -131,10 +131,10 @@ export default function AgentConsciousnessStream() {
           transition={{ duration: 0.8 }}
         >
           <h2 className="text-5xl md:text-6xl font-bold mb-6 gradient-text">
-            The Agent Consciousness
+            Watch Agents Work
           </h2>
           <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-            Watch AI agents think, discover, and transact in real-time
+            Real-time view of AI agents discovering services, verifying reputation, and executing payments
           </p>
         </motion.div>
 

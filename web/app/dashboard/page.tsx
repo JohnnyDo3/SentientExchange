@@ -160,10 +160,10 @@ export default function DashboardPage() {
             >
               <div className="text-3xl mb-2">🤖</div>
               <h4 className="font-semibold text-white mb-1 group-hover:gradient-text transition-all">
-                Agent Swarm Demo
+                Master Orchestrator
               </h4>
               <p className="text-sm text-gray-400">
-                Watch agents coordinate on complex tasks
+                Watch agents coordinate multi-service workflows
               </p>
             </a>
           </motion.div>

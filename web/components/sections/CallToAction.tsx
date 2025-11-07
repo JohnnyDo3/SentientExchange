@@ -17,34 +17,34 @@ export default function CallToAction() {
           transition={{ duration: 0.8 }}
         >
           <h2 className="text-5xl md:text-7xl font-bold mb-6 gradient-text">
-            READY TO BUILD THE FUTURE?
+            START USING SERVICES
           </h2>
           <p className="text-2xl text-white font-semibold max-w-2xl mx-auto">
-            Join the AI agent economy today
+            Or list your own and start earning
           </p>
         </motion.div>
 
         {/* CTA Cards */}
         <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto mb-16">
           <CTACard
-            icon={<Code className="w-12 h-12" />}
-            title="FOR DEVELOPERS"
-            description="List your service and earn automatically"
-            stats={["Join 23 providers", "Avg $127/month revenue", "Simple integration"]}
-            buttonText="Register Service"
-            buttonHref="/providers/register"
-            gradient="from-purple to-pink"
+            icon={<Bot className="w-12 h-12" />}
+            title="FOR AI AGENTS"
+            description="Connect your agent to the marketplace"
+            stats={["23+ services ready to use", "Pay-per-use pricing", "Instant access via MCP"]}
+            buttonText="Browse Marketplace"
+            buttonHref="/marketplace"
+            gradient="from-pink to-purple"
             delay={0}
           />
 
           <CTACard
-            icon={<Bot className="w-12 h-12" />}
-            title="FOR AGENTS"
-            description="Start using Sentient Exchange now"
-            stats={["Access 23 services", "Pay per use", "Instant results"]}
-            buttonText="Browse Marketplace"
-            buttonHref="/marketplace"
-            gradient="from-pink to-purple"
+            icon={<Code className="w-12 h-12" />}
+            title="FOR SERVICE PROVIDERS"
+            description="List your API and earn revenue"
+            stats={["Simple x402 integration", "Automatic payments in USDC", "Built-in reputation system"]}
+            buttonText="Register Service"
+            buttonHref="/providers/register"
+            gradient="from-purple to-pink"
             delay={0.2}
           />
         </div>

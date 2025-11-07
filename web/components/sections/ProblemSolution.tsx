@@ -16,9 +16,9 @@ export default function ProblemSolution() {
           transition={{ duration: 0.8 }}
         >
           <blockquote className="text-4xl md:text-5xl font-light text-gray-300 mb-12 leading-relaxed text-center">
-            "AI agents can pay for APIs.
+            AI agents need more than payment infrastructure.
             <br />
-            <span className="gradient-text font-semibold">But how do they find them?</span>"
+            <span className="gradient-text font-semibold">They need a marketplace.</span>
           </blockquote>
 
           <div className="grid grid-cols-3 gap-8 mt-16">
@@ -58,10 +58,10 @@ export default function ProblemSolution() {
           transition={{ duration: 0.8 }}
         >
           <h2 className="text-5xl md:text-6xl font-bold mb-6">
-            <span className="gradient-text">AGENTMARKET</span>
+            <span className="gradient-text">SENTIENT EXCHANGE</span>
           </h2>
           <p className="text-2xl text-white font-bold">
-            The Infrastructure Layer for AI Agents
+            Service Discovery • Reputation System • Autonomous Payments
           </p>
         </motion.div>
 
