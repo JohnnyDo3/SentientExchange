@@ -1,6 +1,6 @@
 import { logger, securityLogger } from '../utils/logger.js';
 import { Request, Response, NextFunction } from 'express';
-import rateLimitMiddleware from 'express-rate-limit';
+import rateLimitMiddleware, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
 import crypto from 'crypto';
 
@@ -74,8 +74,10 @@ export const mcpMessageLimiter = rateLimitMiddleware({
   // Extract session ID from query for per-session limiting
   keyGenerator: (req) => {
     const sessionId = req.query.sessionId as string;
-    // Use sessionId if available, otherwise use IP (express-rate-limit handles IPv6)
-    return sessionId || (req.ip as string) || 'unknown';
+    // Use sessionId if available, otherwise use IP with IPv6 support
+    if (sessionId) return sessionId;
+    // Use ipKeyGenerator helper to properly handle IPv6 addresses
+    return ipKeyGenerator(req.ip || 'unknown');
   },
 });
 
