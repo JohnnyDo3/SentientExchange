@@ -123,6 +123,11 @@ async function initialize() {
     try {
       const seededServices = await seedDatabase(registry);
       logger.info(`✅ Auto-seed complete: ${seededServices.length} services created`);
+
+      // Reload registry to update in-memory cache with seeded services
+      await registry.initialize();
+      const newCount = registry.getAllServices().length;
+      logger.info(`✓ Registry reloaded: ${newCount} services now in memory`);
     } catch (error: unknown) {
       logger.error('❌ Auto-seed failed:', error);
       // Don't crash the server if seeding fails - just log the error
