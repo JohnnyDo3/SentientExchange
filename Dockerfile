@@ -3,12 +3,13 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Force cache bust - change this number to force rebuild: 9
-RUN echo "Cache bust: 9"
+# Force cache bust - change this number to force rebuild: 10
+RUN echo "Cache bust: 10"
 
-# Copy package files
+# Copy package files AND packages directory (needed for local tarball)
 COPY package*.json ./
 COPY web/package*.json ./web/
+COPY packages/ ./packages/
 
 # Install ALL dependencies including devDependencies (needed for build)
 RUN npm ci --include=dev
