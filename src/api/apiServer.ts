@@ -115,7 +115,21 @@ app.use('/api', apiLimiter);
 async function initialize() {
   await db.initialize();
   await registry.initialize();
-  // API Server initialized
+
+  // Auto-seed database if empty (one-time startup seed)
+  const serviceCount = registry.getAllServices().length;
+  if (serviceCount === 0) {
+    logger.info('🌱 Database is empty - auto-seeding with example services...');
+    try {
+      const seededServices = await seedDatabase(registry);
+      logger.info(`✅ Auto-seed complete: ${seededServices.length} services created`);
+    } catch (error: unknown) {
+      logger.error('❌ Auto-seed failed:', error);
+      // Don't crash the server if seeding fails - just log the error
+    }
+  } else {
+    logger.info(`✓ Database already seeded with ${serviceCount} services`);
+  }
 }
 
 // ============================================================================
