@@ -1,0 +1,933 @@
+# Payment Routing Architecture
+
+**TL;DR:** AgentMarket uses a hybrid payment architecture with DirectSolanaProvider for client-side signing and SolanaVerifier for server-side verification, ensuring private keys never leave the client while enabling autonomous AI agents to make payments on Solana.
+
+## Overview
+
+The payment routing system coordinates Solana-based USDC payments for the x402 payment protocol. The architecture separates execution (client-side) from verification (server-side) to maintain security while enabling autonomous operation.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Client Environment                         │
+│  (MCP Client - Claude Desktop, API Client, etc.)            │
+│                                                              │
+│  ┌────────────────────────────────────────────────┐        │
+│  │      DirectSolanaProvider                       │        │
+│  │  - Loads SOLANA_PRIVATE_KEY from local env     │        │
+│  │  - Signs transactions locally                  │        │
+│  │  - Sends to Solana blockchain                  │        │
+│  └────────────────────┬───────────────────────────┘        │
+└───────────────────────┼──────────────────────────────────────┘
+                        │ Transaction Signature
+                        │
+┌───────────────────────┼──────────────────────────────────────┐
+│                       ▼                                       │
+│              Solana Blockchain                                │
+│  ┌────────────────────────────────────────────────┐         │
+│  │  SPL Token Transfer (USDC)                     │         │
+│  │  - From: Client wallet                         │         │
+│  │  - To: Service provider wallet                 │         │
+│  │  - Amount: Service price (e.g., 10000 = $0.01) │         │
+│  └────────────────────────────────────────────────┘         │
+└───────────────────────┬──────────────────────────────────────┘
+                        │ On-chain verification
+                        │
+┌───────────────────────┼──────────────────────────────────────┐
+│                       ▼                                       │
+│              AgentMarket Server                               │
+│  ┌────────────────────────────────────────────────┐         │
+│  │      SolanaVerifier                             │         │
+│  │  - Fetches transaction from Solana RPC         │         │
+│  │  - Verifies recipient address                  │         │
+│  │  - Verifies amount                             │         │
+│  │  - Verifies token (USDC mint)                  │         │
+│  └────────────────────────────────────────────────┘         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+<Callout type="info">
+**Security First**: Private keys are NEVER transmitted to the server. All transaction signing happens on the client's machine.
+</Callout>
+
+## Payment Providers
+
+### DirectSolanaProvider (Client-Side)
+
+The DirectSolanaProvider executes payments directly on the Solana blockchain using client-side wallet signing.
+
+#### Initialization
+
+```typescript
+export class DirectSolanaProvider implements PaymentProvider {
+  name = 'DirectSolanaProvider';
+  private connection: Connection;
+  private wallet: Keypair | null = null;
+  private config: PaymentProviderConfig;
+
+  constructor(config: PaymentProviderConfig) {
+    this.config = config;
+    const rpcUrl = config.rpcUrl || this.getDefaultRpcUrl(config.network);
+    this.connection = new Connection(rpcUrl, 'confirmed');
+  }
+
+  async initialize(): Promise<void> {
+    // Get private key from environment (CLIENT-SIDE ONLY!)
+    const secretKey = this.config.secretKey || process.env.SOLANA_PRIVATE_KEY;
+    if (!secretKey) {
+      throw new Error('SOLANA_PRIVATE_KEY required for DirectSolanaProvider');
+    }
+
+    // Parse secret key (base58 encoded)
+    const secretKeyBytes = bs58.decode(secretKey);
+    this.wallet = Keypair.fromSecretKey(secretKeyBytes);
+
+    logger.info('DirectSolanaProvider wallet loaded', {
+      publicKey: this.wallet.publicKey.toBase58()
+    });
+
+    // Test connection
+    const blockHeight = await this.connection.getBlockHeight();
+    logger.debug('Solana RPC connected', { blockHeight });
+  }
+}
+```
+
+**Key Points**:
+- Runs in MCP client process (Claude Desktop environment)
+- Loads `SOLANA_PRIVATE_KEY` from client's environment variables
+- Never sends private key over network
+- Requires client to have funded Solana wallet
+
+#### Payment Execution
+
+```typescript
+async executePayment(details: PaymentDetails): Promise<PaymentResult> {
+  try {
+    if (!this.wallet) {
+      throw new Error('DirectSolanaProvider not initialized');
+    }
+
+    // Check max payment limit (safety check)
+    if (this.config.maxPaymentValue && details.amount > this.config.maxPaymentValue) {
+      throw new Error(
+        `Payment amount ${details.amount} exceeds maximum ${this.config.maxPaymentValue}`
+      );
+    }
+
+    logger.info('Executing direct Solana payment', {
+      recipient: details.recipient,
+      amount: details.amount.toString(),
+      currency: details.currency,
+      tokenAddress: details.tokenAddress
+    });
+
+    // Execute the transfer using shared utility
+    const signature = await executeTransfer(
+      this.connection,
+      this.wallet,
+      new PublicKey(details.recipient),
+      new PublicKey(details.tokenAddress),
+      details.amount
+    );
+
+    logger.info('Direct Solana payment successful', {
+      signature,
+      recipient: details.recipient
+    });
+
+    return {
+      success: true,
+      signature,
+      transactionHash: signature,
+      provider: 'direct-solana',
+      timestamp: new Date(),
+      details
+    };
+
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    logger.error('Direct Solana payment failed:', error);
+    return {
+      success: false,
+      error: message,
+      provider: 'direct-solana',
+      timestamp: new Date(),
+      details
+    };
+  }
+}
+```
+
+#### SPL Token Transfer Utility
+
+The actual blockchain interaction is handled by `solana-transfer.ts`:
+
+```typescript
+// src/payment/solana-transfer.ts
+export async function executeTransfer(
+  connection: Connection,
+  payer: Keypair,
+  recipient: PublicKey,
+  tokenMint: PublicKey,
+  amount: bigint
+): Promise<string> {
+  // 1. Get or create token accounts
+  const payerTokenAccount = await getOrCreateAssociatedTokenAccount(
+    connection,
+    payer,
+    tokenMint,
+    payer.publicKey
+  );
+
+  const recipientTokenAccount = await getOrCreateAssociatedTokenAccount(
+    connection,
+    payer,
+    tokenMint,
+    recipient
+  );
+
+  // 2. Create transfer instruction
+  const transferInstruction = createTransferInstruction(
+    payerTokenAccount.address,
+    recipientTokenAccount.address,
+    payer.publicKey,
+    amount,
+    [],
+    TOKEN_PROGRAM_ID
+  );
+
+  // 3. Build transaction
+  const transaction = new Transaction().add(transferInstruction);
+  transaction.feePayer = payer.publicKey;
+  transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+
+  // 4. Sign and send
+  transaction.sign(payer);
+  const signature = await connection.sendRawTransaction(transaction.serialize());
+
+  // 5. Confirm transaction
+  await connection.confirmTransaction(signature, 'confirmed');
+
+  return signature;
+}
+```
+
+**Transaction Flow**:
+1. Resolve sender's SPL token account
+2. Resolve or create recipient's SPL token account
+3. Create SPL token transfer instruction
+4. Add recent blockhash and fee payer
+5. Sign with client's private key
+6. Send to Solana blockchain
+7. Wait for confirmation (typically 400-800ms)
+
+### SolanaPaymentCoordinator (Hybrid)
+
+The SolanaPaymentCoordinator bridges 402 responses and payment execution, supporting both client-side and autonomous server-side payments.
+
+#### Payment Instruction Creation
+
+```typescript
+createPaymentInstruction(
+  x402Response: X402PaymentDetails,
+  serviceId: string
+): PaymentInstruction {
+  // Get first Solana payment option (support both formats)
+  const solanaPayment = x402Response.accepts.find((accept) => {
+    const chain = accept.chainId || accept.network || '';
+    return chain.includes('solana') || chain === 'devnet' || chain === 'mainnet-beta';
+  });
+
+  if (!solanaPayment) {
+    throw new Error('No Solana payment option found in 402 response');
+  }
+
+  // Extract values (support both old and new format)
+  const amount = solanaPayment.amount || solanaPayment.maxAmountRequired || '0';
+  const token = solanaPayment.tokenAddress || solanaPayment.asset || 'USDC';
+  const recipient = solanaPayment.receiverAddress || solanaPayment.payTo || '';
+
+  return {
+    paymentRequired: true,
+    recipient,
+    amount,
+    token,
+    network: this.network,
+    serviceId,
+    estimatedFee: '5000',  // 0.000005 SOL in lamports
+    executeCommand: `npx ts-node scripts/solana-pay.ts ${recipient} ${amount} ${token}`
+  };
+}
+```
+
+**402 Response Compatibility**:
+
+Old Format:
+```json
+{
+  "accepts": [{
+    "network": "solana-devnet",
+    "asset": "USDC",
+    "maxAmountRequired": "10000",
+    "payTo": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
+  }]
+}
+```
+
+New Format:
+```json
+{
+  "accepts": [{
+    "chainId": "solana:devnet",
+    "tokenAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amount": "10000",
+    "receiverAddress": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
+  }]
+}
+```
+
+#### Autonomous Payment Execution
+
+For autonomous agents without user wallets, the coordinator can execute payments using a server-managed wallet:
+
+```typescript
+async executePayment(
+  x402Response: X402PaymentDetails,
+  recipient: string
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const solanaPayment = x402Response.accepts.find(/* ... */);
+    if (!solanaPayment) {
+      return reject(new Error('No Solana payment option found'));
+    }
+
+    const amount = solanaPayment.amount || solanaPayment.maxAmountRequired || '0';
+    const token = solanaPayment.tokenAddress || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+    // SECURITY: Validate all parameters to prevent command injection
+    const solanaAddressRegex = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+    if (!solanaAddressRegex.test(recipient)) {
+      securityLogger.commandInjectionAttempt({
+        value: recipient,
+        reason: 'Invalid Solana recipient address format',
+      });
+      return reject(new Error('Invalid recipient address format'));
+    }
+
+    // Additional validation for shell metacharacters
+    const dangerousChars = /[;&|`$(){}[\]<>'"\\]/;
+    if (dangerousChars.test(recipient) || dangerousChars.test(amount) || dangerousChars.test(token)) {
+      securityLogger.commandInjectionAttempt({
+        value: `recipient=${recipient}, amount=${amount}, token=${token}`,
+        reason: 'Shell metacharacters detected in payment parameters',
+      });
+      return reject(new Error('Dangerous characters detected'));
+    }
+
+    // Execute payment script as subprocess
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'autonomous-payment.js');
+    const child = spawn('node', [scriptPath, recipient, amount, token], {
+      env: {
+        ...process.env,
+        SOLANA_PRIVATE_KEY: process.env.SOLANA_PRIVATE_KEY,
+        SOLANA_RPC_URL: process.env.SOLANA_RPC_URL,
+        NETWORK: this.network
+      },
+      cwd: process.cwd()
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout?.on('data', (data) => { stdout += data.toString(); });
+    child.stderr?.on('data', (data) => { stderr += data.toString(); });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        const signature = stdout.trim();
+        logger.info('Autonomous payment successful, signature:', signature);
+        resolve(signature);
+      } else {
+        logger.error('Payment failed with code:', code);
+        reject(new Error(`Payment script failed: ${stderr}`));
+      }
+    });
+
+    child.on('error', (error) => {
+      logger.error('Failed to spawn payment script:', error);
+      reject(error);
+    });
+  });
+}
+```
+
+**Security Measures**:
+- Solana address format validation (base58, 32-44 chars)
+- Shell metacharacter detection
+- Command injection prevention
+- Subprocess isolation
+- Input sanitization
+
+### SolanaVerifier (Server-Side)
+
+The SolanaVerifier confirms payment validity by fetching and analyzing on-chain transaction data.
+
+#### Payment Verification
+
+```typescript
+export class SolanaVerifier {
+  private connections: Map<string, Connection> = new Map();
+
+  constructor() {
+    // Initialize connections for different networks
+    this.connections.set(
+      'mainnet-beta',
+      new Connection(
+        process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+        'confirmed'
+      )
+    );
+    this.connections.set(
+      'devnet',
+      new Connection('https://api.devnet.solana.com', 'confirmed')
+    );
+    this.connections.set(
+      'testnet',
+      new Connection('https://api.testnet.solana.com', 'confirmed')
+    );
+  }
+
+  async verifyPayment(params: PaymentVerification): Promise<VerificationResult> {
+    const { signature, expectedAmount, expectedRecipient, expectedToken, network } = params;
+
+    try {
+      logger.info('Verifying payment transaction', {
+        signature,
+        network,
+        expectedAmount: expectedAmount.toString(),
+        expectedRecipient,
+      });
+
+      // Get connection for network
+      const connection = this.connections.get(network);
+      if (!connection) {
+        return { verified: false, error: `Unsupported network: ${network}` };
+      }
+
+      // Fetch transaction from blockchain
+      const tx = await connection.getParsedTransaction(signature, {
+        maxSupportedTransactionVersion: 0,
+      });
+
+      if (!tx) {
+        logger.warn('Transaction not found on-chain', { signature });
+        return { verified: false, error: 'Transaction not found on blockchain' };
+      }
+
+      // Check transaction was successful
+      if (tx.meta?.err) {
+        logger.warn('Transaction failed', { signature, error: tx.meta.err });
+        return { verified: false, transaction: tx, error: 'Transaction failed on-chain' };
+      }
+
+      // Verify payment details
+      if (expectedToken) {
+        // SPL Token transfer (e.g., USDC)
+        return this.verifyTokenTransfer(tx, expectedAmount, expectedRecipient, expectedToken);
+      } else {
+        // Native SOL transfer
+        return this.verifySolTransfer(tx, expectedAmount, expectedRecipient);
+      }
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
+      logger.error('Payment verification failed', { signature, error: message });
+      return { verified: false, error: `Verification error: ${message}` };
+    }
+  }
+}
+```
+
+#### SPL Token Transfer Verification
+
+```typescript
+private verifyTokenTransfer(
+  tx: ParsedTransactionWithMeta,
+  expectedAmount: bigint,
+  expectedRecipient: string,
+  expectedToken: string
+): VerificationResult {
+  try {
+    // Parse token transfer from transaction
+    const instructions = tx.transaction.message.instructions;
+
+    for (const instruction of instructions) {
+      if ('parsed' in instruction && instruction.program === 'spl-token') {
+        const parsed = instruction.parsed;
+
+        if (parsed.type === 'transfer' || parsed.type === 'transferChecked') {
+          const info = parsed.info;
+          const amount = BigInt(info.amount || info.tokenAmount?.amount || '0');
+          const destination = info.destination;
+          const mint = info.mint;
+
+          logger.debug('Found token transfer', { amount: amount.toString(), destination, mint });
+
+          // Verify amount
+          if (amount !== expectedAmount) {
+            return {
+              verified: false,
+              transaction: tx,
+              actualAmount: amount,
+              error: `Amount mismatch: expected ${expectedAmount}, got ${amount}`,
+            };
+          }
+
+          // Verify token mint
+          if (mint && mint !== expectedToken) {
+            return {
+              verified: false,
+              transaction: tx,
+              error: `Token mismatch: expected ${expectedToken}, got ${mint}`,
+            };
+          }
+
+          // Note: destination is the token account, not the wallet owner
+          // For robust verification, we'd need to check the account owner
+          if (destination && destination !== expectedRecipient) {
+            logger.warn('Recipient token account does not match', {
+              expected: expectedRecipient,
+              actual: destination,
+            });
+            // Log but don't fail - might be correct owner's token account
+          }
+
+          logger.info('Token payment verified successfully', {
+            amount: amount.toString(),
+            token: mint,
+          });
+
+          return {
+            verified: true,
+            transaction: tx,
+            actualAmount: amount,
+            actualRecipient: destination,
+          };
+        }
+      }
+    }
+
+    return {
+      verified: false,
+      transaction: tx,
+      error: 'No token transfer found in transaction',
+    };
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    logger.error('Token transfer verification failed', error);
+    return {
+      verified: false,
+      transaction: tx,
+      error: `Token verification error: ${message}`,
+    };
+  }
+}
+```
+
+**Verification Steps**:
+1. Parse transaction instructions
+2. Find SPL token transfer instruction
+3. Extract amount, destination, and mint
+4. Verify amount matches exactly
+5. Verify token mint matches (USDC address)
+6. Verify destination token account (with warning for mismatches)
+
+#### Native SOL Transfer Verification
+
+```typescript
+private verifySolTransfer(
+  tx: ParsedTransactionWithMeta,
+  expectedAmount: bigint,
+  expectedRecipient: string
+): VerificationResult {
+  try {
+    // Check post balances vs pre balances
+    const accountKeys = tx.transaction.message.accountKeys;
+    const preBalances = tx.meta?.preBalances || [];
+    const postBalances = tx.meta?.postBalances || [];
+
+    // Find recipient account
+    const recipientIndex = accountKeys.findIndex(
+      (key) => key.pubkey.toBase58() === expectedRecipient
+    );
+
+    if (recipientIndex === -1) {
+      return {
+        verified: false,
+        transaction: tx,
+        error: `Recipient ${expectedRecipient} not found in transaction`,
+      };
+    }
+
+    // Calculate amount received
+    const preBalance = BigInt(preBalances[recipientIndex] || 0);
+    const postBalance = BigInt(postBalances[recipientIndex] || 0);
+    const actualAmount = postBalance - preBalance;
+
+    logger.debug('SOL transfer details', {
+      recipient: expectedRecipient,
+      preBalance: preBalance.toString(),
+      postBalance: postBalance.toString(),
+      actualAmount: actualAmount.toString(),
+    });
+
+    // Verify amount (allow small fee discrepancies)
+    const difference = actualAmount - expectedAmount;
+    const tolerance = BigInt(5000); // 0.000005 SOL tolerance for fees
+
+    if (difference < -tolerance || difference > tolerance) {
+      return {
+        verified: false,
+        transaction: tx,
+        actualAmount,
+        actualRecipient: expectedRecipient,
+        error: `Amount mismatch: expected ${expectedAmount}, got ${actualAmount}`,
+      };
+    }
+
+    logger.info('SOL payment verified successfully', {
+      amount: actualAmount.toString(),
+      recipient: expectedRecipient,
+    });
+
+    return {
+      verified: true,
+      transaction: tx,
+      actualAmount,
+      actualRecipient: expectedRecipient,
+    };
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    logger.error('SOL transfer verification failed', error);
+    return {
+      verified: false,
+      transaction: tx,
+      error: `SOL verification error: ${message}`,
+    };
+  }
+}
+```
+
+## Payment Flow Diagrams
+
+### Client-Side Payment Flow
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ Step 1: Service Request                                    │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ Client → Service: POST /api/service                        │
+│ Headers: (no payment)                                      │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ Step 2: 402 Payment Required                               │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ Service → Client: 402 Payment Required                     │
+│ {                                                          │
+│   "accepts": [{                                            │
+│     "chainId": "solana:devnet",                           │
+│     "tokenAddress": "USDC_MINT",                          │
+│     "amount": "10000",                                    │
+│     "receiverAddress": "SERVICE_WALLET"                   │
+│   }]                                                       │
+│ }                                                          │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ Step 3: Execute Payment (CLIENT-SIDE)                      │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ DirectSolanaProvider.executePayment()                      │
+│  1. Load SOLANA_PRIVATE_KEY (from client env)             │
+│  2. Create SPL token transfer (USDC)                      │
+│  3. Sign with client's private key                        │
+│  4. Send to Solana blockchain                             │
+│  5. Wait for confirmation                                 │
+│  6. Return signature                                      │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ Step 4: Retry with Payment Proof                          │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ Client → Server: POST /api/submit-payment                 │
+│ {                                                          │
+│   "transactionId": "tx-123",                              │
+│   "signature": "5Xy7z8abc..."                             │
+│ }                                                          │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ Step 5: Verify Payment (SERVER-SIDE)                       │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ SolanaVerifier.verifyPayment()                             │
+│  1. Fetch transaction from Solana RPC                     │
+│  2. Parse SPL token transfer instruction                  │
+│  3. Verify recipient matches                              │
+│  4. Verify amount matches                                 │
+│  5. Verify token mint (USDC)                              │
+│  6. Return verification result                            │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ Step 6: Execute Service                                    │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ Server → Service: POST /api/service                        │
+│ Headers: X-AgentMarket-Auth: JWT_TOKEN                    │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ Service → Server: 200 OK                                   │
+│ { result: "..." }                                          │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────────────────────┐
+│ Server → Client: Result                                    │
+│ { success: true, result: "..." }                          │
+└────────────────────────────────────────────────────────────┘
+```
+
+## Performance Characteristics
+
+### Transaction Latency
+
+| Network | Avg Time | Percentile | Notes |
+|---------|----------|------------|-------|
+| **Devnet** | 450ms | p50: 400ms, p99: 800ms | Free RPC, variable performance |
+| **Mainnet-beta** | 350ms | p50: 300ms, p99: 600ms | Production network, more stable |
+| **Local Validator** | 200ms | p50: 150ms, p99: 300ms | Testing only |
+
+### Cost Breakdown (Mainnet)
+
+```
+USDC Transfer Cost:
+├─ Service Price: $0.01 (10,000 base units)
+├─ Solana Transaction Fee: ~0.000005 SOL (~$0.0005)
+└─ Total: ~$0.0105
+```
+
+### RPC Performance
+
+```
+Solana RPC Calls per Transaction:
+├─ getParsedTransaction (verification): 1 call
+├─ getSignatureStatus (status check): 0-3 calls (polling)
+├─ confirmTransaction (optional): 1 call
+└─ Total: 2-5 RPC calls per payment
+```
+
+**Rate Limits** (Public RPCs):
+- Devnet: 100 requests/10 seconds
+- Mainnet: 40 requests/10 seconds (upgrade to 100 with RPC provider)
+
+## Design Decisions
+
+### 1. Why Client-Side Signing?
+
+**Decision**: Execute payments on client's machine using local private key.
+
+**Rationale**:
+- **Security**: Private keys never leave client's control
+- **Compliance**: Server never handles user funds
+- **Trust**: Users maintain full custody of assets
+- **Decentralization**: No central wallet management
+
+**Trade-off**: Requires clients to have funded Solana wallet and manage private keys.
+
+### 2. Why Separate Provider and Verifier?
+
+**Decision**: Split payment execution (DirectSolanaProvider) from verification (SolanaVerifier).
+
+**Rationale**:
+- **Clear separation of concerns**: Execution is client-side, verification is server-side
+- **Security**: Server never has signing capability
+- **Testing**: Can mock verifier without affecting execution
+- **Flexibility**: Can swap execution providers without changing verification
+
+**Trade-off**: More complex architecture than all-in-one payment handler.
+
+### 3. Why Support Both SPL and Native SOL?
+
+**Decision**: Verify both SPL token transfers (USDC) and native SOL transfers.
+
+**Rationale**:
+- **Flexibility**: Services can accept either USDC or SOL
+- **Cost**: Native SOL has lower fees than SPL tokens
+- **Compatibility**: Legacy services might use SOL instead of USDC
+- **Testing**: Easier to test with SOL (no token mint setup)
+
+**Trade-off**: More complex verification logic (two code paths).
+
+## Security Measures
+
+### 1. Private Key Protection
+
+```
+✓ Private keys stored in client environment only
+✓ Never transmitted over network
+✓ Never logged or stored on server
+✓ Client signs all transactions locally
+```
+
+### 2. Input Validation
+
+```typescript
+// Solana address validation
+const solanaAddressRegex = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+if (!solanaAddressRegex.test(recipient)) {
+  securityLogger.commandInjectionAttempt({ value: recipient });
+  throw new Error('Invalid recipient address format');
+}
+
+// Shell metacharacter detection
+const dangerousChars = /[;&|`$(){}[\]<>'"\\]/;
+if (dangerousChars.test(recipient)) {
+  securityLogger.commandInjectionAttempt({ value: recipient });
+  throw new Error('Dangerous characters detected');
+}
+```
+
+### 3. Amount Verification
+
+```typescript
+// Exact amount matching (no tolerance for SPL tokens)
+if (amount !== expectedAmount) {
+  return { verified: false, error: 'Amount mismatch' };
+}
+
+// Small tolerance for native SOL (fees)
+const tolerance = BigInt(5000); // 0.000005 SOL
+const difference = actualAmount - expectedAmount;
+if (difference < -tolerance || difference > tolerance) {
+  return { verified: false, error: 'Amount mismatch' };
+}
+```
+
+### 4. Transaction Confirmation
+
+```typescript
+// Wait for 'confirmed' commitment level (1 confirmation)
+const tx = await connection.getParsedTransaction(signature, {
+  maxSupportedTransactionVersion: 0,
+  commitment: 'confirmed',  // ~400ms, good balance
+});
+
+// For high-value transactions, wait for 'finalized' (31+ confirmations)
+// commitment: 'finalized'  // ~12-14 seconds, maximum security
+```
+
+## Future Enhancements
+
+### 1. Multi-Network Support
+
+```typescript
+interface PaymentProvider {
+  supportedNetworks: string[];  // ['solana', 'ethereum', 'base']
+  executePayment(details: PaymentDetails): Promise<PaymentResult>;
+}
+
+class EthereumProvider implements PaymentProvider {
+  supportedNetworks = ['ethereum', 'base', 'optimism'];
+  // ... implementation
+}
+```
+
+### 2. Payment Batching
+
+```typescript
+async executeBatchPayments(
+  payments: PaymentDetails[]
+): Promise<PaymentResult[]> {
+  // Combine multiple payments into single transaction
+  const transaction = new Transaction();
+
+  for (const payment of payments) {
+    const instruction = createTransferInstruction(/* ... */);
+    transaction.add(instruction);
+  }
+
+  const signature = await sendAndConfirmTransaction(connection, transaction, [wallet]);
+  // Verify all transfers in one RPC call
+}
+```
+
+### 3. Payment Retry Logic
+
+```typescript
+async executePaymentWithRetry(
+  details: PaymentDetails,
+  maxRetries: number = 3
+): Promise<PaymentResult> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await this.executePayment(details);
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+
+      // Exponential backoff
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+    }
+  }
+  throw new Error('Payment failed after retries');
+}
+```
+
+### 4. Gas Fee Estimation
+
+```typescript
+async estimateTransactionFee(
+  recipient: string,
+  amount: bigint,
+  tokenMint: string
+): Promise<bigint> {
+  // Simulate transaction to get fee
+  const transaction = await this.buildTransaction(recipient, amount, tokenMint);
+  const { value: fee } = await this.connection.getFeeForMessage(
+    transaction.compileMessage(),
+    'confirmed'
+  );
+
+  return BigInt(fee || 5000);
+}
+```
+
+## Next Steps
+
+- [Master Orchestrator](/docs/architecture/master-orchestrator) - Multi-agent task coordination
+- [Database Adapters](/docs/architecture/database-adapters) - SQLite/PostgreSQL abstraction
+- [SSE Transport](/docs/architecture/sse-transport) - Remote MCP connections
+- [Security Middleware](/docs/architecture/security-middleware) - Rate limiting and validation

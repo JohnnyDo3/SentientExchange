@@ -1,0 +1,671 @@
+# Spending Limits
+
+**TL;DR:** Protect autonomous agents from runaway costs with per-transaction, daily, and monthly spending limits. Set limits once, enforced automatically on all purchases.
+
+## Why Spending Limits Matter
+
+Autonomous AI agents can make service purchases without human intervention. While powerful, this automation creates risk:
+
+- **Runaway costs**: A bug in agent logic could trigger thousands of purchases
+- **Unexpected pricing**: Services may change prices without notice
+- **Malicious services**: Bad actors could return fake 402 responses with inflated prices
+- **Testing accidents**: Forgetting to disable production payments during development
+
+**Spending limits** provide a safety net: hard constraints that prevent agents from exceeding budgets.
+
+## How Spending Limits Work
+
+Limits are checked **before** payments execute:
+
+```
+User sets limits
+    ↓
+Agent requests service purchase
+    ↓
+AgentMarket checks:
+  ✓ Is this transaction under per-transaction limit?
+  ✓ Would this exceed today's daily limit?
+  ✓ Would this exceed this month's monthly limit?
+    ↓
+  All checks pass → Payment proceeds
+  Any check fails → Payment blocked with detailed error
+```
+
+Limits are enforced **server-side** (cannot be bypassed by client).
+
+## Setting Spending Limits
+
+### MCP Tool: `set_spending_limits`
+
+**Schema**:
+
+```json
+{
+  "name": "set_spending_limits",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "perTransaction": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Maximum per service call (e.g., '$5.00')"
+      },
+      "daily": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Maximum per 24 hours (e.g., '$50.00')"
+      },
+      "monthly": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Maximum per 30 days (e.g., '$500.00')"
+      },
+      "enabled": {
+        "type": "boolean",
+        "description": "Enable or disable limit enforcement",
+        "default": true
+      }
+    }
+  }
+}
+```
+
+### Example: Conservative Limits for Testing
+
+```typescript
+const result = await set_spending_limits({
+  perTransaction: "$0.10",  // Max $0.10 per service call
+  daily: "$1.00",           // Max $1/day total
+  monthly: "$10.00",        // Max $10/month total
+  enabled: true
+});
+
+// Response:
+{
+  "success": true,
+  "message": "Spending limits updated successfully",
+  "limits": {
+    "perTransaction": "$0.10",
+    "daily": "$1.00",
+    "monthly": "$10.00",
+    "enabled": true
+  },
+  "note": "Limits are active. All purchases will be checked against these limits."
+}
+```
+
+### Example: Production Limits for Autonomous Agents
+
+```typescript
+await set_spending_limits({
+  perTransaction: "$5.00",    // Higher per-call limit
+  daily: "$50.00",            // Moderate daily budget
+  monthly: "$500.00",         // $500/month total
+  enabled: true
+});
+```
+
+### Example: Unlimited (Disable Limits)
+
+```typescript
+// Option 1: Set enabled: false
+await set_spending_limits({
+  perTransaction: "$5.00",
+  daily: "$50.00",
+  monthly: "$500.00",
+  enabled: false  // Limits defined but not enforced
+});
+
+// Option 2: Reset all limits
+await reset_spending_limits();
+```
+
+## Checking Spending
+
+### MCP Tool: `check_spending`
+
+**Schema**:
+
+```json
+{
+  "name": "check_spending",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "amount": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Optional: check if this amount would be allowed"
+      }
+    }
+  }
+}
+```
+
+### Example: View Current Spending
+
+```typescript
+const stats = await check_spending();
+
+// Response:
+{
+  "currentSpending": {
+    "today": "$12.34",
+    "thisMonth": "$87.65",
+    "transactionCount": 142,
+    "lastTransaction": "2025-11-06T10:30:00Z"
+  },
+  "limits": {
+    "perTransaction": "$5.00",
+    "daily": "$50.00",
+    "monthly": "$500.00",
+    "enabled": true
+  },
+  "remaining": {
+    "today": "$37.66",       // $50.00 - $12.34
+    "thisMonth": "$412.35"   // $500.00 - $87.65
+  }
+}
+```
+
+### Example: Check Hypothetical Transaction
+
+```typescript
+// Will a $2.50 transaction be allowed?
+const check = await check_spending({
+  amount: "$2.50"
+});
+
+// Response:
+{
+  "currentSpending": { "today": "$12.34", ... },
+  "limits": { ... },
+  "remaining": { ... },
+  "hypotheticalTransaction": {
+    "amount": "$2.50",
+    "allowed": true,
+    "reason": "Transaction would be allowed"
+  }
+}
+```
+
+### Example: Transaction Would Be Blocked
+
+```typescript
+const check = await check_spending({
+  amount: "$50.00"
+});
+
+// Response:
+{
+  "hypotheticalTransaction": {
+    "amount": "$50.00",
+    "allowed": false,
+    "reason": "Would exceed daily limit ($50.00). Current daily spending: $12.34, remaining: $37.66"
+  }
+}
+```
+
+## Resetting Limits
+
+### MCP Tool: `reset_spending_limits`
+
+Completely removes all spending limits (back to unlimited).
+
+**Schema**:
+
+```json
+{
+  "name": "reset_spending_limits",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  }
+}
+```
+
+**Example**:
+
+```typescript
+await reset_spending_limits();
+
+// Response:
+{
+  "success": true,
+  "message": "Spending limits have been removed",
+  "note": "You can set new limits anytime with set_spending_limits"
+}
+```
+
+## How Limits Are Enforced
+
+### Limit Check Flow
+
+**Reference**: `src/payment/SpendingLimitManager.ts`
+
+```typescript
+async checkLimit(userId: string, amount: string): Promise<LimitCheckResult> {
+  // 1. Get user's configured limits
+  const limits = await this.getLimits(userId);
+  if (!limits || !limits.enabled) {
+    return { allowed: true };  // No limits configured or disabled
+  }
+
+  // 2. Parse transaction amount
+  const transactionAmount = parseFloat(amount.replace('$', ''));
+
+  // 3. Check per-transaction limit
+  const perTransactionLimit = parseFloat(limits.perTransaction.replace('$', ''));
+  if (transactionAmount > perTransactionLimit) {
+    return {
+      allowed: false,
+      reason: `Transaction amount ${amount} exceeds per-transaction limit ${limits.perTransaction}`,
+      limits,
+    };
+  }
+
+  // 4. Get current spending
+  const stats = await this.getSpendingStats(userId);
+  const todaySpending = parseFloat(stats.totalToday.replace('$', ''));
+  const monthSpending = parseFloat(stats.totalThisMonth.replace('$', ''));
+
+  // 5. Check daily limit
+  const dailyLimit = parseFloat(limits.daily.replace('$', ''));
+  if (todaySpending + transactionAmount > dailyLimit) {
+    return {
+      allowed: false,
+      reason: `Would exceed daily limit ${limits.daily}. Current: ${stats.totalToday}, remaining: $${(dailyLimit - todaySpending).toFixed(2)}`,
+      limits,
+      currentSpending: stats,
+    };
+  }
+
+  // 6. Check monthly limit
+  const monthlyLimit = parseFloat(limits.monthly.replace('$', ''));
+  if (monthSpending + transactionAmount > monthlyLimit) {
+    return {
+      allowed: false,
+      reason: `Would exceed monthly limit ${limits.monthly}. Current: ${stats.totalThisMonth}, remaining: $${(monthlyLimit - monthSpending).toFixed(2)}`,
+      limits,
+      currentSpending: stats,
+    };
+  }
+
+  // All checks passed
+  return {
+    allowed: true,
+    limits,
+    currentSpending: stats,
+  };
+}
+```
+
+### When Limits Are Checked
+
+Limits are checked at **two points**:
+
+#### 1. During Service Discovery (Smart Workflows)
+
+**Reference**: `src/tools/smart-discover-prepare.ts` (Lines 227-268)
+
+```typescript
+// Smart workflow: discover_and_prepare_service
+if (limitManager && userId) {
+  const limitCheckResult = await limitManager.checkLimit(userId, servicePriceFormatted);
+
+  if (!limitCheckResult.allowed) {
+    logger.warn(`Spending limit exceeded for ${userId}: ${limitCheckResult.reason}`);
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          error: 'Spending limit exceeded',
+          reason: limitCheckResult.reason,
+          servicePrice: servicePriceFormatted,
+          currentSpending: limitCheckResult.currentSpending,
+          limits: limitCheckResult.limits,
+          hint: 'Use check_spending to view your spending or set_spending_limits to adjust limits'
+        })
+      }],
+      isError: true
+    };
+  }
+}
+```
+
+**Benefit**: Fails fast before executing payment, saving gas fees.
+
+#### 2. Before Payment Execution (Standard Workflows)
+
+```typescript
+// Standard workflow: before execute_payment
+const check = await limitManager.checkLimit(userId, paymentAmount);
+if (!check.allowed) {
+  throw new Error(`Spending limit exceeded: ${check.reason}`);
+}
+```
+
+## Spending Calculation
+
+### Daily Spending
+
+Sums all transactions in the last 24 hours:
+
+```sql
+SELECT SUM(
+  CAST(REPLACE(REPLACE(price, '$', ''), ',', '') AS DECIMAL(10,2))
+) as total
+FROM transactions
+WHERE user_id = ?
+  AND created_at >= datetime('now', '-1 day')
+  AND status = 'completed'
+```
+
+**Resets**: Rolling 24-hour window (not calendar day)
+
+### Monthly Spending
+
+Sums all transactions in the last 30 days:
+
+```sql
+SELECT SUM(
+  CAST(REPLACE(REPLACE(price, '$', ''), ',', '') AS DECIMAL(10,2))
+) as total
+FROM transactions
+WHERE user_id = ?
+  AND created_at >= datetime('now', '-30 days')
+  AND status = 'completed'
+```
+
+**Resets**: Rolling 30-day window (not calendar month)
+
+## Database Schema
+
+Limits are stored per user in the `spending_limits` table:
+
+```sql
+CREATE TABLE IF NOT EXISTS spending_limits (
+  user_id TEXT PRIMARY KEY,
+  per_transaction TEXT NOT NULL,     -- Format: "$5.00"
+  daily TEXT NOT NULL,                -- Format: "$50.00"
+  monthly TEXT NOT NULL,              -- Format: "$500.00"
+  enabled INTEGER NOT NULL DEFAULT 1, -- 1 = enabled, 0 = disabled
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Spending stats are calculated from the `transactions` table:
+
+```sql
+CREATE TABLE IF NOT EXISTS transactions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  service_id TEXT NOT NULL,
+  price TEXT NOT NULL,               -- Format: "$0.01"
+  status TEXT NOT NULL,              -- pending | completed | failed
+  solana_signature TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (service_id) REFERENCES services(id)
+);
+```
+
+## Use Cases
+
+### Use Case 1: Protect Development Environment
+
+```typescript
+// Set strict limits for testing
+await set_spending_limits({
+  perTransaction: "$0.01",  // Only allow test transactions
+  daily: "$0.10",
+  monthly: "$1.00"
+});
+
+// Now safe to test agent logic without risk
+runAutonomousAgent();
+```
+
+### Use Case 2: Production Agent with Budget
+
+```typescript
+// Configure production limits
+await set_spending_limits({
+  perTransaction: "$10.00",
+  daily: "$100.00",
+  monthly: "$1000.00"
+});
+
+// Monitor spending throughout the day
+setInterval(async () => {
+  const stats = await check_spending();
+  console.log(`Daily spending: ${stats.currentSpending.today} / ${stats.limits.daily}`);
+
+  if (parseFloat(stats.remaining.today.replace('$', '')) < 10) {
+    console.warn('⚠️ Approaching daily limit!');
+  }
+}, 60000); // Every minute
+```
+
+### Use Case 3: Temporary Limit Increase
+
+```typescript
+// Normal limits
+await set_spending_limits({
+  perTransaction: "$5.00",
+  daily: "$50.00",
+  monthly: "$500.00"
+});
+
+// Temporarily increase for batch job
+await set_spending_limits({
+  perTransaction: "$10.00",
+  daily: "$200.00",
+  monthly: "$500.00"  // Keep monthly the same
+});
+
+await runBatchAnalysis();  // Process 1000 items
+
+// Restore normal limits
+await set_spending_limits({
+  perTransaction: "$5.00",
+  daily: "$50.00",
+  monthly: "$500.00"
+});
+```
+
+### Use Case 4: Per-User Limits (Multi-Tenant)
+
+```typescript
+// Configure limits for each user
+const userLimits = {
+  'user-free-tier': { perTransaction: "$0.50", daily: "$5.00", monthly: "$50.00" },
+  'user-pro-tier': { perTransaction: "$10.00", daily: "$100.00", monthly: "$1000.00" },
+  'user-enterprise': { perTransaction: "$100.00", daily: "$1000.00", monthly: "$10000.00" }
+};
+
+for (const [userId, limits] of Object.entries(userLimits)) {
+  await set_spending_limits({
+    ...limits,
+    enabled: true
+  });
+}
+```
+
+## Error Messages
+
+When a limit is exceeded, you get detailed error messages:
+
+### Per-Transaction Limit Exceeded
+
+```json
+{
+  "error": "Spending limit exceeded",
+  "reason": "Transaction amount $7.50 exceeds per-transaction limit $5.00",
+  "servicePrice": "$7.50",
+  "limits": {
+    "perTransaction": "$5.00",
+    "daily": "$50.00",
+    "monthly": "$500.00"
+  },
+  "hint": "Use check_spending to view your spending or set_spending_limits to adjust limits"
+}
+```
+
+### Daily Limit Exceeded
+
+```json
+{
+  "error": "Spending limit exceeded",
+  "reason": "Would exceed daily limit $50.00. Current daily spending: $47.25, remaining: $2.75",
+  "servicePrice": "$5.00",
+  "currentSpending": {
+    "today": "$47.25",
+    "thisMonth": "$123.45"
+  },
+  "limits": {
+    "perTransaction": "$5.00",
+    "daily": "$50.00",
+    "monthly": "$500.00"
+  }
+}
+```
+
+### Monthly Limit Exceeded
+
+```json
+{
+  "error": "Spending limit exceeded",
+  "reason": "Would exceed monthly limit $500.00. Current monthly spending: $498.50, remaining: $1.50",
+  "servicePrice": "$5.00",
+  "currentSpending": {
+    "today": "$23.45",
+    "thisMonth": "$498.50"
+  },
+  "limits": {
+    "perTransaction": "$5.00",
+    "daily": "$50.00",
+    "monthly": "$500.00"
+  }
+}
+```
+
+## Best Practices
+
+### 1. Set Limits Before First Purchase
+
+```typescript
+// ✅ Good: Set limits first
+await set_spending_limits({
+  perTransaction: "$5.00",
+  daily: "$50.00",
+  monthly: "$500.00"
+});
+
+await runAutonomousAgent();
+
+// ❌ Bad: No limits
+await runAutonomousAgent();  // Risk of runaway costs
+```
+
+### 2. Monitor Spending Regularly
+
+```typescript
+// Check spending every hour
+setInterval(async () => {
+  const stats = await check_spending();
+
+  logger.info('Spending update', {
+    daily: stats.currentSpending.today,
+    monthly: stats.currentSpending.thisMonth,
+    transactions: stats.currentSpending.transactionCount
+  });
+
+  // Alert if approaching limits
+  const dailyRemaining = parseFloat(stats.remaining.today.replace('$', ''));
+  if (dailyRemaining < parseFloat(stats.limits.daily.replace('$', '')) * 0.1) {
+    sendAlert('⚠️ Daily budget 90% consumed');
+  }
+}, 3600000); // Every hour
+```
+
+### 3. Use Realistic Limits
+
+```typescript
+// ❌ Too strict (will block legitimate requests)
+await set_spending_limits({
+  perTransaction: "$0.01",
+  daily: "$0.10",
+  monthly: "$1.00"
+});
+
+// ✅ Realistic for production
+await set_spending_limits({
+  perTransaction: "$10.00",   // Allows most services
+  daily: "$100.00",           // ~10 service calls/day
+  monthly: "$1000.00"         // Reasonable monthly budget
+});
+```
+
+### 4. Test Limit Logic
+
+```typescript
+// Test that limits are enforced
+await set_spending_limits({
+  perTransaction: "$1.00",
+  daily: "$5.00",
+  monthly: "$50.00"
+});
+
+// Make purchases until limit hit
+let totalSpent = 0;
+while (totalSpent < 10) {  // Try to spend $10 (over limit)
+  try {
+    const result = await purchase_and_complete_service({
+      capability: "sentiment-analysis",
+      input: { text: "test" }
+    });
+    totalSpent += 1;
+  } catch (error) {
+    // Should fail after $5
+    assert(error.message.includes('Spending limit exceeded'));
+    assert(totalSpent <= 5);
+    break;
+  }
+}
+```
+
+### 5. Different Limits for Different Environments
+
+```typescript
+const limits = process.env.NODE_ENV === 'production'
+  ? { perTransaction: "$10.00", daily: "$100.00", monthly: "$1000.00" }
+  : { perTransaction: "$0.10", daily: "$1.00", monthly: "$10.00" };
+
+await set_spending_limits(limits);
+```
+
+## Comparison with Other Budget Systems
+
+| Feature | AgentMarket Limits | AWS Budgets | Stripe Billing Limits |
+|---------|-------------------|-------------|----------------------|
+| **Enforcement** | Pre-transaction (blocks) | Post-spending (alerts) | Post-spending (alerts) |
+| **Granularity** | Per-transaction + daily + monthly | Monthly only | Monthly only |
+| **Response Time** | Instant (synchronous) | ~24 hours delay | ~1 hour delay |
+| **User Control** | Full (via MCP tools) | Admin only | Admin only |
+| **Rollover** | No (rolling window) | No | No |
+
+## Code References
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `src/tools/spending-limits.ts` | 1-275 | MCP tool implementations (set, check, reset) |
+| `src/payment/SpendingLimitManager.ts` | 1-200 | Core limit checking logic |
+| `src/registry/database.ts` | 450-500 | Database queries for spending stats |
+
+## Next Steps
+
+- [Smart Workflows Guide](/docs/guides/smart-workflows) - Optimize with smart tools (includes limit checks)
+- [Payment Execution Guide](/docs/guides/payment-execution) - Understand payment flow
+- [MCP Tools Reference](/docs/guides/mcp-tools) - Complete tool documentation
+- [Database Guide](/docs/guides/database) - Schema details

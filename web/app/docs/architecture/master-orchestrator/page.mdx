@@ -1,0 +1,847 @@
+# Master Orchestrator Deep Dive
+
+**TL;DR:** The MasterOrchestrator is an autonomous AI agent that decomposes complex multi-service tasks, spawns specialist agents, coordinates service discovery, executes payments, and aggregates results - enabling "impossible" tasks like generating a complete investor pitch deck in one request.
+
+## Overview
+
+The MasterOrchestrator (`src/orchestrator/MasterOrchestrator.ts`) is the crown jewel of the SentientExchange demo - an autonomous agent coordination system that transforms complex, multi-step requests into executable workflows across multiple AI services.
+
+```
+User Request: "Generate a complete investor pitch deck for an AI coding assistant startup"
+    │
+    ├─ Task Decomposition (7 subtasks)
+    ├─ Agent Spawning (4 specialist agents)
+    ├─ Service Discovery (automatic marketplace search)
+    ├─ Payment Execution (autonomous USDC payments)
+    ├─ Result Aggregation (combine all outputs)
+    └─ Final Output: Complete 12-slide pitch deck with market research, financials, and visuals
+```
+
+<Callout type="info">
+**Demo Highlight**: The MasterOrchestrator showcases the future of autonomous AI - agents that hire other agents, manage budgets, and complete complex tasks without human intervention.
+</Callout>
+
+## Architecture
+
+### Core Components
+
+```typescript
+export class MasterOrchestrator {
+  private registry: ServiceRegistry;          // Service marketplace
+  private agents: Map<string, SpecialistAgent> = new Map();  // Active agents
+  private timeline: TimelineEvent[] = [];     // Execution history
+  private startTime: number = 0;              // Performance tracking
+  private totalCost: number = 0;              // Budget tracking
+
+  async executeComplexTask(userRequest: string): Promise<OrchestrationResult> {
+    // 1. Decompose task → subtasks
+    // 2. Discover services from marketplace
+    // 3. Spawn specialist agents
+    // 4. Execute subtasks (with payments)
+    // 5. Aggregate results
+  }
+}
+```
+
+### Data Structures
+
+#### Task
+
+Represents a single unit of work to be completed:
+
+```typescript
+interface Task {
+  id: string;                  // "research-1", "analysis-2"
+  description: string;         // "Research target market and competitors"
+  status: 'pending' | 'in-progress' | 'completed' | 'failed';
+  assignedTo?: string;         // Agent ID
+  result?: unknown;            // Task output
+  cost?: number;               // Service cost in USDC
+  startTime?: number;          // Performance tracking
+  endTime?: number;
+}
+```
+
+#### SpecialistAgent
+
+Autonomous agent with specific capabilities:
+
+```typescript
+interface SpecialistAgent {
+  id: string;                  // "research-agent-1"
+  name: string;                // "Research Agent"
+  role: string;                // "Data Collection & Research"
+  capabilities: string[];      // ["company-research", "news-aggregation"]
+  tasks: Task[];               // Assigned tasks
+  servicesHired: string[];     // Services used
+  totalCost: number;           // Total spending
+}
+```
+
+#### OrchestrationResult
+
+Final output with metadata and audit trail:
+
+```typescript
+interface OrchestrationResult {
+  success: boolean;
+  finalOutput: unknown;        // Aggregated results
+  metadata: {
+    totalTime: number;         // Execution time in ms
+    totalCost: number;         // Total USDC spent
+    servicesUsed: number;      // Unique services hired
+    agentsSpawned: number;     // Specialist agents created
+    tasksCompleted: number;
+  };
+  agents: SpecialistAgent[];   // Agent details
+  timeline: TimelineEvent[];   // Execution history
+}
+```
+
+## Task Decomposition
+
+The orchestrator analyzes the user request and breaks it into manageable subtasks.
+
+### Intelligent Decomposition Logic
+
+```typescript
+private async decomposeTask(userRequest: string): Promise<Task[]> {
+  const subtasks: Task[] = [];
+
+  // Pattern matching for pitch deck requests
+  if (userRequest.toLowerCase().includes('pitch deck') ||
+      userRequest.toLowerCase().includes('investor')) {
+    subtasks.push(
+      {
+        id: 'research-1',
+        description: 'Research target market and competitors',
+        status: 'pending',
+      },
+      {
+        id: 'analysis-1',
+        description: 'Analyze market size and growth trends',
+        status: 'pending',
+      },
+      {
+        id: 'analysis-2',
+        description: 'Generate pricing strategy',
+        status: 'pending',
+      },
+      {
+        id: 'strategy-1',
+        description: 'Develop go-to-market strategy',
+        status: 'pending',
+      },
+      {
+        id: 'creative-1',
+        description: 'Write compelling marketing copy',
+        status: 'pending',
+      },
+      {
+        id: 'creative-2',
+        description: 'Generate data visualizations',
+        status: 'pending',
+      },
+      {
+        id: 'final-1',
+        description: 'Build complete pitch deck presentation',
+        status: 'pending',
+      }
+    );
+  } else {
+    // Generic decomposition for other requests
+    subtasks.push(
+      { id: 'task-1', description: 'Gather and aggregate relevant data', status: 'pending' },
+      { id: 'task-2', description: 'Analyze and extract insights', status: 'pending' },
+      { id: 'task-3', description: 'Generate final report', status: 'pending' }
+    );
+  }
+
+  this.logEvent('task-decomposed');
+  return subtasks;
+}
+```
+
+**Future Enhancement**: Use Claude API for intelligent task decomposition based on natural language understanding.
+
+### Task Categories
+
+| Task Type | Example | Typical Services |
+|-----------|---------|------------------|
+| **Research** | "Research target market" | Company Data API, News Aggregator, Web Scraper |
+| **Analysis** | "Analyze market size" | Market Research, Trend Forecasting, Sentiment Analysis |
+| **Strategy** | "Develop GTM strategy" | Channel Planning, Competitive Analysis |
+| **Creative** | "Write marketing copy" | Copywriter, Chart Generator, Presentation Builder |
+
+## Agent Spawning
+
+The orchestrator creates specialist agents based on task requirements, each with specific capabilities.
+
+### Specialist Agent Types
+
+```typescript
+private async spawnSpecialistAgents(
+  tasks: Task[],
+  services: Service[]
+): Promise<SpecialistAgent[]> {
+  const specialists: SpecialistAgent[] = [];
+
+  // 1. Research Agent
+  const researchAgent: SpecialistAgent = {
+    id: 'research-agent-1',
+    name: 'Research Agent',
+    role: 'Data Collection & Research',
+    capabilities: [
+      'company-research',
+      'news-aggregation',
+      'market-data',
+      'web-scraping'
+    ],
+    tasks: tasks.filter(t => t.id.startsWith('research-')),
+    servicesHired: [],
+    totalCost: 0,
+  };
+  specialists.push(researchAgent);
+  this.agents.set(researchAgent.id, researchAgent);
+  this.logEvent('agent-spawned', researchAgent.id);
+
+  // 2. Market Analysis Agent
+  const analysisAgent: SpecialistAgent = {
+    id: 'analysis-agent-1',
+    name: 'Market Analysis Agent',
+    role: 'Market Analysis & Forecasting',
+    capabilities: [
+      'market-analysis',
+      'trend-forecasting',
+      'pricing-strategy',
+      'sentiment-analysis'
+    ],
+    tasks: tasks.filter(t => t.id.startsWith('analysis-')),
+    servicesHired: [],
+    totalCost: 0,
+  };
+  specialists.push(analysisAgent);
+  this.agents.set(analysisAgent.id, analysisAgent);
+  this.logEvent('agent-spawned', analysisAgent.id);
+
+  // 3. Strategy Agent
+  const strategyAgent: SpecialistAgent = {
+    id: 'strategy-agent-1',
+    name: 'Strategy Agent',
+    role: 'Business Strategy & Planning',
+    capabilities: [
+      'gtm-strategy',
+      'channel-planning',
+      'competitive-analysis'
+    ],
+    tasks: tasks.filter(t => t.id.startsWith('strategy-')),
+    servicesHired: [],
+    totalCost: 0,
+  };
+  specialists.push(strategyAgent);
+  this.agents.set(strategyAgent.id, strategyAgent);
+  this.logEvent('agent-spawned', strategyAgent.id);
+
+  // 4. Creative Agent
+  const creativeAgent: SpecialistAgent = {
+    id: 'creative-agent-1',
+    name: 'Creative Agent',
+    role: 'Content Creation & Visualization',
+    capabilities: [
+      'copywriting',
+      'data-visualization',
+      'presentation-building',
+      'pdf-generation'
+    ],
+    tasks: tasks.filter(t => t.id.startsWith('creative-') || t.id.startsWith('final-')),
+    servicesHired: [],
+    totalCost: 0,
+  };
+  specialists.push(creativeAgent);
+  this.agents.set(creativeAgent.id, creativeAgent);
+  this.logEvent('agent-spawned', creativeAgent.id);
+
+  return specialists;
+}
+```
+
+### Agent Lifecycle
+
+```
+┌─────────────┐
+│   Spawned   │ ← Agent created with capabilities
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│   Active    │ ← Discovering services, executing tasks
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│  Completed  │ ← All tasks done, results aggregated
+└─────────────┘
+```
+
+## Service Discovery & Matching
+
+Each agent autonomously discovers services from the marketplace that match its capabilities.
+
+### Discovery Algorithm
+
+```typescript
+private async discoverService(
+  agent: SpecialistAgent,
+  task: Task,
+  services: Service[]
+): Promise<Service | null> {
+  // Find service that matches agent's capabilities
+  for (const service of services) {
+    const hasMatchingCapability = service.capabilities.some(cap =>
+      agent.capabilities.some(agentCap =>
+        cap.includes(agentCap) || agentCap.includes(cap)
+      )
+    );
+
+    if (hasMatchingCapability) {
+      return service;
+    }
+  }
+
+  return null;
+}
+```
+
+**Matching Logic**:
+- **Exact match**: `"company-research"` matches `"company-research"`
+- **Substring match**: `"research"` matches `"company-research"`
+- **Priority**: First matching service (future: ranking by price/rating)
+
+### Service Selection Flow
+
+```
+Agent: "Research Agent"
+Capabilities: ["company-research", "news-aggregation"]
+    │
+    ├─ Search marketplace for matching services
+    │
+    ├─ Found: "Company Data API" (capability: "company-research")
+    │   - Price: $0.05/request
+    │   - Rating: 4.8/5
+    │   - Endpoint: https://api.example.com/company-data
+    │
+    └─ Hire service (execute payment)
+```
+
+## Task Execution & Coordination
+
+The orchestrator coordinates task execution across all agents with dependency resolution and cost tracking.
+
+### Execution Flow
+
+```typescript
+private async executeSubtasks(
+  agents: SpecialistAgent[],
+  tasks: Task[],
+  services: Service[]
+): Promise<Map<string, unknown>> {
+  const results = new Map<string, unknown>();
+
+  for (const agent of agents) {
+    logger.info(`${agent.name} starting work on ${agent.tasks.length} tasks`);
+
+    for (const task of agent.tasks) {
+      task.status = 'in-progress';
+      task.startTime = Date.now();
+      task.assignedTo = agent.id;
+
+      // 1. Agent discovers matching service
+      const service = await this.discoverService(agent, task, services);
+
+      if (service) {
+        const cost = parseFloat(service.pricing.perRequest.replace('$', ''));
+        logger.info(`Hiring: ${service.name} ($${cost} USDC)`);
+        this.logEvent('service-hired', agent.id, service.name, cost);
+
+        // 2. Execute service (mock for demo, real x402 payment in production)
+        const result = await this.executeService(service, task, agent);
+
+        // 3. Update agent state
+        agent.servicesHired.push(service.name);
+        agent.totalCost += cost;
+        this.totalCost += cost;
+
+        // 4. Store task result
+        task.result = result;
+        task.cost = cost;
+        task.endTime = Date.now();
+        task.status = 'completed';
+
+        results.set(task.id, result);
+
+        logger.info(`Task completed in ${task.endTime - task.startTime}ms`);
+      } else {
+        logger.warn(`No suitable service found for task`);
+        task.status = 'failed';
+      }
+    }
+  }
+
+  return results;
+}
+```
+
+### Execution Timeline
+
+```
+Time (ms)   Event
+─────────────────────────────────────────────────────
+    0       orchestration-started
+   50       task-decomposed (7 subtasks)
+  100       services-discovered (12 services)
+  150       agent-spawned: research-agent-1
+  200       agent-spawned: analysis-agent-1
+  250       agent-spawned: strategy-agent-1
+  300       agent-spawned: creative-agent-1
+  500       service-hired: Company Data API ($0.05)
+ 1200       task-completed: research-1
+ 1300       service-hired: Market Research API ($0.08)
+ 1900       task-completed: analysis-1
+ 2000       service-hired: Pricing Strategy API ($0.06)
+ 2600       task-completed: analysis-2
+ 2700       service-hired: Channel Planning API ($0.07)
+ 3300       task-completed: strategy-1
+ 3400       service-hired: AI Copywriter ($0.03)
+ 3900       task-completed: creative-1
+ 4000       service-hired: Chart Generator ($0.04)
+ 4500       task-completed: creative-2
+ 4600       service-hired: Presentation Builder ($0.10)
+ 5500       task-completed: final-1
+ 5600       orchestration-completed
+```
+
+## Dependency Resolution
+
+The orchestrator ensures tasks execute in the correct order when dependencies exist.
+
+### Dependency Graph
+
+```
+research-1 (Company Data)
+    │
+    └─► analysis-1 (Market Size) ──┐
+            │                       │
+            └─► analysis-2 (Pricing)│
+                    │               │
+                    └─► strategy-1 (GTM) ──┐
+                            │               │
+                            └─► creative-1 (Copy)
+                                    │
+                                    └─► final-1 (Deck)
+                                            │
+                                            └─► creative-2 (Visuals)
+```
+
+**Current Implementation**: Sequential execution within each agent (implicit dependencies)
+
+**Future Enhancement**: Explicit dependency graph with parallel execution:
+
+```typescript
+interface Task {
+  id: string;
+  dependencies: string[];  // Task IDs that must complete first
+}
+
+// Example: analysis-1 depends on research-1
+{
+  id: 'analysis-1',
+  description: 'Analyze market size',
+  dependencies: ['research-1'],  // Wait for research to complete
+}
+```
+
+## Cost Tracking & Budget Management
+
+The orchestrator tracks spending across all agents and services.
+
+### Cost Tracking
+
+```typescript
+export class MasterOrchestrator {
+  private totalCost: number = 0;
+
+  private async executeSubtasks(...) {
+    // Track cost per service
+    const cost = parseFloat(service.pricing.perRequest.replace('$', ''));
+
+    // Update agent spending
+    agent.totalCost += cost;
+
+    // Update global spending
+    this.totalCost += cost;
+
+    // Record in timeline
+    this.logEvent('service-hired', agent.id, service.name, cost);
+  }
+
+  private countServicesUsed(): number {
+    const uniqueServices = new Set<string>();
+    for (const agent of this.agents.values()) {
+      agent.servicesHired.forEach(service => uniqueServices.add(service));
+    }
+    return uniqueServices.size;
+  }
+}
+```
+
+### Cost Breakdown Example
+
+```
+Final Cost Summary:
+├─ Research Agent: $0.05
+│  └─ Company Data API: $0.05
+├─ Analysis Agent: $0.14
+│  ├─ Market Research API: $0.08
+│  └─ Pricing Strategy API: $0.06
+├─ Strategy Agent: $0.07
+│  └─ Channel Planning API: $0.07
+├─ Creative Agent: $0.17
+│  ├─ AI Copywriter: $0.03
+│  ├─ Chart Generator: $0.04
+│  └─ Presentation Builder: $0.10
+└─ Total: $0.43 USDC
+```
+
+## Result Aggregation
+
+The orchestrator combines outputs from all agents into a coherent final result.
+
+### Aggregation Logic
+
+```typescript
+private async aggregateResults(
+  results: Map<string, unknown>,
+  originalRequest: string
+): Promise<Record<string, unknown>> {
+  logger.info('Aggregating results from all agents...');
+
+  const aggregated: Record<string, unknown> = {
+    request: originalRequest,
+    timestamp: new Date().toISOString(),
+    results: {},
+  };
+
+  // Group results by agent
+  const resultsObj = aggregated.results as Record<string, unknown>;
+  for (const [_agent, agentData] of this.agents) {
+    resultsObj[agentData.name] = {
+      role: agentData.role,
+      tasksCompleted: agentData.tasks.filter(t => t.status === 'completed').length,
+      servicesHired: agentData.servicesHired,
+      cost: `$${agentData.totalCost.toFixed(2)}`,
+      outputs: agentData.tasks.map(t => ({
+        task: t.description,
+        result: t.result,
+      })),
+    };
+  }
+
+  return aggregated;
+}
+```
+
+### Aggregated Output Example
+
+```json
+{
+  "request": "Generate a complete investor pitch deck for an AI coding assistant startup",
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "results": {
+    "Research Agent": {
+      "role": "Data Collection & Research",
+      "tasksCompleted": 1,
+      "servicesHired": ["Company Data API"],
+      "cost": "$0.05",
+      "outputs": [
+        {
+          "task": "Research target market and competitors",
+          "result": {
+            "company": "AI Coding Assistant Inc.",
+            "industry": "Developer Tools",
+            "funding": "$60M Series A",
+            "team": "20-50 employees"
+          }
+        }
+      ]
+    },
+    "Market Analysis Agent": {
+      "role": "Market Analysis & Forecasting",
+      "tasksCompleted": 2,
+      "servicesHired": ["Market Research API", "Pricing Strategy API"],
+      "cost": "$0.14",
+      "outputs": [
+        {
+          "task": "Analyze market size and growth trends",
+          "result": {
+            "marketSize": "$2.5B",
+            "growthRate": "45% CAGR",
+            "keyPlayers": ["GitHub Copilot", "Cursor", "Codeium"]
+          }
+        },
+        {
+          "task": "Generate pricing strategy",
+          "result": {
+            "tiers": ["Free", "Pro $20/mo", "Enterprise Custom"],
+            "roi": "15x productivity increase"
+          }
+        }
+      ]
+    },
+    // ... Strategy Agent, Creative Agent
+  }
+}
+```
+
+## Performance Characteristics
+
+### Time Complexity
+
+| Operation | Complexity | Notes |
+|-----------|------------|-------|
+| Task Decomposition | O(1) | Pattern matching |
+| Agent Spawning | O(n) | n = number of task categories |
+| Service Discovery | O(m × k) | m = services, k = agent capabilities |
+| Task Execution | O(n × t) | n = tasks, t = avg service response time |
+| Result Aggregation | O(n + a) | n = tasks, a = agents |
+
+### Execution Time (Pitch Deck Example)
+
+```
+Total Time: ~5.6 seconds
+
+Breakdown:
+├─ Task Decomposition: 50ms
+├─ Agent Spawning: 150ms
+├─ Service Discovery: 400ms
+├─ Task Execution: 4.5s (7 services × ~650ms avg)
+└─ Result Aggregation: 100ms
+```
+
+### Memory Footprint
+
+```
+Per Orchestration:
+├─ MasterOrchestrator instance: ~1 KB
+├─ 4 SpecialistAgents: ~4 KB
+├─ 7 Tasks: ~2 KB
+├─ Timeline events: ~1 KB
+└─ Results cache: ~10-50 KB (depends on service outputs)
+
+Total: ~15-60 KB per orchestration session
+```
+
+## Real-Time State Access
+
+The orchestrator provides real-time state for monitoring dashboards.
+
+### State API
+
+```typescript
+getState(): {
+  agents: SpecialistAgent[];
+  timeline: TimelineEvent[];
+  totalCost: number;
+  elapsedTime: number;
+} {
+  return {
+    agents: Array.from(this.agents.values()),
+    timeline: this.timeline,
+    totalCost: this.totalCost,
+    elapsedTime: Date.now() - this.startTime,
+  };
+}
+```
+
+### WebSocket Integration
+
+```typescript
+// In apiServer.ts
+const orchestrator = new MasterOrchestrator(registry);
+
+// Stream state updates to dashboard
+const interval = setInterval(() => {
+  const state = orchestrator.getState();
+  io.emit('orchestration-update', state);
+}, 500);  // Update every 500ms
+
+// Execute orchestration
+const result = await orchestrator.executeComplexTask(userRequest);
+clearInterval(interval);
+
+// Send final result
+io.emit('orchestration-complete', result);
+```
+
+## Design Decisions
+
+### 1. Why Sequential Execution?
+
+**Decision**: Execute tasks sequentially within each agent instead of parallel execution.
+
+**Rationale**:
+- Simpler dependency management
+- Easier debugging and logging
+- Prevents rate limit issues with external services
+- Demo-friendly (visible progress in timeline)
+
+**Trade-off**: Slower total execution time (5.6s vs potential 2-3s with parallelization)
+
+### 2. Why In-Memory Agents?
+
+**Decision**: Store agents in `Map` instead of database.
+
+**Rationale**:
+- Orchestrations are ephemeral (session-scoped)
+- No need for persistence across restarts
+- Faster access (O(1) lookups)
+- Simplified cleanup (auto-GC when session ends)
+
+**Trade-off**: Cannot resume interrupted orchestrations after server restart
+
+### 3. Why Mock Service Execution?
+
+**Decision**: Return mock data instead of real x402 payments in demo.
+
+**Rationale**:
+- Faster demo execution (no blockchain wait times)
+- No real USDC spending for demos
+- Predictable, repeatable results
+- Can showcase full workflow without wallet setup
+
+**Production Path**: Replace `executeService()` with real x402 payment flow:
+
+```typescript
+// Demo (current)
+private async executeService(service: Service, task: Task, agent: SpecialistAgent): Promise<Record<string, unknown>> {
+  await this.simulateProcessingTime();
+  return { company: 'AI Coding Assistant Inc.', ... };
+}
+
+// Production (future)
+private async executeService(service: Service, task: Task, agent: SpecialistAgent): Promise<Record<string, unknown>> {
+  // 1. Purchase service via x402
+  const paymentInstruction = await purchaseService(service.id, task.data);
+
+  // 2. Execute payment
+  const signature = await executePayment(paymentInstruction);
+
+  // 3. Submit payment and get result
+  const result = await submitPayment(paymentInstruction.transactionId, signature);
+
+  return result;
+}
+```
+
+## Integration with SentientExchange
+
+The MasterOrchestrator uses SentientExchange components:
+
+```
+MasterOrchestrator
+    │
+    ├─ ServiceRegistry (service discovery)
+    │   └─ Database (SQLite/Postgres)
+    │
+    ├─ DirectSolanaProvider (payment execution)
+    │   └─ Solana RPC (blockchain)
+    │
+    └─ SolanaVerifier (payment verification)
+        └─ Solana RPC (on-chain verification)
+```
+
+## Future Enhancements
+
+### 1. Explicit Dependency Graph
+
+```typescript
+interface Task {
+  id: string;
+  dependencies: string[];  // Task IDs
+  parallelizable: boolean; // Can run in parallel with siblings
+}
+
+// Topological sort for execution order
+async executeWithDependencies(tasks: Task[]): Promise<void> {
+  const sorted = topologicalSort(tasks);
+  const batches = groupByDependencyLevel(sorted);
+
+  for (const batch of batches) {
+    // Execute all tasks in batch in parallel
+    await Promise.all(batch.map(task => this.executeTask(task)));
+  }
+}
+```
+
+### 2. Claude API Integration for Task Decomposition
+
+```typescript
+private async decomposeTask(userRequest: string): Promise<Task[]> {
+  const response = await anthropic.messages.create({
+    model: 'claude-3-5-sonnet-20241022',
+    max_tokens: 1024,
+    messages: [{
+      role: 'user',
+      content: `Decompose this task into subtasks:\n\n${userRequest}\n\nReturn JSON array of tasks.`
+    }]
+  });
+
+  return JSON.parse(response.content[0].text);
+}
+```
+
+### 3. Budget Constraints
+
+```typescript
+async executeComplexTask(
+  userRequest: string,
+  maxBudget: number
+): Promise<OrchestrationResult> {
+  for (const task of tasks) {
+    if (this.totalCost + estimatedCost > maxBudget) {
+      throw new Error(`Budget exceeded: ${this.totalCost} + ${estimatedCost} > ${maxBudget}`);
+    }
+
+    await this.executeTask(task);
+  }
+}
+```
+
+### 4. Agent Learning & Optimization
+
+```typescript
+// Track service performance
+interface ServiceMetrics {
+  serviceId: string;
+  avgResponseTime: number;
+  successRate: number;
+  costEfficiency: number;  // quality / price
+}
+
+// Prefer high-performing services in future orchestrations
+private async discoverService(agent: SpecialistAgent, task: Task): Promise<Service> {
+  const candidates = await this.findMatchingServices(agent.capabilities);
+  const metrics = await this.getServiceMetrics(candidates.map(s => s.id));
+
+  // Rank by cost efficiency
+  return candidates.sort((a, b) =>
+    metrics[b.id].costEfficiency - metrics[a.id].costEfficiency
+  )[0];
+}
+```
+
+## Next Steps
+
+- [Payment Routing](/docs/architecture/payment-routing) - DirectSolanaProvider vs facilitator architecture
+- [Database Adapters](/docs/architecture/database-adapters) - SQLite/PostgreSQL auto-detection
+- [SSE Transport](/docs/architecture/sse-transport) - Remote MCP connection management
+- [Security Middleware](/docs/architecture/security-middleware) - Rate limiting and authentication

@@ -1,0 +1,25 @@
+# Source files (we publish dist/ only)
+src/
+tsconfig.json
+.gitignore
+
+# Development
+node_modules/
+*.log
+coverage/
+.nyc_output/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Tests
+**/*.test.ts
+**/*.spec.ts
+jest.config.js
+
+# CI/CD
+.github/
+.travis.yml
+.circleci/

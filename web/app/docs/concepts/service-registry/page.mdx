@@ -1,0 +1,665 @@
+# Service Registry
+
+**TL;DR:** The Service Registry is AgentMarket's searchable database of AI services with in-memory caching for fast discovery, reputation tracking, and automatic health monitoring.
+
+## Overview
+
+The Service Registry is the **core discovery engine** of AgentMarket. It maintains a catalog of all available AI services, their capabilities, pricing, reputation scores, and availability status.
+
+Think of it as:
+- **Yellow Pages** for AI services
+- **App Store** for autonomous agents
+- **Google Search** for capabilities
+
+## Architecture
+
+```
+┌────────────────────────────────────────────────┐
+│          Service Registry Layer                 │
+├────────────────────────────────────────────────┤
+│  ┌──────────────────┐  ┌──────────────────┐   │
+│  │  In-Memory Cache │  │  Database        │   │
+│  │  (Map<id, Svc>)  │◄─┤  (SQLite/PG)     │   │
+│  │                  │  │                  │   │
+│  │  Fast Lookups:   │  │  Persistent:     │   │
+│  │  • O(1) by ID    │  │  • ACID          │   │
+│  │  • O(n) search   │  │  • Audit log     │   │
+│  │  • ~1-5 MB RAM   │  │  • Transactions  │   │
+│  └────────┬─────────┘  └────────┬─────────┘   │
+│           │                     │              │
+│           └──────────┬──────────┘              │
+│                      ▼                          │
+│  ┌────────────────────────────────────┐       │
+│  │   Service Discovery API            │       │
+│  │   - searchServices()               │       │
+│  │   - getService(id)                 │       │
+│  │   - registerService()              │       │
+│  │   - updateService(id, changes)     │       │
+│  │   - deleteService(id)              │       │
+│  │   - updateReputation(id, rating)   │       │
+│  └────────────────────────────────────┘       │
+└────────────────────────────────────────────────┘
+```
+
+## Service Model
+
+Each service in the registry has:
+
+```typescript
+interface Service {
+  // Identity
+  id: string;                  // UUID (e.g., "service-sentiment-001")
+  name: string;                // Display name (e.g., "Sentiment Analyzer Pro")
+  provider: string;            // Provider name (e.g., "SentientExchange")
+  description: string;         // Human-readable description
+
+  // Access
+  endpoint: string;            // API endpoint URL
+  capabilities: string[];      // What the service can do
+
+  // Pricing
+  pricing: {
+    perRequest: string;        // Price per request (e.g., "0.01")
+    currency: string;          // Currency (e.g., "USDC")
+  };
+
+  // Reputation
+  reputation: {
+    totalJobs: number;         // Total requests processed
+    successRate: number;       // Success percentage (0-100)
+    avgResponseTime: string;   // Average latency (e.g., "1.2s")
+    rating: number;            // User rating (1-5 stars)
+    reviews: number;           // Number of reviews
+  };
+
+  // Metadata
+  metadata?: {
+    apiVersion?: string;
+    walletAddress?: string;    // Solana wallet for payments
+    healthCheckUrl?: string;   // Health check endpoint
+    image?: string;            // Icon/emoji
+    color?: string;            // UI color
+  };
+
+  // Audit trail
+  createdAt: string;           // ISO timestamp
+  updatedAt: string;           // ISO timestamp
+  status?: 'pending' | 'approved' | 'rejected';  // Approval status
+}
+```
+
+## In-Memory Caching Strategy
+
+### Why Cache in Memory?
+
+**Problem**: Searching the database on every discovery request is slow:
+- Database query: ~5-20ms
+- Parse JSON fields: ~2-5ms
+- Filter/sort: ~1-3ms
+- **Total**: ~10-30ms per search
+
+**Solution**: Load all services into RAM:
+- Lookup by ID: ~0.001ms (O(1) hash map)
+- Search all services: ~1-2ms (O(n) filter/sort)
+- **95% faster than database queries!**
+
+### Implementation
+
+**src/registry/ServiceRegistry.ts** (Lines 33-61)
+
+```typescript
+export class ServiceRegistry {
+  private cache: Map<string, Service> = new Map();
+
+  async initialize(): Promise<void> {
+    // Load all non-deleted services from database
+    const services = await this.db.all<ServiceRow>(
+      'SELECT * FROM services WHERE deleted_at IS NULL'
+    );
+
+    // Populate in-memory cache
+    for (const row of services) {
+      const service = this.deserializeService(row);
+      this.cache.set(service.id, service);
+    }
+
+    logger.info(`✓ ServiceRegistry initialized with ${services.length} services`);
+  }
+
+  async getService(id: string): Promise<Service | undefined> {
+    // O(1) lookup from cache
+    return this.cache.get(id);
+  }
+
+  getAllServices(): Service[] {
+    // Convert Map to Array
+    return Array.from(this.cache.values());
+  }
+}
+```
+
+### Cache Invalidation
+
+Cache is updated on writes:
+
+```typescript
+// Register new service
+async registerService(service: Omit<Service, 'id'>): Promise<Service> {
+  // 1. Insert into database
+  await this.db.run('INSERT INTO services ...', [...]);
+
+  // 2. Update cache
+  this.cache.set(newService.id, newService);
+
+  return newService;
+}
+
+// Update existing service
+async updateService(id: string, updates: Partial<Service>): Promise<Service> {
+  // 1. Update database
+  await this.db.run('UPDATE services SET ... WHERE id = ?', [...]);
+
+  // 2. Update cache
+  this.cache.set(id, updatedService);
+
+  return updatedService;
+}
+
+// Delete service (soft delete)
+async deleteService(id: string): Promise<void> {
+  // 1. Soft delete in database
+  await this.db.run('UPDATE services SET deleted_at = ? WHERE id = ?', [now, id]);
+
+  // 2. Remove from cache
+  this.cache.delete(id);
+}
+```
+
+<Callout type="info">
+**Write-Through Cache**: All writes go to database first, then update cache. This ensures database and cache always stay in sync.
+</Callout>
+
+### Memory Footprint
+
+| Services | Cache Size | Notes |
+|----------|------------|-------|
+| 100 | ~500 KB | Typical for MVP |
+| 1,000 | ~5 MB | Production scale |
+| 10,000 | ~50 MB | Large marketplace |
+
+**Assumptions**:
+- Average service object: ~5 KB (JSON serialized)
+- No image data (only URLs)
+- JavaScript object overhead: ~2x serialized size
+
+## Service Discovery
+
+### Search Algorithm
+
+**src/registry/ServiceRegistry.ts** (Lines 123-163)
+
+```typescript
+async searchServices(query: ServiceSearchQuery): Promise<Service[]> {
+  // Start with all services
+  let results = Array.from(this.cache.values());
+
+  // 1. Filter by capabilities (OR logic)
+  if (query.capabilities?.length > 0) {
+    results = results.filter(service =>
+      query.capabilities!.some(cap => service.capabilities.includes(cap))
+    );
+  }
+
+  // 2. Filter by max price
+  if (query.maxPrice) {
+    const maxPrice = parseFloat(query.maxPrice.replace('$', ''));
+    results = results.filter(service => {
+      const price = parseFloat(service.pricing.perRequest.replace('$', ''));
+      return price <= maxPrice;
+    });
+  }
+
+  // 3. Filter by minimum rating
+  if (query.minRating) {
+    results = results.filter(
+      service => service.reputation.rating >= query.minRating!
+    );
+  }
+
+  // 4. Sort results
+  if (query.sortBy === 'price') {
+    results.sort((a, b) => parsePrice(a) - parsePrice(b));
+  } else if (query.sortBy === 'rating') {
+    results.sort((a, b) => b.reputation.rating - a.reputation.rating);
+  } else if (query.sortBy === 'popularity') {
+    results.sort((a, b) => b.reputation.totalJobs - a.reputation.totalJobs);
+  }
+
+  return results;
+}
+```
+
+**Complexity**:
+- **Best case**: O(n) where n = total services
+- **Worst case**: O(n log n) with sorting
+- **Typical**: ~1-2ms for 1,000 services
+
+### Example Queries
+
+**Find cheap sentiment analysis services**:
+```typescript
+const services = await registry.searchServices({
+  capabilities: ['sentiment-analysis'],
+  maxPrice: '$0.05',
+  minRating: 4.0,
+  sortBy: 'price'
+});
+```
+
+**Find high-quality image analysis**:
+```typescript
+const services = await registry.searchServices({
+  capabilities: ['image-analysis', 'object-detection'],
+  minRating: 4.5,
+  sortBy: 'rating'
+});
+```
+
+**Find popular services**:
+```typescript
+const services = await registry.searchServices({
+  sortBy: 'popularity'
+});
+```
+
+## Reputation System
+
+### How Reputation Works
+
+Reputation scores are calculated from:
+1. **User ratings** (1-5 stars)
+2. **Success rate** (successful requests / total requests)
+3. **Response time** (average latency)
+4. **Total jobs** (volume of requests)
+
+### Rating Submission
+
+```typescript
+async rateService(
+  serviceId: string,
+  rating: number,
+  review?: string,
+  transactionId?: string
+): Promise<void> {
+  const service = await this.getService(serviceId);
+
+  // Calculate new average rating
+  const oldTotalRating = service.reputation.rating * service.reputation.reviews;
+  const newTotalRating = oldTotalRating + rating;
+  const newReviews = service.reputation.reviews + 1;
+  const newRating = newTotalRating / newReviews;
+
+  // Update reputation
+  await this.updateReputation(serviceId, {
+    rating: newRating,
+    reviews: newReviews
+  });
+
+  // Store review in ratings table
+  await this.db.run(
+    'INSERT INTO ratings (serviceId, score, review, transactionId) VALUES (?, ?, ?, ?)',
+    [serviceId, rating, review, transactionId]
+  );
+}
+```
+
+### Transaction-Based Ratings
+
+<Callout type="warning">
+**Fake Review Prevention**: Ratings are linked to transactions! You can only rate a service after paying for it.
+</Callout>
+
+```sql
+CREATE TABLE ratings (
+  id TEXT PRIMARY KEY,
+  transactionId TEXT NOT NULL,  -- Must be a real paid transaction
+  serviceId TEXT NOT NULL,
+  rater TEXT NOT NULL,          -- Wallet address of reviewer
+  score INTEGER NOT NULL,       -- 1-5 stars
+  review TEXT,
+  timestamp TEXT NOT NULL,
+  FOREIGN KEY (transactionId) REFERENCES transactions(id),
+  FOREIGN KEY (serviceId) REFERENCES services(id)
+);
+```
+
+**Validation**:
+```typescript
+// Before accepting rating, verify transaction exists and matches
+const tx = await db.get(
+  'SELECT * FROM transactions WHERE id = ? AND serviceId = ? AND buyer = ?',
+  [transactionId, serviceId, raterWallet]
+);
+
+if (!tx) {
+  throw new Error('You can only rate services you have purchased');
+}
+```
+
+## Service Lifecycle
+
+### 1. Registration (Pending Status)
+
+```
+Provider → POST /api/services
+         │
+         ├─ Validate input (Zod schema)
+         ├─ Test endpoint (expect 402)
+         ├─ Insert with status="pending"
+         └─ Awaiting admin approval
+```
+
+**Not discoverable** until approved!
+
+### 2. Approval (Approved Status)
+
+```
+Admin → POST /api/admin/approve/:id
+      │
+      ├─ Update status="approved"
+      ├─ Set approval_notes
+      ├─ Broadcast via WebSocket
+      └─ Service now discoverable
+```
+
+### 3. Active Service
+
+```
+Agents → discover_services()
+       │
+       ├─ Service appears in search results
+       ├─ Can be purchased
+       ├─ Reputation tracking enabled
+       └─ Health checks running
+```
+
+### 4. Rejection (Rejected Status)
+
+```
+Admin → POST /api/admin/reject/:id
+      │
+      ├─ Update status="rejected"
+      ├─ Set rejection reason
+      └─ Service not discoverable
+```
+
+### 5. Deletion (Soft Delete)
+
+```
+Owner → DELETE /api/services/:id
+      │
+      ├─ Set deleted_at timestamp
+      ├─ Remove from cache
+      └─ Hidden from all queries
+```
+
+<Callout type="tip">
+**Soft Delete**: Services are never truly deleted - just hidden. This preserves transaction history and audit trails.
+</Callout>
+
+## Health Monitoring
+
+AgentMarket actively monitors service health and availability.
+
+### Health Check System
+
+```typescript
+class HealthMonitor {
+  async checkService(service: Service): Promise<HealthCheckResult> {
+    const healthUrl = service.metadata?.healthCheckUrl || `${service.endpoint}/health`;
+
+    try {
+      const start = Date.now();
+      const response = await axios.get(healthUrl, { timeout: 10000 });
+      const latency = Date.now() - start;
+
+      return {
+        serviceId: service.id,
+        healthy: response.status === 200,
+        latency,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        serviceId: service.id,
+        healthy: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+
+  async runHealthChecks(): Promise<void> {
+    const services = await registry.getAllServices();
+
+    for (const service of services) {
+      const result = await this.checkService(service);
+
+      // Store in database
+      await db.run(
+        'INSERT INTO health_checks (serviceId, healthy, latency, error, timestamp) VALUES (?, ?, ?, ?, ?)',
+        [result.serviceId, result.healthy, result.latency, result.error, result.timestamp]
+      );
+
+      // Update service reputation if needed
+      if (!result.healthy) {
+        logger.warn(`Service unhealthy: ${service.name}`);
+        // Could decrease reputation or notify owner
+      }
+    }
+  }
+}
+```
+
+**Frequency**: Every 5 minutes (configurable via `HEALTH_CHECK_INTERVAL_MINUTES`)
+
+### Uptime Calculation
+
+```sql
+SELECT
+  serviceId,
+  COUNT(*) as total_checks,
+  SUM(CASE WHEN healthy = 1 THEN 1 ELSE 0 END) as successful_checks,
+  (SUM(CASE WHEN healthy = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*)) as uptime_percentage,
+  AVG(latency) as avg_latency
+FROM health_checks
+WHERE timestamp > datetime('now', '-30 days')
+GROUP BY serviceId;
+```
+
+## Capabilities Taxonomy
+
+Services are categorized by capabilities (tags):
+
+### Common Capabilities
+
+| Category | Capabilities |
+|----------|-------------|
+| **NLP** | `sentiment-analysis`, `text-summarization`, `translation`, `named-entity-recognition` |
+| **Vision** | `image-analysis`, `object-detection`, `face-recognition`, `ocr` |
+| **Audio** | `speech-to-text`, `text-to-speech`, `audio-analysis`, `music-generation` |
+| **Data** | `data-aggregation`, `web-scraping`, `api-integration`, `data-transformation` |
+| **Generation** | `text-generation`, `image-generation`, `code-generation`, `video-generation` |
+
+<Callout type="info">
+Capabilities are free-form strings! Providers can define custom capabilities, but common ones improve discoverability.
+</Callout>
+
+## Pagination & Limits
+
+### API Endpoints
+
+**List all services**:
+```bash
+GET /api/services?offset=0&limit=20
+```
+
+**Search services**:
+```bash
+POST /api/services/search
+{
+  "capabilities": ["sentiment-analysis"],
+  "offset": 0,
+  "limit": 20
+}
+```
+
+**Pagination logic**:
+```typescript
+const offset = query.offset || 0;
+const limit = Math.min(query.limit || 20, 100);  // Max 100 per page
+
+const paginatedResults = results.slice(offset, offset + limit);
+
+return {
+  count: results.length,
+  offset,
+  limit,
+  services: paginatedResults
+};
+```
+
+## Database Schema
+
+```sql
+CREATE TABLE services (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  capabilities TEXT NOT NULL,     -- JSON array
+  pricing TEXT NOT NULL,          -- JSON object
+  reputation TEXT NOT NULL,       -- JSON object
+  metadata TEXT,                  -- JSON object
+  status TEXT DEFAULT 'pending',  -- pending|approved|rejected
+  middleware_verified BOOLEAN DEFAULT 0,
+  approval_notes TEXT,
+  approved_at INTEGER,
+  created_by TEXT,
+  updated_by TEXT,
+  deleted_at TEXT,                -- Soft delete timestamp
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Indexes for fast queries
+CREATE INDEX idx_services_capabilities ON services((json_extract(capabilities, '$')));
+CREATE INDEX idx_services_status ON services(status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_services_created_at ON services(created_at);
+```
+
+## Performance Characteristics
+
+| Operation | Complexity | Typical Time |
+|-----------|------------|--------------|
+| Get by ID | O(1) | ~0.001ms (cache hit) |
+| List all | O(n) | ~1ms (1,000 services) |
+| Search | O(n) to O(n log n) | ~1-3ms (with sort) |
+| Register | O(1) + DB write | ~5-10ms |
+| Update | O(1) + DB write | ~5-10ms |
+| Delete | O(1) + DB write | ~5-10ms |
+
+**Memory**: ~5 MB for 1,000 services (in-memory cache)
+
+## Integration with Payment System
+
+Services link to the payment system via:
+
+1. **Payment Recipient**: `metadata.walletAddress` (Solana wallet)
+2. **Pricing**: `pricing.perRequest` (USDC amount)
+3. **Transaction Tracking**: `transactions` table references `serviceId`
+
+```typescript
+// When purchasing a service
+const service = await registry.getService(serviceId);
+
+// Create payment instruction
+const paymentInstruction = {
+  recipient: service.metadata.walletAddress,
+  amount: service.pricing.perRequest,
+  currency: service.pricing.currency,
+  transaction_id: generateTxId()
+};
+
+// After payment verification
+await db.run(
+  'INSERT INTO transactions (id, serviceId, buyer, amount, status) VALUES (?, ?, ?, ?, ?)',
+  [txId, serviceId, buyerWallet, amount, 'completed']
+);
+
+// Update reputation
+await registry.updateReputation(serviceId, {
+  totalJobs: service.reputation.totalJobs + 1
+});
+```
+
+## Best Practices
+
+### For Service Providers
+
+1. **Choose descriptive capabilities**:
+   ```typescript
+   // Good
+   capabilities: ['sentiment-analysis', 'emotion-detection', 'nlp']
+
+   // Bad
+   capabilities: ['ai', 'ml', 'service']
+   ```
+
+2. **Set competitive pricing**:
+   ```typescript
+   // Check competitors first
+   const competitors = await registry.searchServices({
+     capabilities: ['sentiment-analysis'],
+     sortBy: 'price'
+   });
+   ```
+
+3. **Maintain high uptime**:
+   - Implement `/health` endpoint
+   - Return 200 OK when healthy
+   - Monitor health check failures
+
+### For Consumers
+
+1. **Filter by rating**:
+   ```typescript
+   const services = await registry.searchServices({
+     capabilities: ['image-analysis'],
+     minRating: 4.0  // Only quality services
+   });
+   ```
+
+2. **Sort by price for best value**:
+   ```typescript
+   const services = await registry.searchServices({
+     capabilities: ['text-summarization'],
+     sortBy: 'price'  // Cheapest first
+   });
+   ```
+
+3. **Check reputation before purchasing**:
+   ```typescript
+   const service = await registry.getService(id);
+   if (service.reputation.totalJobs < 10) {
+     console.warn('New service - limited transaction history');
+   }
+   ```
+
+## Next Steps
+
+- [Orchestration](/docs/concepts/orchestration) - Multi-service workflows
+- [Security Model](/docs/concepts/security-model) - Authentication and authorization
+- [Building Services](/docs/guides/building-services) - Create your own service
+- [Database Architecture](/docs/architecture/database-adapters) - SQLite vs PostgreSQL

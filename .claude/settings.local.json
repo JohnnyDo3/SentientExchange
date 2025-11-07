@@ -54,7 +54,8 @@
       "Bash(node fix-purchase-tests.js:*)",
       "Bash(railway logs:*)",
       "Bash(bash:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "WebFetch(domain:www.helius.dev)"
     ],
     "deny": [],
     "ask": []

@@ -53,10 +53,17 @@ export class SQLiteAdapter implements DatabaseAdapter {
         name TEXT NOT NULL,
         description TEXT,
         provider TEXT NOT NULL,
+        provider_wallet TEXT,
         endpoint TEXT NOT NULL,
+        health_check_url TEXT,
         capabilities TEXT NOT NULL,
         pricing TEXT NOT NULL,
         reputation TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        middleware_verified INTEGER DEFAULT 0,
+        network TEXT DEFAULT 'solana',
+        approval_notes TEXT,
+        approved_at INTEGER,
         metadata TEXT,
         created_by TEXT,
         updated_by TEXT,
@@ -123,6 +130,31 @@ export class SQLiteAdapter implements DatabaseAdapter {
       )
     `);
 
+    // Create used_request_ids table for replay attack prevention
+    await this.runAsync(`
+      CREATE TABLE IF NOT EXISTS used_request_ids (
+        request_id TEXT PRIMARY KEY,
+        service_id TEXT NOT NULL,
+        tx_signature TEXT NOT NULL,
+        used_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        FOREIGN KEY (service_id) REFERENCES services(id)
+      )
+    `);
+
+    // Create service_health_checks table for monitoring
+    await this.runAsync(`
+      CREATE TABLE IF NOT EXISTS service_health_checks (
+        id TEXT PRIMARY KEY,
+        service_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        response_time_ms INTEGER,
+        error_message TEXT,
+        checked_at INTEGER NOT NULL,
+        FOREIGN KEY (service_id) REFERENCES services(id)
+      )
+    `);
+
     // Create indexes for performance
     await this.runAsync(
       `CREATE INDEX IF NOT EXISTS idx_services_capabilities ON services(capabilities)`
@@ -147,6 +179,18 @@ export class SQLiteAdapter implements DatabaseAdapter {
     );
     await this.runAsync(
       `CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_used_request_expires ON used_request_ids(expires_at)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_used_request_service ON used_request_ids(service_id)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_health_service ON service_health_checks(service_id, checked_at)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_services_status ON services(status)`
     );
 
     logger.info('✓ SQLite schema initialized');

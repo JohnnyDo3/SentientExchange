@@ -13,10 +13,10 @@ AgentMarket is an AI-native service marketplace that enables autonomous AI agent
 - **MCP SDK**: @modelcontextprotocol/sdk
 - **Transport**: stdio (local) + SSE (remote via Railway)
 - **Payment Protocol**: x402 (HTTP 402 Payment Required)
-- **Blockchain**: Base Sepolia (testnet) / Base (mainnet)
-- **Wallet**: Coinbase CDP Wallet Smart Accounts
-- **Currency**: USDC stablecoin
-- **Database**: SQLite with in-memory caching
+- **Blockchain**: Solana (devnet/mainnet)
+- **Wallet**: Client-side signing with local Solana private keys
+- **Currency**: USDC (SPL token on Solana)
+- **Database**: SQLite (local) / PostgreSQL (production)
 - **HTTP Client**: axios
 
 ## Development Commands
@@ -224,9 +224,9 @@ Bash scripts for common tasks:
    - Tracks all registered services with metadata, pricing, and capabilities
 
 3. **Payment System** (`src/payment/`)
-   - **WalletManager**: Manages CDP wallets for transaction signing
+   - **WalletManager**: Manages local Solana wallets for client-side transaction signing
    - **X402Client**: Handles HTTP 402 payment flow (request → 402 response → payment → retry with proof)
-   - Executes USDC payments on Base blockchain
+   - Executes USDC (SPL token) payments on Solana blockchain
 
 4. **Database** (`src/registry/database.ts`)
    - SQLite database with three tables: services, transactions, ratings
@@ -235,12 +235,28 @@ Bash scripts for common tasks:
 
 ### MCP Tools
 
-The server exposes four MCP tools to AI clients:
+The server exposes 13 MCP tools to AI clients:
 
+**Standard Tools (7)**:
 1. **discover_services**: Search services by capability, price, or rating
 2. **get_service_details**: Get detailed information about a specific service
-3. **purchase_service**: Execute a service request with automatic x402 payment
-4. **rate_service**: Submit ratings for completed transactions
+3. **list_all_services**: List all available services with pagination
+4. **purchase_service**: Request service execution (returns payment instruction)
+5. **execute_payment**: Execute payment with local Solana wallet (CLIENT-SIDE SIGNING)
+6. **submit_payment**: Complete purchase by submitting payment proof
+7. **rate_service**: Submit ratings for completed transactions
+
+**Budget Management Tools (3)**:
+8. **set_spending_limits**: Configure budget controls (per transaction, daily, monthly)
+9. **check_spending**: View current spending stats and remaining budget
+10. **reset_spending_limits**: Remove all budget limits
+
+**Smart Workflow Tools (2)**:
+11. **discover_and_prepare_service**: Combines discover + health check + prepare payment (3 calls → 1)
+12. **complete_service_with_payment**: Combines verify + submit + retry with backup services
+
+**Analytics Tools (1)**:
+13. **get_transaction**: Retrieve transaction history and details
 
 ### Data Flow
 
@@ -277,24 +293,24 @@ External x402 Service
 ### Payment Flow (x402)
 
 1. Make initial HTTP request to service endpoint
-2. Receive 402 Payment Required with payment details
-3. Verify price is acceptable
-4. Execute USDC payment via CDP wallet
-5. Retry request with X-Payment header containing transaction proof
-6. Service validates payment and returns result
-7. Transaction logged to database
+2. Receive 402 Payment Required with payment details (recipient, amount, currency, transaction_id)
+3. Verify price is acceptable against spending limits
+4. Execute USDC (SPL token) payment with local Solana wallet (CLIENT-SIDE SIGNING)
+5. Get transaction signature from Solana blockchain
+6. Retry request with X-Payment header containing signature and transaction proof (JWT)
+7. Service validates payment on-chain and returns result
+8. Transaction logged to database with payment details
 
 ## Environment Configuration
 
 Create a `.env` file based on `.env.example`:
 
 ```bash
-# CDP Wallet Configuration (required)
-CDP_API_KEY_NAME=your-key-name
-CDP_API_KEY_PRIVATE_KEY=your-private-key
+# Solana Wallet Configuration (required for payments)
+SOLANA_PRIVATE_KEY=your-base58-encoded-private-key
 
-# Network (base-sepolia for testing, base for production)
-NETWORK=base-sepolia
+# Network (devnet for testing, mainnet-beta for production)
+SOLANA_NETWORK=devnet
 
 # Database
 DATABASE_PATH=./data/agentmarket.db
@@ -303,9 +319,12 @@ DATABASE_PATH=./data/agentmarket.db
 NODE_ENV=development
 LOG_LEVEL=debug
 ENABLE_ANALYTICS=false
+
+# Optional: Helius RPC for better reliability
+HELIUS_API_KEY=your-helius-api-key
 ```
 
-**IMPORTANT**: Never commit `.env` files or expose CDP private keys.
+**IMPORTANT**: Never commit `.env` files or expose Solana private keys. The private key is used CLIENT-SIDE ONLY in the MCP client environment (Claude Desktop config), NOT on the server.
 
 ## CI/CD Workflow
 
@@ -571,33 +590,50 @@ To use this MCP server with Claude Desktop, add to `~/.config/claude/config.json
       "args": ["C:/Users/johnn/Desktop/agentMarket-mcp/dist/index.js"],
       "env": {
         "DATABASE_PATH": "C:/Users/johnn/Desktop/agentMarket-mcp/data/agentmarket.db",
-        "CDP_API_KEY_NAME": "your-key-name",
-        "CDP_API_KEY_PRIVATE_KEY": "your-private-key",
-        "NETWORK": "base-sepolia"
+        "SOLANA_PRIVATE_KEY": "your-base58-encoded-private-key",
+        "SOLANA_NETWORK": "devnet",
+        "HELIUS_API_KEY": "your-helius-api-key"
       }
     }
   }
 }
 ```
 
+**Security Note**: The `SOLANA_PRIVATE_KEY` is stored CLIENT-SIDE in Claude Desktop's configuration. This enables client-side signing where:
+- User controls their own wallet and private keys
+- MCP server NEVER has access to private keys
+- Payments are signed locally and only signatures are sent to services
+- Server only verifies payment signatures on-chain
+
 After configuration, restart Claude Desktop to load the server.
 
 ## Security Considerations
 
-1. **Wallet Security**
-   - Use CDP Smart Accounts to avoid private key management
-   - Never log or expose private keys
-   - Store keys only in environment variables
+1. **Wallet Security (Client-Side Signing)**
+   - Private keys stored ONLY in MCP client environment (Claude Desktop), never on server
+   - Users control their own Solana wallets and keys
+   - Never log or expose private keys in server code
+   - Server only verifies payment signatures on-chain, never signs transactions
+   - Use Helius RPC for better reliability and security
 
 2. **Payment Verification**
-   - Verify x402 payment headers before executing requests
+   - Verify x402 payment signatures on Solana blockchain before executing requests
    - Check payment amount matches service pricing
    - Validate payment recipient address
+   - Ensure transaction is confirmed on-chain before proceeding
+   - Generate JWT payment tokens after verification
 
-3. **Service Validation**
-   - Verify service endpoints are accessible
+3. **Spending Limits**
+   - Implement per-transaction, daily, and monthly spending limits
+   - Block payments that exceed configured budgets
+   - Track spending in real-time with in-memory cache
+   - Essential for autonomous agent safety
+
+4. **Service Validation**
+   - Verify service endpoints are accessible via health checks
    - Implement rate limiting to prevent spam
    - Manual review for initial service listings
+   - Reputation system to track service quality
 
 ## Project Structure
 
@@ -639,17 +675,39 @@ agentmarket-mcp/
 
 ### Current Project Status
 
-This is a very early-stage project (Day 1 of development). Most of the planned architecture exists only in `AgentMarket_Complete_Project_Plan.md`. The actual implementation needs to be built following the detailed plan.
+AgentMarket is **production-ready** with the following achievements:
+- ✅ **80%+ test coverage** across unit, integration, and e2e tests
+- ✅ **13 MCP tools** fully implemented (7 standard + 3 budget + 2 smart + 1 analytics)
+- ✅ **Enterprise documentation** at sentientexchange.com/docs (31 pages)
+- ✅ **CI/CD pipeline** with GitHub Actions + Railway deployment
+- ✅ **Client-side payment signing** with Solana blockchain
+- ✅ **Spending limits** for autonomous agent safety
+- ✅ **Master Orchestrator** for multi-service workflows
+- ✅ **WebSocket API** for real-time marketplace updates
+- ✅ **PostgreSQL support** for production scaling
+- ✅ **Docker containerization** with health checks
+
+**Deployment**:
+- Staging: Automatic deployment on `develop` branch
+- Production: Manual approval required on `master` branch
+- Railway: Both environments deployed and tested
+
+**Documentation**: Complete technical documentation available at `sentientexchange.com/docs` with:
+- Quick Start guides (4 pages)
+- Conceptual overviews (6 pages)
+- Implementation guides (8 pages)
+- API reference (4 pages)
+- Architecture deep-dives (5 pages)
+- Deployment guides (4 pages)
 
 ### Development Priorities
 
-1. Set up TypeScript configuration and project structure
-2. Implement Database and ServiceRegistry classes
-3. Implement WalletManager and X402Client for payments
-4. Implement MCP tools (discover, details, purchase, rate)
-5. Build the main MCP server with tool handlers
-6. Create example x402 services for testing
-7. Write comprehensive tests
+Current focus areas:
+1. ✅ Testing: Achieved 80%+ coverage
+2. ✅ Documentation: Enterprise-grade docs completed
+3. 🔄 Demo preparation: Recording hackathon demo
+4. 🔄 Final deployment: Production environment validation
+5. 📋 Submission: Preparing hackathon submission materials
 
 ### x402 Protocol
 
@@ -666,7 +724,9 @@ Both modes allow AI clients to discover services and make payments on behalf of 
 
 ## References
 
-- Project Plan: `AgentMarket_Complete_Project_Plan.md`
-- MCP Documentation: https://modelcontextprotocol.io/
-- x402 Protocol: https://github.com/coinbase/x402
-- Coinbase CDP SDK: https://docs.cdp.coinbase.com/
+- **Documentation Portal**: https://sentientexchange.com/docs (31 pages of enterprise-grade docs)
+- **Project Plan**: `AgentMarket_Complete_Project_Plan.md`
+- **MCP Documentation**: https://modelcontextprotocol.io/
+- **x402 Protocol**: https://github.com/coinbase/x402
+- **Solana Documentation**: https://docs.solana.com/
+- **Helius RPC**: https://www.helius.dev/docs (recommended for production)

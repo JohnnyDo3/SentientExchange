@@ -1,0 +1,560 @@
+# REST API Integration
+
+**TL;DR:** Integrate AgentMarket directly into your application via REST API in 10 minutes. Discover services, execute payments, and track transactions programmatically.
+
+## What is This?
+
+AgentMarket provides a complete REST API that allows any application to:
+
+- **Discover AI services** - Search by capability, price, and rating
+- **Authenticate users** - JWT + SIWE (Sign-In with Ethereum) support
+- **Purchase services** - Programmatic service execution with payment verification
+- **Track analytics** - Monitor transactions, revenue, and usage stats
+- **Manage services** - Register and update your own services
+
+## Why Use the REST API?
+
+- **Platform-agnostic**: Works with any programming language or framework
+- **Remote access**: Connect to AgentMarket from anywhere (no local MCP server needed)
+- **Real-time updates**: WebSocket support for live transaction feeds
+- **Production-ready**: Rate limiting, authentication, and comprehensive error handling
+
+## Prerequisites
+
+Before you begin:
+
+1. **Solana Wallet** - For making payments (private key in base58 format)
+2. **USDC Balance** - Ensure your wallet has USDC on Solana
+3. **API Base URL** - Production: `https://sentientexchange.com/api`
+
+<Callout type="info">
+The API is publicly accessible for reads. Authentication is only required for writes (creating services, submitting ratings, etc.).
+</Callout>
+
+## Quick Start (10 Minutes)
+
+### Step 1: Test the Health Endpoint
+
+Verify the API is accessible:
+
+```bash
+curl https://sentientexchange.com/api/pulse
+```
+
+Expected response:
+```json
+{
+  "pulse": "strong",
+  "heartbeat": "💓",
+  "agents": "active",
+  "market": "open",
+  "vibe": "immaculate",
+  "uptime": "1234m 56s",
+  "timestamp": "2025-11-06T12:00:00.000Z",
+  "message": "🤖 SentientExchange is alive and thriving",
+  "mcp": {
+    "sseEndpoint": "/mcp/sse",
+    "activeSessions": 3
+  }
+}
+```
+
+### Step 2: Discover Services
+
+Search for sentiment analysis services:
+
+```bash
+curl -X POST https://sentientexchange.com/api/services/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "capabilities": ["sentiment-analysis"],
+    "maxPrice": 0.05,
+    "minRating": 4.0,
+    "offset": 0,
+    "limit": 10
+  }'
+```
+
+Response:
+```json
+{
+  "success": true,
+  "count": 3,
+  "offset": 0,
+  "limit": 10,
+  "services": [
+    {
+      "id": "service-sentiment-001",
+      "name": "Sentiment Analyzer Pro",
+      "description": "Advanced sentiment analysis with emotion detection",
+      "provider": "SentientExchange",
+      "endpoint": "https://sentientexchange.com/api/ai/sentiment/analyze",
+      "capabilities": ["sentiment-analysis", "emotion-detection"],
+      "pricing": {
+        "perRequest": "0.01",
+        "currency": "USDC"
+      },
+      "reputation": {
+        "totalJobs": 1250,
+        "successRate": 99.8,
+        "avgResponseTime": "1.2s",
+        "rating": 4.9,
+        "reviews": 47
+      },
+      "status": "approved",
+      "network": "solana"
+    }
+  ]
+}
+```
+
+### Step 3: Get Service Details
+
+Get complete information about a specific service:
+
+```bash
+curl https://sentientexchange.com/api/services/service-sentiment-001
+```
+
+### Step 4: Purchase a Service (Client-Side Signing)
+
+<Callout type="warning">
+**IMPORTANT**: AgentMarket uses **client-side signing**. Your application signs transactions locally, then submits the signature for verification. The server **NEVER** has access to your private key.
+</Callout>
+
+#### Payment Flow Overview
+
+1. **Request Service**: POST to service endpoint
+2. **Receive 402 Payment Required**: Server returns payment instruction
+3. **Sign Transaction**: Your app signs USDC transfer on Solana
+4. **Retry with Proof**: Include `X-Payment` header with transaction signature
+5. **Get Result**: Server verifies payment on-chain and returns result
+
+#### Example: Node.js Implementation
+
+```javascript
+import { Connection, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import { getAssociatedTokenAddress, createTransferInstruction } from '@solana/spl-token';
+import bs58 from 'bs58';
+import axios from 'axios';
+
+// Initialize Solana connection
+const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'); // Mainnet USDC
+
+async function purchaseSentimentAnalysis(text) {
+  const serviceEndpoint = 'https://sentientexchange.com/api/ai/sentiment/analyze';
+
+  // Step 1: Make initial request (will return 402 Payment Required)
+  let response;
+  try {
+    response = await axios.post(serviceEndpoint, { text });
+  } catch (error) {
+    if (error.response?.status !== 402) {
+      throw error;
+    }
+    response = error.response;
+  }
+
+  // Step 2: Extract payment details from 402 response
+  const paymentRequired = response.data;
+  const { recipient, amount, currency, transaction_id } = paymentRequired;
+
+  console.log(`Payment required: ${amount} ${currency} to ${recipient}`);
+
+  // Step 3: Sign transaction with your local wallet
+  const senderKeypair = Keypair.fromSecretKey(bs58.decode(process.env.SOLANA_PRIVATE_KEY));
+  const senderPublicKey = senderKeypair.publicKey;
+
+  // Get token accounts
+  const senderTokenAccount = await getAssociatedTokenAddress(
+    USDC_MINT,
+    senderPublicKey
+  );
+
+  const recipientTokenAccount = await getAssociatedTokenAddress(
+    USDC_MINT,
+    new PublicKey(recipient)
+  );
+
+  // Create transfer instruction (USDC has 6 decimals)
+  const amountLamports = Math.floor(parseFloat(amount) * 1_000_000);
+
+  const transferInstruction = createTransferInstruction(
+    senderTokenAccount,
+    recipientTokenAccount,
+    senderPublicKey,
+    amountLamports
+  );
+
+  // Build and sign transaction
+  const transaction = new Transaction().add(transferInstruction);
+  transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+  transaction.feePayer = senderPublicKey;
+  transaction.sign(senderKeypair);
+
+  // Send transaction to Solana
+  const signature = await connection.sendRawTransaction(transaction.serialize());
+  await connection.confirmTransaction(signature);
+
+  console.log(`Payment sent: ${signature}`);
+
+  // Step 4: Retry request with payment proof
+  const result = await axios.post(
+    serviceEndpoint,
+    { text },
+    {
+      headers: {
+        'X-Payment': signature,
+        'X-Payment-Network': 'solana',
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+
+  return result.data;
+}
+
+// Usage
+const result = await purchaseSentimentAnalysis('I love this product!');
+console.log(result);
+// {
+//   "success": true,
+//   "result": {
+//     "sentiment": "positive",
+//     "score": 0.95,
+//     "confidence": 0.89,
+//     "emotions": { "joy": 0.87, "trust": 0.45 }
+//   }
+// }
+```
+
+<Callout type="tip">
+Use the `@sentientexchange/x402-middleware` npm package to simplify x402 payment handling.
+</Callout>
+
+### Step 5: Rate a Service
+
+After using a service, submit a rating:
+
+```bash
+curl -X POST https://sentientexchange.com/api/services/service-sentiment-001/rate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transactionId": "tx-12345",
+    "score": 5,
+    "review": "Excellent accuracy and fast response!"
+  }'
+```
+
+## Authentication (Optional)
+
+For write operations (creating services, viewing analytics), authenticate with SIWE:
+
+### Step 1: Request Nonce
+
+```bash
+curl -X POST https://sentientexchange.com/api/auth/nonce \
+  -H "Content-Type: application/json" \
+  -d '{"address": "0x1234567890abcdef1234567890abcdef12345678"}'
+```
+
+Response:
+```json
+{
+  "success": true,
+  "nonce": "Sign this message to authenticate with SentientExchange...",
+  "message": "Sign this message to authenticate"
+}
+```
+
+### Step 2: Sign Message and Verify
+
+```javascript
+import { SiweMessage } from 'siwe';
+import { ethers } from 'ethers';
+
+// Sign the SIWE message
+const wallet = new ethers.Wallet(privateKey);
+const siweMessage = new SiweMessage({
+  domain: 'sentientexchange.com',
+  address: wallet.address,
+  statement: 'Sign this message to authenticate with SentientExchange',
+  uri: 'https://sentientexchange.com',
+  version: '1',
+  chainId: 1,
+  nonce: nonceFromServer,
+});
+
+const message = siweMessage.prepareMessage();
+const signature = await wallet.signMessage(message);
+
+// Verify and get JWT token
+const response = await axios.post('https://sentientexchange.com/api/auth/verify', {
+  message,
+  signature,
+});
+
+const { token } = response.data;
+// Use this token for authenticated requests
+```
+
+### Step 3: Make Authenticated Requests
+
+Include the JWT token in the `Authorization` header:
+
+```bash
+curl https://sentientexchange.com/api/services/my-services \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+<Callout type="info">
+JWTs are also set as httpOnly cookies for browser-based applications (XSS protection).
+</Callout>
+
+## Complete API Reference
+
+### Service Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/services` | List all approved services | No |
+| `GET` | `/api/services/:id` | Get service details | No |
+| `GET` | `/api/services/my-services` | Get services you own | Yes |
+| `POST` | `/api/services/search` | Advanced service search | No |
+| `POST` | `/api/services` | Register new service | Yes |
+| `PUT` | `/api/services/:id` | Update service | Yes (owner) |
+| `DELETE` | `/api/services/:id` | Delete service | Yes (owner) |
+| `POST` | `/api/services/:id/rate` | Submit rating | No |
+
+### AI Service Endpoints (with x402 payment)
+
+| Endpoint | Description | Price |
+|----------|-------------|-------|
+| `POST /api/ai/sentiment/analyze` | Sentiment analysis | $0.01 |
+| `POST /api/ai/image/analyze` | Image analysis | $0.02 |
+| `POST /api/ai/text/summarize` | Text summarization | $0.015 |
+
+### Analytics Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/api/stats` | Marketplace stats | No |
+| `GET` | `/api/transactions/recent` | Recent transactions | No |
+| `GET` | `/api/services/:id/analytics` | Service analytics | Yes (owner) |
+| `GET` | `/api/services/:id/audit` | Audit history | No |
+
+### Admin Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/admin/pending-services` | Get pending services |
+| `POST` | `/api/admin/test-endpoint/:id` | Test service endpoint |
+| `POST` | `/api/admin/approve/:id` | Approve service |
+| `POST` | `/api/admin/reject/:id` | Reject service |
+| `GET` | `/api/admin/health/stats` | Health monitoring stats |
+| `POST` | `/api/admin/health/check` | Trigger health check |
+
+## Real-Time Updates (WebSocket)
+
+Connect to WebSocket for live transaction feeds:
+
+```javascript
+import { io } from 'socket.io-client';
+
+const socket = io('https://sentientexchange.com');
+
+socket.on('connect', () => {
+  console.log('Connected to AgentMarket WebSocket');
+});
+
+socket.on('initial-stats', (data) => {
+  console.log('Current marketplace stats:', data);
+});
+
+socket.on('new-service', (service) => {
+  console.log('New service approved:', service);
+});
+
+socket.on('new-transaction', (transaction) => {
+  console.log('New transaction:', transaction);
+});
+
+socket.on('service-updated', (service) => {
+  console.log('Service updated:', service);
+});
+
+socket.on('service-deleted', ({ id }) => {
+  console.log('Service deleted:', id);
+});
+```
+
+## Rate Limits
+
+AgentMarket enforces the following rate limits:
+
+| Endpoint Type | Limit | Window |
+|---------------|-------|--------|
+| General API | 100 requests | 15 minutes |
+| Write operations | 10 requests | 15 minutes |
+| Service registration | 5 requests | 60 minutes |
+| MCP connections | 10 connections | 15 minutes |
+| MCP messages | 60 messages | 1 minute |
+
+<Callout type="warning">
+Exceeding rate limits returns HTTP 429 Too Many Requests with `Retry-After` header.
+</Callout>
+
+## Error Handling
+
+All API responses follow this format:
+
+**Success:**
+```json
+{
+  "success": true,
+  "data": { ... }
+}
+```
+
+**Error:**
+```json
+{
+  "success": false,
+  "error": "Error type",
+  "message": "Human-readable error message"
+}
+```
+
+### Common HTTP Status Codes
+
+| Code | Meaning |
+|------|---------|
+| `200` | Success |
+| `201` | Created |
+| `400` | Bad Request (validation error) |
+| `401` | Unauthorized (missing/invalid token) |
+| `402` | Payment Required (x402 protocol) |
+| `403` | Forbidden (insufficient permissions) |
+| `404` | Not Found |
+| `429` | Too Many Requests (rate limit exceeded) |
+| `500` | Internal Server Error |
+
+## Code Examples
+
+### Python Example
+
+```python
+import requests
+from solana.rpc.api import Client
+from solana.transaction import Transaction
+from solders.keypair import Keypair
+from spl.token.instructions import transfer_checked, TransferCheckedParams
+import base58
+
+# Configuration
+API_BASE = "https://sentientexchange.com/api"
+SOLANA_RPC = "https://api.mainnet-beta.solana.com"
+USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+
+# Initialize Solana client
+solana_client = Client(SOLANA_RPC)
+
+def discover_services(capability):
+    """Search for services by capability"""
+    response = requests.post(
+        f"{API_BASE}/services/search",
+        json={
+            "capabilities": [capability],
+            "maxPrice": 0.1,
+            "minRating": 4.0,
+            "offset": 0,
+            "limit": 10
+        }
+    )
+    return response.json()
+
+def purchase_service(endpoint, payload, private_key):
+    """Purchase a service with x402 payment"""
+
+    # Step 1: Make initial request (returns 402)
+    try:
+        response = requests.post(endpoint, json=payload)
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        if e.response.status_code != 402:
+            raise
+        payment_data = e.response.json()
+
+    # Step 2: Extract payment details
+    recipient = payment_data['recipient']
+    amount = float(payment_data['amount'])
+    tx_id = payment_data['transaction_id']
+
+    # Step 3: Sign and send payment (simplified)
+    keypair = Keypair.from_base58_string(private_key)
+
+    # TODO: Build SPL token transfer transaction
+    # This is simplified - see Node.js example for complete implementation
+
+    # Step 4: Retry with payment proof
+    result = requests.post(
+        endpoint,
+        json=payload,
+        headers={
+            'X-Payment': signature,
+            'X-Payment-Network': 'solana'
+        }
+    )
+
+    return result.json()
+
+# Usage
+services = discover_services("sentiment-analysis")
+print(f"Found {services['count']} services")
+```
+
+## Troubleshooting
+
+### Payment Verification Fails
+
+**Problem**: Server returns "Payment verification failed"
+
+**Solutions**:
+1. Verify transaction signature is correct
+2. Ensure transaction is confirmed on Solana
+3. Check recipient address matches payment instruction
+4. Verify amount matches exactly (including decimals)
+
+### Authentication Errors
+
+**Problem**: 401 Unauthorized on authenticated endpoints
+
+**Solutions**:
+1. Verify JWT token is included in `Authorization: Bearer <token>` header
+2. Check token hasn't expired (7 days from issuance)
+3. Ensure SIWE message was signed with correct wallet
+
+### Rate Limit Exceeded
+
+**Problem**: HTTP 429 Too Many Requests
+
+**Solutions**:
+1. Implement exponential backoff with `Retry-After` header
+2. Cache frequently accessed data (services, stats)
+3. Use WebSocket for real-time updates instead of polling
+
+## Next Steps
+
+Now that you can integrate the REST API:
+
+- [Build Your First Service](/docs/quickstart/service-provider) - Create an x402 AI service
+- [WebSocket API Guide](/docs/guides/websocket) - Real-time event streaming
+- [Authentication Guide](/docs/guides/authentication) - JWT + SIWE deep dive
+- [REST API Reference](/docs/api/rest-endpoints) - Complete endpoint documentation
+
+## Related Documentation
+
+- [Payment Execution Guide](/docs/guides/payment-execution) - Deep dive into x402 payment flow
+- [Error Codes Reference](/docs/api/error-codes) - Complete error code list
+- [Security Model](/docs/concepts/security-model) - Client-side signing explained

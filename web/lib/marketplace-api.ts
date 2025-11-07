@@ -322,6 +322,22 @@ export class MarketplaceAPI {
     return response;
   }
 
+  // ==================== ANALYTICS ====================
+
+  /**
+   * Get analytics for a specific service (requires authentication and ownership)
+   */
+  static async getServiceAnalytics(serviceId: string): Promise<any> {
+    const response = await this.request<{ success: boolean; analytics: any }>(
+      `/api/services/${serviceId}/analytics`,
+      {
+        method: 'GET',
+      },
+      true // requireAuth
+    );
+    return response.analytics;
+  }
+
   // ==================== AUDIT & HISTORY ====================
 
   /**

@@ -42,10 +42,17 @@ export class PostgresAdapter implements DatabaseAdapter {
         name TEXT NOT NULL,
         description TEXT,
         provider TEXT NOT NULL,
+        provider_wallet TEXT,
         endpoint TEXT NOT NULL,
+        health_check_url TEXT,
         capabilities JSONB NOT NULL,
         pricing JSONB NOT NULL,
         reputation JSONB NOT NULL,
+        status TEXT DEFAULT 'pending',
+        middleware_verified BOOLEAN DEFAULT false,
+        network TEXT DEFAULT 'solana',
+        approval_notes TEXT,
+        approved_at BIGINT,
         metadata JSONB,
         created_by TEXT,
         updated_by TEXT,
@@ -112,6 +119,31 @@ export class PostgresAdapter implements DatabaseAdapter {
       )
     `);
 
+    // Create used_request_ids table for replay attack prevention
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS used_request_ids (
+        request_id TEXT PRIMARY KEY,
+        service_id TEXT NOT NULL,
+        tx_signature TEXT NOT NULL,
+        used_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        FOREIGN KEY (service_id) REFERENCES services(id)
+      )
+    `);
+
+    // Create service_health_checks table for monitoring
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS service_health_checks (
+        id TEXT PRIMARY KEY,
+        service_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        response_time_ms INTEGER,
+        error_message TEXT,
+        checked_at BIGINT NOT NULL,
+        FOREIGN KEY (service_id) REFERENCES services(id)
+      )
+    `);
+
     // Create B-tree indexes for exact lookups
     await this.run(`CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider)`);
     await this.run(`CREATE INDEX IF NOT EXISTS idx_services_deleted ON services(deleted_at) WHERE deleted_at IS NULL`);
@@ -124,6 +156,12 @@ export class PostgresAdapter implements DatabaseAdapter {
     // Create GIN indexes for JSONB columns (efficient searching within JSON)
     await this.run(`CREATE INDEX IF NOT EXISTS idx_services_capabilities_gin ON services USING GIN (capabilities)`);
     await this.run(`CREATE INDEX IF NOT EXISTS idx_services_pricing_gin ON services USING GIN (pricing)`);
+
+    // Create indexes for new tables
+    await this.run(`CREATE INDEX IF NOT EXISTS idx_used_request_expires ON used_request_ids(expires_at)`);
+    await this.run(`CREATE INDEX IF NOT EXISTS idx_used_request_service ON used_request_ids(service_id)`);
+    await this.run(`CREATE INDEX IF NOT EXISTS idx_health_service ON service_health_checks(service_id, checked_at)`);
+    await this.run(`CREATE INDEX IF NOT EXISTS idx_services_status ON services(status)`);
 
     logger.info('✓ PostgreSQL schema initialized with JSONB optimization');
   }

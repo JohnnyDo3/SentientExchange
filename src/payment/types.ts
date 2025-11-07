@@ -76,17 +76,6 @@ export interface PaymentProvider {
 }
 
 /**
- * Payment router configuration
- */
-export interface PaymentRouterConfig {
-  primaryProvider: PaymentProvider;
-  fallbackProvider?: PaymentProvider;
-  autoFallback: boolean;
-  maxRetries: number;
-  retryDelay: number; // milliseconds
-}
-
-/**
  * HTTP 402 Payment Required response structure
  */
 export interface X402Response {

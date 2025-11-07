@@ -9,7 +9,6 @@ export * from './details';
 export * from './purchase';
 export * from './rate';
 export * from './list';
-export * from './balance';
 export * from './transaction';
 export * from './smart-discover-prepare';
 export * from './smart-execute-complete';

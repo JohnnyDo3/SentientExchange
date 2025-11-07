@@ -1,0 +1,726 @@
+# Railway Deployment Guide
+
+**TL;DR:** Deploy AgentMarket to Railway for production with PostgreSQL, custom domains, monitoring, and automated CI/CD.
+
+## What is Railway?
+
+[Railway](https://railway.app/) is a modern platform-as-a-service (PaaS) that simplifies deployment with:
+
+- **Instant deployments** from Git repositories
+- **Automatic HTTPS** with custom domains
+- **Built-in PostgreSQL** with automated backups
+- **Environment variable management** with secrets
+- **Zero-config deployments** with smart detection
+- **Generous free tier** for development and testing
+
+AgentMarket is optimized for Railway deployment with automatic database detection, SSE transport for remote MCP connections, and production-ready configuration.
+
+## Why Railway?
+
+- **Fast setup** - Deploy in under 10 minutes
+- **Auto-scaling** - Handles traffic spikes automatically
+- **PostgreSQL included** - No external database needed
+- **GitHub integration** - Auto-deploy on push
+- **Real-time logs** - Debug production issues instantly
+- **Affordable** - Free tier + pay-per-use pricing
+
+## Prerequisites
+
+Before deploying to Railway, you need:
+
+1. **Railway Account** - [Sign up at railway.app](https://railway.app/)
+2. **GitHub Account** - For repository integration
+3. **AgentMarket Repository** - Forked or cloned on GitHub
+4. **Anthropic API Key** (optional) - For AI services ([console.anthropic.com](https://console.anthropic.com/))
+5. **Wallet Addresses** - Solana addresses for receiving payments
+
+<Callout type="info">
+Railway offers a **$5/month free tier** (500 hours) which is perfect for testing. Production usage typically costs $10-30/month.
+</Callout>
+
+## Quick Start Deployment (10 Minutes)
+
+### Step 1: Create Railway Project
+
+1. Log in to [Railway Dashboard](https://railway.app/dashboard)
+2. Click **New Project**
+3. Select **Deploy from GitHub repo**
+4. Authorize Railway to access your GitHub account
+5. Select your `agentmarket-mcp` repository
+6. Click **Deploy Now**
+
+Railway will automatically:
+- Detect the Node.js project
+- Install dependencies (`npm install`)
+- Build the project (`npm run build`)
+- Start the server
+
+### Step 2: Add PostgreSQL Database
+
+1. In your Railway project, click **New Service**
+2. Select **Database** → **PostgreSQL**
+3. Click **Add PostgreSQL**
+
+Railway automatically:
+- Provisions a PostgreSQL instance
+- Sets the `DATABASE_URL` environment variable
+- Connects it to your service
+
+<Callout type="tip">
+AgentMarket's database adapter automatically detects PostgreSQL from `DATABASE_URL` - no code changes needed!
+</Callout>
+
+### Step 3: Configure Environment Variables
+
+1. Click on your **agentmarket-mcp** service
+2. Go to the **Variables** tab
+3. Add the following variables:
+
+**Required Variables:**
+
+```bash
+# Node Environment
+NODE_ENV=production
+
+# Network Configuration
+NETWORK=mainnet-beta
+# Use mainnet-beta for Solana production or devnet for testing
+
+# MCP Transport
+API_PORT=8081
+# Railway provides PORT, but we use API_PORT for clarity
+
+# Payment Configuration
+PAYMENT_MODE=hybrid
+FACILITATOR_URL=https://facilitator.payai.network
+
+# Security (CRITICAL - generate new secret!)
+JWT_SECRET=<generate-with-crypto-randomBytes-64>
+# Generate: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+
+# Wallet Configuration
+RECIPIENT_WALLET_ADDRESS=<your-solana-wallet-address>
+ADMIN_WALLETS=<your-solana-wallet-address>
+```
+
+**Optional Variables (for AI Services):**
+
+```bash
+# Anthropic API
+ANTHROPIC_API_KEY=<your-anthropic-api-key>
+
+# AI Service Pricing (in USDC)
+IMAGE_ANALYZER_PRICE=0.02
+SENTIMENT_ANALYZER_PRICE=0.01
+TEXT_SUMMARIZER_PRICE=0.015
+
+# AI Service Wallets (can be different addresses)
+IMAGE_ANALYZER_WALLET=<wallet-address>
+SENTIMENT_ANALYZER_WALLET=<wallet-address>
+TEXT_SUMMARIZER_WALLET=<wallet-address>
+```
+
+**Advanced Configuration:**
+
+```bash
+# Logging
+LOG_LEVEL=info
+# Use 'debug' for troubleshooting, 'info' for production
+
+# CORS (for web dashboard)
+ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com
+
+# Health Monitoring
+HEALTH_CHECK_INTERVAL_MINUTES=5
+
+# Solana RPC (optional - for better performance)
+SOLANA_RPC_URL=https://your-quicknode-url.com
+```
+
+<Callout type="danger">
+**CRITICAL SECURITY**: Never use default/example values for `JWT_SECRET` in production! Generate a new 128-character random hex string.
+</Callout>
+
+### Step 4: Generate Domain
+
+1. In your service settings, go to **Settings** tab
+2. Scroll to **Domains**
+3. Click **Generate Domain**
+
+Railway provides a free subdomain like:
+```
+agentmarket-production.up.railway.app
+```
+
+You'll use this URL to:
+- Access the API: `https://your-app.up.railway.app/api/pulse`
+- Connect MCP clients via SSE: `https://your-app.up.railway.app/mcp/sse`
+- View the web dashboard: `https://your-app.up.railway.app/`
+
+### Step 5: Deploy and Verify
+
+1. Railway automatically deploys after environment variables are set
+2. Watch the **Deployments** tab for build progress
+3. Check logs in the **Logs** tab
+
+**Verify deployment:**
+
+```bash
+# Check API health
+curl https://your-app.up.railway.app/api/pulse
+
+# Expected response:
+{
+  "pulse": "strong",
+  "heartbeat": "💓",
+  "agents": "active",
+  "market": "open",
+  "vibe": "immaculate",
+  "uptime": "5m 23s",
+  "mcp": {
+    "sseEndpoint": "/mcp/sse",
+    "activeSessions": 0
+  }
+}
+```
+
+<Callout type="success">
+If you see the pulse response, your deployment is successful!
+</Callout>
+
+## Advanced Configuration
+
+### Custom Domain Setup
+
+**Why use a custom domain?**
+- Professional branding
+- Better SEO and trust
+- Custom SSL certificates
+- Stable URLs (Railway domains can change)
+
+**Steps:**
+
+1. In Railway project, go to **Settings** → **Domains**
+2. Click **Custom Domain**
+3. Enter your domain (e.g., `api.agentmarket.io`)
+4. Railway provides DNS records to add:
+   - `CNAME` record pointing to Railway
+   - `TXT` record for verification
+
+5. Add DNS records to your domain provider:
+   - **Name**: `api` (or `@` for root domain)
+   - **Type**: `CNAME`
+   - **Value**: `your-app.up.railway.app`
+   - **TTL**: `3600`
+
+6. Wait 5-60 minutes for DNS propagation
+7. Railway auto-provisions SSL certificate (via Let's Encrypt)
+
+**Update environment variables:**
+
+```bash
+ALLOWED_ORIGINS=https://api.agentmarket.io,https://www.agentmarket.io
+```
+
+### Database Backups
+
+Railway automatically backs up PostgreSQL databases, but you can also:
+
+**Enable automatic backups:**
+1. Go to PostgreSQL service
+2. Click **Settings** → **Backups**
+3. Enable **Automatic Backups**
+4. Set schedule (daily recommended)
+
+**Manual backup:**
+
+```bash
+# Using Railway CLI
+railway run pg_dump DATABASE_URL > backup.sql
+
+# Or download from Railway dashboard
+# PostgreSQL service → Data tab → Export
+```
+
+**Restore from backup:**
+
+```bash
+# Using Railway CLI
+railway run psql DATABASE_URL < backup.sql
+```
+
+<Callout type="warning">
+Backups are stored for 7 days on free tier, 30 days on paid plans. Download critical backups externally!
+</Callout>
+
+### Monitoring and Alerts
+
+**Built-in Metrics (Railway Dashboard):**
+- CPU usage
+- Memory usage
+- Network traffic
+- Request count
+- Response times
+
+**Access metrics:**
+1. Click on your service
+2. Go to **Metrics** tab
+3. View real-time graphs
+
+**Set up alerts:**
+
+Railway doesn't have built-in alerts, but you can use external monitoring:
+
+**Option 1: UptimeRobot (Free)**
+
+1. Sign up at [uptimerobot.com](https://uptimerobot.com/)
+2. Add monitor: `https://your-app.up.railway.app/api/pulse`
+3. Set check interval: 5 minutes
+4. Configure email/SMS alerts
+
+**Option 2: Better Stack (Paid)**
+
+1. Sign up at [betterstack.com](https://betterstack.com/)
+2. Add uptime monitor
+3. Add log aggregation
+4. Set up incident alerts
+
+**Custom health check endpoint:**
+
+AgentMarket exposes `/api/pulse` for health monitoring. You can also check:
+
+```bash
+# Database connectivity
+curl https://your-app.up.railway.app/health?check=db
+
+# Service health
+curl https://your-app.up.railway.app/api/stats
+```
+
+### Environment-Specific Deployments
+
+**Create separate environments:**
+
+1. **Production** (master branch):
+   - Domain: `api.agentmarket.io`
+   - Database: Production PostgreSQL
+   - Network: `mainnet-beta`
+
+2. **Staging** (develop branch):
+   - Domain: `staging-api.agentmarket.io`
+   - Database: Staging PostgreSQL
+   - Network: `devnet`
+
+**Set up staging environment:**
+
+1. Create new Railway project: "AgentMarket Staging"
+2. Deploy from `develop` branch
+3. Add separate PostgreSQL database
+4. Use staging environment variables:
+   ```bash
+   NODE_ENV=staging
+   NETWORK=devnet
+   DATABASE_URL=<staging-postgres-url>
+   ```
+
+5. Configure GitHub Actions to auto-deploy:
+   - `develop` → Railway Staging
+   - `master` → Railway Production (with approval)
+
+See [CI/CD Guide](/docs/deployment/ci-cd) for automated workflows.
+
+### Scaling Configuration
+
+**Horizontal Scaling (Multiple Instances):**
+
+1. Go to service **Settings** → **Scaling**
+2. Enable **Horizontal Autoscaling**
+3. Set min/max replicas (e.g., 1-5)
+4. Set target CPU utilization (e.g., 80%)
+
+Railway automatically:
+- Creates new instances under load
+- Load balances traffic
+- Shares environment variables
+
+**Vertical Scaling (More Resources):**
+
+1. Go to service **Settings** → **Resources**
+2. Adjust:
+   - **CPU**: 1-8 vCPUs
+   - **Memory**: 512MB - 32GB
+
+Recommended for production:
+- **CPU**: 2 vCPUs
+- **Memory**: 2GB
+- **Replicas**: 2-3
+
+<Callout type="info">
+AgentMarket is stateless, so horizontal scaling works perfectly. Database state is managed in PostgreSQL.
+</Callout>
+
+### Log Management
+
+**View real-time logs:**
+
+1. Click on service
+2. Go to **Logs** tab
+3. Filter by:
+   - Deployment
+   - Time range
+   - Log level
+
+**Download logs:**
+
+```bash
+# Using Railway CLI
+railway logs --limit 1000 > logs.txt
+```
+
+**Log levels in production:**
+
+```bash
+# Set in environment variables
+LOG_LEVEL=info
+# Options: debug, info, warn, error
+```
+
+**Structured logging:**
+
+AgentMarket uses structured JSON logging in production:
+
+```json
+{
+  "level": "info",
+  "timestamp": "2025-11-06T20:00:00.000Z",
+  "message": "Service registered",
+  "serviceId": "service-sentiment-001",
+  "provider": "AI Labs"
+}
+```
+
+### Database Optimization
+
+**PostgreSQL Configuration:**
+
+Railway auto-configures PostgreSQL, but you can optimize:
+
+**Connection pooling:**
+
+AgentMarket uses `pg-pool` with:
+- **Max connections**: 20 (default)
+- **Idle timeout**: 30 seconds
+- **Connection timeout**: 2 seconds
+
+**Database indexes:**
+
+AgentMarket auto-creates indexes on:
+- `services.service_id` (primary key)
+- `services.status`
+- `services.capabilities` (GIN index for array search)
+- `transactions.service_id` (foreign key)
+- `ratings.service_id` (foreign key)
+
+**Query optimization:**
+
+```bash
+# Enable query logging (debug only!)
+LOG_LEVEL=debug
+
+# Check slow queries in Railway dashboard
+# PostgreSQL service → Query Stats
+```
+
+**Vacuum and analyze (automatic):**
+
+Railway runs VACUUM and ANALYZE automatically, but you can trigger manually:
+
+```bash
+railway run psql DATABASE_URL -c "VACUUM ANALYZE;"
+```
+
+## Rollback Procedures
+
+### Railway Dashboard Rollback
+
+**Quick rollback (1 click):**
+
+1. Go to **Deployments** tab
+2. Find the last working deployment
+3. Click **Redeploy**
+4. Confirm rollback
+
+Railway instantly:
+- Stops the current deployment
+- Restores the previous version
+- Maintains environment variables
+- Keeps database intact
+
+<Callout type="warning">
+Database migrations are NOT rolled back automatically. You may need to restore a database backup if schema changed.
+</Callout>
+
+### Railway CLI Rollback
+
+```bash
+# Install Railway CLI
+npm install -g @railway/cli
+
+# Login
+railway login
+
+# Link to project
+railway link
+
+# Rollback to previous deployment
+railway rollback
+
+# Or rollback to specific deployment
+railway rollback <deployment-id>
+```
+
+### GitHub Revert (for major issues)
+
+```bash
+# Revert the problematic commit
+git revert <commit-hash>
+git push origin master
+
+# Railway auto-deploys the reverted code
+# Monitor deployment in Railway dashboard
+```
+
+### Database Rollback
+
+**If database migration fails:**
+
+```bash
+# 1. Download latest backup
+railway backups download <backup-id>
+
+# 2. Stop the service
+railway down
+
+# 3. Restore database
+railway run psql DATABASE_URL < backup.sql
+
+# 4. Restart service
+railway up
+```
+
+## Troubleshooting
+
+### Deployment Failed
+
+**Problem**: Build fails with "npm install" errors
+
+**Solution**:
+1. Check Node.js version in `package.json`:
+   ```json
+   {
+     "engines": {
+       "node": ">=20.0.0"
+     }
+   }
+   ```
+
+2. Clear Railway cache:
+   - Go to **Settings** → **Service Settings**
+   - Click **Clear Build Cache**
+   - Trigger new deployment
+
+3. Check dependency versions:
+   ```bash
+   npm audit fix
+   git commit -am "fix: update dependencies"
+   git push
+   ```
+
+### Database Connection Failed
+
+**Problem**: `Error: connect ECONNREFUSED`
+
+**Solution**:
+1. Verify `DATABASE_URL` is set:
+   - Go to **Variables** tab
+   - Check `DATABASE_URL` exists
+
+2. Ensure PostgreSQL service is running:
+   - Check PostgreSQL service status
+   - Restart if needed
+
+3. Test connection:
+   ```bash
+   railway run psql DATABASE_URL -c "SELECT 1;"
+   ```
+
+### Out of Memory Errors
+
+**Problem**: `JavaScript heap out of memory`
+
+**Solution**:
+1. Increase memory allocation:
+   - Go to **Settings** → **Resources**
+   - Increase memory to 2GB or 4GB
+
+2. Optimize Node.js:
+   ```bash
+   # Add to start script in package.json
+   "start": "node --max-old-space-size=2048 dist/index.js"
+   ```
+
+3. Enable horizontal scaling:
+   - Settings → Scaling → Enable autoscaling
+   - Set 2-3 replicas
+
+### Slow Response Times
+
+**Problem**: API responses take 5+ seconds
+
+**Solution**:
+1. Check database query performance:
+   - PostgreSQL service → Query Stats
+   - Identify slow queries
+
+2. Increase resources:
+   - Add more CPU/memory
+   - Enable connection pooling
+
+3. Use custom RPC endpoint (if Solana network slow):
+   ```bash
+   SOLANA_RPC_URL=https://your-quicknode-url.com
+   ```
+
+4. Enable caching (if applicable)
+
+### Environment Variables Not Loading
+
+**Problem**: Service can't find environment variables
+
+**Solution**:
+1. Verify variables are set in Railway dashboard
+2. Restart the service (variables load on startup)
+3. Check for typos in variable names
+4. Ensure no special characters in values (use quotes if needed)
+
+### SSL Certificate Errors
+
+**Problem**: `CERT_HAS_EXPIRED` or SSL warnings
+
+**Solution**:
+1. Railway auto-renews Let's Encrypt certificates
+2. If custom domain:
+   - Verify DNS records are correct
+   - Remove and re-add custom domain
+   - Wait 15 minutes for certificate provisioning
+
+3. Check certificate status:
+   ```bash
+   curl -vI https://your-app.up.railway.app
+   ```
+
+## Cost Optimization
+
+### Estimate Monthly Costs
+
+Railway pricing breakdown:
+
+**Free Tier:**
+- $5 credit per month
+- ~500 hours of runtime
+- Suitable for development/testing
+
+**Paid Tier (Typical Production):**
+
+| Resource          | Usage              | Cost     |
+| ----------------- | ------------------ | -------- |
+| Compute (2 vCPUs) | 730 hours/month    | $14/mo   |
+| Memory (2GB)      | Included           | $0       |
+| PostgreSQL (1GB)  | Storage            | $5/mo    |
+| Bandwidth (10GB)  | Data transfer      | $1/mo    |
+| **Total**         |                    | **$20/mo** |
+
+**Optimization tips:**
+
+1. **Use autoscaling**: Scale down during low traffic
+2. **Enable sleep mode**: For staging environments (sleep after 30 min inactivity)
+3. **Optimize database**: Regular VACUUM and cleanup old data
+4. **Use CDN**: For static assets (web dashboard)
+5. **Monitor metrics**: Track resource usage weekly
+
+### Resource Limits
+
+**Set resource limits to prevent overcharges:**
+
+1. Go to **Settings** → **Resources**
+2. Set max limits:
+   - Max CPU: 2 vCPUs
+   - Max Memory: 2GB
+   - Max Replicas: 3
+
+3. Enable budget alerts:
+   - Account Settings → Billing → Set budget cap
+   - Get email alerts at 50%, 80%, 100%
+
+## Production Checklist
+
+Before launching to production:
+
+- [ ] **Security**
+  - [ ] Generate new `JWT_SECRET` (128+ characters)
+  - [ ] Never use default/example secrets
+  - [ ] Set `NODE_ENV=production`
+  - [ ] Enable CORS with specific origins only
+  - [ ] Configure admin wallets
+
+- [ ] **Database**
+  - [ ] PostgreSQL provisioned
+  - [ ] `DATABASE_URL` set automatically
+  - [ ] Automatic backups enabled
+  - [ ] Test database connectivity
+
+- [ ] **Environment Variables**
+  - [ ] All required variables set
+  - [ ] No sensitive data in git
+  - [ ] `NETWORK` set to `mainnet-beta` (or `devnet` for testing)
+  - [ ] `RECIPIENT_WALLET_ADDRESS` configured
+
+- [ ] **Monitoring**
+  - [ ] Set up external uptime monitoring
+  - [ ] Configure log aggregation
+  - [ ] Enable Railway metrics
+  - [ ] Set up alert notifications
+
+- [ ] **Testing**
+  - [ ] Run smoke tests post-deployment
+  - [ ] Test all MCP tools via SSE
+  - [ ] Verify payment execution
+  - [ ] Test AI service endpoints
+
+- [ ] **Performance**
+  - [ ] Configure horizontal autoscaling
+  - [ ] Set appropriate resource limits
+  - [ ] Enable connection pooling
+  - [ ] Test under load
+
+- [ ] **Domain**
+  - [ ] Custom domain configured
+  - [ ] SSL certificate active
+  - [ ] DNS propagated
+  - [ ] CORS updated with new domain
+
+## Next Steps
+
+Now that your Railway deployment is live:
+
+- [Set up CI/CD](/docs/deployment/ci-cd) - Automate deployments with GitHub Actions
+- [Configure Environment Variables](/docs/deployment/environment-variables) - Complete reference
+- [Connect MCP Clients](/docs/quickstart/api-integration) - Use SSE transport for remote access
+- [Monitor Performance](/docs/guides/monitoring) - Track metrics and optimize
+
+## Related Documentation
+
+- [Docker Deployment](/docs/deployment/docker) - Self-hosted alternative
+- [Environment Variables](/docs/deployment/environment-variables) - All 30+ variables explained
+- [Database Adapters](/docs/architecture/database-adapters) - PostgreSQL vs SQLite
+- [Security Best Practices](/docs/concepts/security-model) - Hardening production

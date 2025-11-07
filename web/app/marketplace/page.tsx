@@ -19,11 +19,9 @@ export default function MarketplacePage() {
     filters,
     stats,
     isLoading,
-    useMockData,
     isBackendAvailable,
     updateFilters,
-    clearFilters,
-    toggleDataSource
+    clearFilters
   } = useMarketplace();
 
   const [selectedService, setSelectedService] = useState<Service | null>(null);
@@ -78,8 +76,6 @@ export default function MarketplacePage() {
           {/* Stats Bar */}
           <MarketplaceStats
             stats={stats}
-            useMockData={useMockData}
-            onToggleDataSource={toggleDataSource}
             isBackendAvailable={isBackendAvailable}
           />
         </motion.div>

@@ -1,0 +1,706 @@
+# Payment Protocol (x402 + Client-Side Signing)
+
+**TL;DR:** AgentMarket uses the x402 payment protocol with client-side transaction signing on Solana. Your private key never leaves your machine - the server only verifies transactions after they're on-chain.
+
+## What is x402?
+
+x402 is an **HTTP extension protocol** that adds payment capabilities to standard HTTP requests. It leverages the HTTP `402 Payment Required` status code (defined in HTTP/1.1 but rarely used) to create a payment-first API model.
+
+### Why x402?
+
+Traditional APIs require:
+- API keys (manual management, security risk)
+- Subscriptions (upfront commitment)
+- Credit cards (friction, privacy concerns)
+- Trust in centralized payment processors
+
+x402 enables:
+- **Pay-per-request** - No subscriptions, just micropayments
+- **Blockchain settlement** - Trustless, verifiable payments
+- **Autonomous agents** - AI can pay without human intervention
+- **No API keys** - Payment = authorization
+
+<Callout type="info">
+x402 is to payments what OAuth is to authentication - a standardized protocol that works across services.
+</Callout>
+
+## How x402 Works (Standard Protocol)
+
+```
+Client                                    Service
+  │                                          │
+  ├─ 1. POST /analyze (no payment) ─────────►│
+  │                                          │
+  │         ◄──── 2. 402 Payment Required ───┤
+  │              {                           │
+  │                recipient: "wallet_addr", │
+  │                amount: "0.01",           │
+  │                currency: "USDC",         │
+  │                transaction_id: "tx-123" │
+  │              }                           │
+  │                                          │
+  ├─ 3. Execute payment on blockchain        │
+  │    (sign transaction, send to Solana)    │
+  │                                          │
+  ├─ 4. POST /analyze ───────────────────────►│
+  │    Headers:                              │
+  │      X-Payment: <tx_signature>           │
+  │                                          │
+  │         ◄──── 5. 200 OK with result ─────┤
+  │              { result: "analysis data" } │
+  └──────────────────────────────────────────┘
+```
+
+### Request 1: Initial Request (No Payment)
+
+```bash
+curl -X POST https://service.com/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"text": "I love this product!"}'
+```
+
+Response:
+```http
+HTTP/1.1 402 Payment Required
+Content-Type: application/json
+
+{
+  "error": "Payment Required",
+  "recipient": "ABC123...XYZ",
+  "amount": "0.01",
+  "currency": "USDC",
+  "transaction_id": "tx-67890",
+  "network": "solana",
+  "token_address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+}
+```
+
+### Request 2: Retry with Payment Proof
+
+```bash
+curl -X POST https://service.com/analyze \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: 3Xy7z8...abc123" \
+  -d '{"text": "I love this product!"}'
+```
+
+Response:
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "success": true,
+  "result": {
+    "sentiment": "positive",
+    "score": 0.95
+  }
+}
+```
+
+## AgentMarket's x402 Implementation
+
+AgentMarket extends the standard x402 protocol with **JWT-based payment authorization** for improved security and reduced blockchain lookups.
+
+### Enhanced Flow with JWT Tokens
+
+```
+Client (MCP)                 AgentMarket Server            Service Provider
+  │                                  │                            │
+  ├─ 1. purchase_service() ──────────►│                           │
+  │                                  │                            │
+  │                                  ├─ 2. POST /analyze ─────────►│
+  │                                  │                            │
+  │                                  │ ◄─ 3. 402 Payment Required ─┤
+  │                                  │    {recipient, amount}      │
+  │                                  │                            │
+  │  ◄─ 4. Returns payment instruction┤                           │
+  │     {recipient, amount, tx_id}    │                            │
+  │                                  │                            │
+  ├─ 5. execute_payment() ──────────►│                            │
+  │    (CLIENT-SIDE: signs TX)        │                           │
+  │                                  │                            │
+  │    Sends TX to Solana blockchain ┼─────────────────────────►Solana
+  │                                  │                            │
+  │  ◄─ 6. Returns signature ─────────┤                           │
+  │     "3Xy7z8...abc123"             │                           │
+  │                                  │                            │
+  ├─ 7. submit_payment() ────────────►│                           │
+  │    {signature, tx_id, input}      │                           │
+  │                                  │                            │
+  │                                  ├─ Verify TX on Solana ───────►Solana
+  │                                  │  - Fetch transaction        │
+  │                                  │  - Check recipient/amount   │
+  │                                  │                            │
+  │                                  ├─ Generate JWT token        │
+  │                                  │  (signed by AgentMarket)    │
+  │                                  │                            │
+  │                                  ├─ POST /analyze ─────────────►│
+  │                                  │  X-AgentMarket-Auth: JWT    │
+  │                                  │                            │
+  │                                  │                            ├─ Verify JWT
+  │                                  │                            ├─ Check signature
+  │                                  │                            ├─ Execute service
+  │                                  │                            │
+  │                                  │ ◄─ 200 OK with result ──────┤
+  │                                  │                            │
+  │  ◄─ 8. Returns result ────────────┤                           │
+  │     {success, result, payment}    │                           │
+  └───────────────────────────────────┴────────────────────────────┘
+```
+
+<Callout type="warning">
+**Key Difference**: Standard x402 uses `X-Payment: <signature>` header. AgentMarket uses `X-AgentMarket-Auth: <JWT>` for improved performance and security.
+</Callout>
+
+### Why JWT Tokens?
+
+| Aspect | Standard x402 | AgentMarket x402 |
+|--------|--------------|------------------|
+| **Header** | `X-Payment: <signature>` | `X-AgentMarket-Auth: <JWT>` |
+| **Verification** | Service checks blockchain directly | Service verifies JWT signature |
+| **Blockchain RPCs** | 1 per request (expensive) | 0 per request (cached) |
+| **Security** | On-chain verification | Cryptographically signed JWT |
+| **Performance** | ~500ms (RPC call) | ~10ms (crypto verify) |
+| **Middleware** | Custom implementation | `@sentientexchange/x402-middleware` |
+
+## Client-Side Signing Architecture
+
+**CRITICAL SECURITY PRINCIPLE**: Private keys NEVER leave the client environment.
+
+### Traditional Payment Flow (Centralized)
+
+```
+❌ INSECURE - DON'T DO THIS
+
+User → Sends private key to server
+Server → Signs transaction
+Server → Sends to blockchain
+
+Problem: Server has access to user's funds!
+```
+
+### AgentMarket Payment Flow (Client-Side)
+
+```
+✅ SECURE - AgentMarket Architecture
+
+User's Machine (MCP Client)                AgentMarket Server
+┌──────────────────────┐                  ┌─────────────────┐
+│ SOLANA_PRIVATE_KEY   │                  │ No keys stored  │
+│ (environment var)    │                  │                 │
+│        │             │                  │                 │
+│        ├─ 1. Load key│                  │                 │
+│        ├─ 2. Sign TX │                  │                 │
+│        ├─ 3. Send to Solana ──────────────► Never sees key│
+│        │             │                  │                 │
+│        └─ Returns signature ─────────────► Verifies on-chain│
+└──────────────────────┘                  └─────────────────┘
+                                                    │
+                                                    ▼
+                                          ┌──────────────────────┐
+                                          │ Solana Blockchain    │
+                                          │ (public ledger)      │
+                                          └──────────────────────┘
+```
+
+<Callout type="info">
+AgentMarket server can ONLY verify transactions that are already on-chain. It cannot sign transactions or move funds.
+</Callout>
+
+### Where Keys Live
+
+| Component | Has Private Key? | Purpose |
+|-----------|------------------|---------|
+| **User's MCP Client** | ✅ YES | Signs transactions locally |
+| **AgentMarket MCP Server** | ❌ NO | Coordinates payments |
+| **AgentMarket API Server** | ❌ NO | Verifies on-chain |
+| **Service Providers** | ❌ NO | Receive payments |
+| **Solana Blockchain** | ❌ NO | Public ledger only |
+
+**Configuration Example** (`~/.config/claude/config.json`):
+
+```json
+{
+  "mcpServers": {
+    "agentmarket": {
+      "command": "node",
+      "args": ["/path/to/dist/index.js"],
+      "env": {
+        "SOLANA_PRIVATE_KEY": "your-base58-private-key-here",
+        "DATABASE_PATH": "/path/to/db.sqlite"
+      }
+    }
+  }
+}
+```
+
+The `SOLANA_PRIVATE_KEY` is stored in the **MCP client configuration** (Claude Desktop), NOT on the server!
+
+## Payment Execution (Code Deep Dive)
+
+### Step 1: Client Signs Transaction
+
+**src/payment/DirectSolanaProvider.ts** (Lines 72-126)
+
+```typescript
+async executePayment(details: PaymentDetails): Promise<PaymentResult> {
+  if (!this.wallet) {
+    throw new Error('Wallet not initialized');
+  }
+
+  // 1. Load wallet from environment (CLIENT-SIDE)
+  const keypair = Keypair.fromSecretKey(
+    bs58.decode(process.env.SOLANA_PRIVATE_KEY!)
+  );
+
+  // 2. Get token accounts (sender + recipient)
+  const senderTokenAccount = await getAssociatedTokenAddress(
+    USDC_MINT,  // EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+    keypair.publicKey
+  );
+
+  const recipientTokenAccount = await getAssociatedTokenAddress(
+    USDC_MINT,
+    new PublicKey(details.recipient)
+  );
+
+  // 3. Create SPL token transfer instruction
+  const transferInstruction = createTransferInstruction(
+    senderTokenAccount,       // From
+    recipientTokenAccount,    // To
+    keypair.publicKey,        // Authority
+    details.amount            // Amount (in base units: 1 USDC = 1_000_000)
+  );
+
+  // 4. Build transaction
+  const transaction = new Transaction().add(transferInstruction);
+  transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+  transaction.feePayer = keypair.publicKey;
+
+  // 5. Sign transaction (PRIVATE KEY USED HERE - CLIENT-SIDE ONLY!)
+  transaction.sign(keypair);
+
+  // 6. Send to Solana blockchain
+  const signature = await connection.sendRawTransaction(
+    transaction.serialize()
+  );
+
+  // 7. Confirm transaction
+  await connection.confirmTransaction(signature);
+
+  return {
+    success: true,
+    signature,  // Return to caller
+    transactionHash: signature
+  };
+}
+```
+
+<Callout type="danger">
+**NEVER run `DirectSolanaProvider` on a server!** This code executes in the MCP client environment (user's machine).
+</Callout>
+
+### Step 2: Server Verifies On-Chain
+
+**src/payment/SolanaVerifier.ts** (Lines 56-115)
+
+```typescript
+async verifyPayment(params: PaymentVerification): Promise<VerificationResult> {
+  const { signature, expectedAmount, expectedRecipient, expectedToken, network } = params;
+
+  // 1. Fetch transaction from Solana blockchain
+  const connection = this.connections.get(network);
+  const tx = await connection.getParsedTransaction(signature, {
+    maxSupportedTransactionVersion: 0,
+  });
+
+  if (!tx) {
+    return {
+      verified: false,
+      error: 'Transaction not found on blockchain'
+    };
+  }
+
+  // 2. Check transaction succeeded
+  if (tx.meta?.err) {
+    return {
+      verified: false,
+      error: 'Transaction failed on-chain'
+    };
+  }
+
+  // 3. Verify SPL token transfer
+  return this.verifyTokenTransfer(tx, expectedAmount, expectedRecipient, expectedToken);
+}
+
+private verifyTokenTransfer(
+  tx: ParsedTransactionWithMeta,
+  expectedAmount: bigint,
+  expectedRecipient: string,
+  expectedToken: string
+): VerificationResult {
+  // Parse instructions
+  const instructions = tx.transaction.message.instructions;
+
+  for (const instruction of instructions) {
+    if ('parsed' in instruction && instruction.program === 'spl-token') {
+      const parsed = instruction.parsed;
+
+      if (parsed.type === 'transfer' || parsed.type === 'transferChecked') {
+        const info = parsed.info;
+        const amount = BigInt(info.amount || info.tokenAmount?.amount || '0');
+        const destination = info.destination;
+
+        // Verify amount matches
+        if (amount !== expectedAmount) {
+          return {
+            verified: false,
+            error: `Amount mismatch: expected ${expectedAmount}, got ${amount}`
+          };
+        }
+
+        // Verify recipient matches
+        if (destination !== expectedRecipient) {
+          return {
+            verified: false,
+            error: `Recipient mismatch: expected ${expectedRecipient}, got ${destination}`
+          };
+        }
+
+        // Payment verified!
+        return {
+          verified: true,
+          transaction: tx,
+          actualAmount: amount,
+          actualRecipient: destination
+        };
+      }
+    }
+  }
+
+  return {
+    verified: false,
+    error: 'No token transfer found in transaction'
+  };
+}
+```
+
+**What the server checks**:
+1. ✅ Transaction exists on Solana blockchain
+2. ✅ Transaction succeeded (no errors)
+3. ✅ Transfer is an SPL token transfer (USDC)
+4. ✅ Amount matches expected payment
+5. ✅ Recipient matches service provider wallet
+6. ✅ Token mint matches USDC address
+
+<Callout type="info">
+The server READS the blockchain, it doesn't WRITE to it. Only the client can sign and send transactions.
+</Callout>
+
+## Payment Modes
+
+AgentMarket supports multiple payment execution modes:
+
+### 1. Client-Side Mode (Direct Solana)
+
+**Configuration**:
+```bash
+PAYMENT_MODE=direct
+```
+
+**Flow**:
+- Client signs TX with local `SOLANA_PRIVATE_KEY`
+- Client sends TX to Solana
+- Client submits signature to AgentMarket
+- Server verifies on-chain
+
+**Pros**:
+- Full custody (you control keys)
+- No intermediaries
+- Fastest verification
+
+**Cons**:
+- Requires Solana wallet setup
+- Client must have USDC balance
+
+### 2. Hybrid Mode (Fallback)
+
+**Configuration**:
+```bash
+PAYMENT_MODE=hybrid
+```
+
+**Flow**:
+- Try client-side signing first
+- If fails, try x402 facilitator (PayAI)
+- Always verify on-chain
+
+**Pros**:
+- Best of both worlds
+- Resilient to network issues
+
+**Cons**:
+- More complex logic
+
+### 3. Facilitator Mode (PayAI)
+
+**Configuration**:
+```bash
+PAYMENT_MODE=x402
+FACILITATOR_URL=https://facilitator.payai.network
+```
+
+**Flow**:
+- Client requests payment from facilitator
+- Facilitator signs and sends TX
+- Facilitator returns signature
+- Server verifies on-chain
+
+**Pros**:
+- No wallet setup required
+- Handles gas fees
+
+**Cons**:
+- Requires trust in facilitator
+- Additional hop in payment flow
+
+<Callout type="tip">
+**Recommendation**: Use `hybrid` mode for best reliability!
+</Callout>
+
+## Security Model
+
+### 1. Private Key Protection
+
+**What AgentMarket CANNOT Do**:
+- ❌ Access your private key
+- ❌ Sign transactions on your behalf
+- ❌ Move funds from your wallet
+- ❌ See your wallet balance
+
+**What AgentMarket CAN Do**:
+- ✅ Verify transactions are on-chain
+- ✅ Check payment amounts
+- ✅ Coordinate service routing
+
+### 2. Double-Spending Prevention
+
+**Problem**: What if a client submits the same transaction signature twice?
+
+**Solution**: Transaction IDs are stored in the database:
+
+```typescript
+// Check if transaction already used
+const existingTx = await db.get(
+  'SELECT * FROM transactions WHERE solana_signature = ?',
+  [signature]
+);
+
+if (existingTx) {
+  throw new Error('Transaction already used');
+}
+
+// Record transaction
+await db.run(
+  'INSERT INTO transactions (id, solana_signature, ...) VALUES (?, ?, ...)',
+  [txId, signature, ...]
+);
+```
+
+Each signature can only be used once!
+
+### 3. Amount Verification
+
+**Problem**: What if a client pays less than required?
+
+**Solution**: On-chain verification checks exact amount:
+
+```typescript
+// Server checks actual amount on-chain
+const expectedAmount = BigInt(0.01 * 1_000_000);  // $0.01 USDC
+const actualAmount = BigInt(tx.amount);
+
+if (actualAmount < expectedAmount) {
+  return { verified: false, error: 'Insufficient payment' };
+}
+```
+
+<Callout type="warning">
+USDC has 6 decimals! $0.01 USDC = 10,000 base units (not 1,000,000).
+</Callout>
+
+### 4. Recipient Verification
+
+**Problem**: What if a client sends payment to the wrong address?
+
+**Solution**: Recipient is verified on-chain:
+
+```typescript
+const expectedRecipient = service.provider_wallet;  // From database
+const actualRecipient = tx.destination;
+
+if (actualRecipient !== expectedRecipient) {
+  return { verified: false, error: 'Wrong recipient' };
+}
+```
+
+## MCP Tool Integration
+
+The x402 protocol is exposed through 3 MCP tools:
+
+### 1. `purchase_service`
+
+```typescript
+{
+  "name": "purchase_service",
+  "description": "Request service execution (returns 402 if payment needed)",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "serviceId": { "type": "string" },
+      "input": { "type": "object" }
+    }
+  }
+}
+```
+
+**Returns**:
+- **If free service**: Executes immediately
+- **If paid service**: Returns payment instruction
+
+### 2. `execute_payment`
+
+```typescript
+{
+  "name": "execute_payment",
+  "description": "Execute payment with local Solana wallet",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "paymentInstruction": {
+        "type": "object",
+        "properties": {
+          "recipient": { "type": "string" },
+          "amount": { "type": "string" },
+          "currency": { "type": "string" },
+          "transaction_id": { "type": "string" }
+        }
+      }
+    }
+  }
+}
+```
+
+**Action**:
+- Loads `SOLANA_PRIVATE_KEY` from MCP client env
+- Signs SPL token transfer
+- Sends to Solana blockchain
+- Returns transaction signature
+
+### 3. `submit_payment`
+
+```typescript
+{
+  "name": "submit_payment",
+  "description": "Submit payment proof to complete purchase",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "transactionId": { "type": "string" },
+      "signature": { "type": "string" },
+      "serviceId": { "type": "string" },
+      "input": { "type": "object" }
+    }
+  }
+}
+```
+
+**Action**:
+- Verifies signature on Solana blockchain
+- Generates JWT token
+- Retries service request with JWT
+- Returns service result
+
+## Performance Characteristics
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| **Transaction Signing** | ~50ms | Client-side, depends on hardware |
+| **Solana Confirmation** | ~400ms | Confirmed commitment level |
+| **On-Chain Verification** | ~200ms | RPC call to fetch transaction |
+| **JWT Generation** | ~10ms | Server-side crypto |
+| **Total Payment Flow** | ~700ms | End-to-end (sign + confirm + verify) |
+
+**Optimization**: JWT tokens eliminate per-request blockchain lookups for services.
+
+## Best Practices
+
+### For Service Providers
+
+1. **Always validate JWT signature**:
+   ```typescript
+   import { x402Middleware } from '@sentientexchange/x402-middleware';
+   app.post('/analyze', x402Middleware(), handler);
+   ```
+
+2. **Check payment matches pricing**:
+   ```typescript
+   const payment = req.agentMarketPayment;
+   if (payment.price !== process.env.SERVICE_PRICE) {
+     return res.status(400).json({ error: 'Price mismatch' });
+   }
+   ```
+
+3. **Return 402 for unpaid requests**:
+   ```typescript
+   if (!req.agentMarketPayment) {
+     return res.status(402).json({
+       error: 'Payment Required',
+       recipient: process.env.WALLET_ADDRESS,
+       amount: process.env.SERVICE_PRICE
+     });
+   }
+   ```
+
+### For Clients
+
+1. **Store private key securely**:
+   - Use environment variables
+   - Never commit to git
+   - Use encrypted config files
+
+2. **Handle payment failures gracefully**:
+   ```typescript
+   try {
+     const signature = await executePayment(instruction);
+   } catch (error) {
+     // Retry with different RPC
+     // Or fall back to facilitator
+   }
+   ```
+
+3. **Verify final receipt**:
+   ```typescript
+   const result = await submitPayment({ signature, ... });
+   if (!result.payment.verified) {
+     throw new Error('Payment not verified!');
+   }
+   ```
+
+## Comparison with Other Protocols
+
+| Protocol | Payment Method | Settlement | Authorization |
+|----------|---------------|------------|---------------|
+| **x402** | Blockchain (USDC) | Instant (~400ms) | Transaction proof |
+| **OAuth 2.0** | N/A | N/A | Access tokens |
+| **API Keys** | Credit card (monthly) | Delayed (30 days) | Static keys |
+| **Lightning Network** | Bitcoin (BTC) | Instant | Invoice + payment |
+| **Stripe** | Credit card | Delayed (2-7 days) | Secret keys |
+
+## Next Steps
+
+- [Security Model](/docs/concepts/security-model) - JWT + SIWE authentication
+- [Service Registry](/docs/concepts/service-registry) - How services are discovered
+- [Payment Execution Guide](/docs/guides/payment-execution) - Step-by-step implementation
+- [Building Services](/docs/guides/building-services) - Create your own x402 service

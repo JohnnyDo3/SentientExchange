@@ -1,11 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Service, ServiceFilters, MarketplaceStats } from '@/lib/types';
-import { mockServices } from '@/lib/mock-services';
-import { mockServices100, getMarketplaceStats100, getAllCapabilities100, getPriceRange100 } from '@/lib/mock-services-100';
 import { MarketplaceAPI } from '@/lib/marketplace-api';
-
-// Toggle between 6 and 100 services for testing
-const USE_100_SERVICES = true;
 
 export function useMarketplace() {
   const [services, setServices] = useState<Service[]>([]);
@@ -13,7 +8,6 @@ export function useMarketplace() {
   const [filters, setFilters] = useState<ServiceFilters>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [useMockData, setUseMockData] = useState(true); // Start with mock data
   const [isBackendAvailable, setIsBackendAvailable] = useState(false);
 
   /**
@@ -24,37 +18,27 @@ export function useMarketplace() {
   }, []);
 
   /**
-   * Load services (mock or real)
+   * Load services from real backend
    */
   const loadServices = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      if (useMockData) {
-        // Use mock data (6 or 100 services)
-        const mockData = USE_100_SERVICES ? mockServices100 : mockServices;
-        setServices(mockData);
-        setFilteredServices(mockData);
-      } else {
-        // Fetch from real backend
-        const realServices = await MarketplaceAPI.getAllServices();
-        setServices(realServices);
-        setFilteredServices(realServices);
-      }
+      // Fetch from real backend
+      const realServices = await MarketplaceAPI.getAllServices();
+      setServices(realServices);
+      setFilteredServices(realServices);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load services');
-      // Fallback to mock data on error
-      const mockData = USE_100_SERVICES ? mockServices100 : mockServices;
-      setServices(mockData);
-      setFilteredServices(mockData);
+      console.error('Failed to load services:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [useMockData]);
+  }, []);
 
   /**
-   * Apply filters to services
+   * Apply filters and sorting to services
    */
   const applyFilters = useCallback(() => {
     let filtered = [...services];
@@ -81,11 +65,33 @@ export function useMarketplace() {
       filtered = filtered.filter(service => service.reputation.rating >= filters.minRating!);
     }
 
+    // Apply sorting
+    if (filters.sortBy) {
+      filtered.sort((a, b) => {
+        switch (filters.sortBy) {
+          case 'price-asc':
+            return parseFloat(a.pricing.perRequest.replace('$', '')) - parseFloat(b.pricing.perRequest.replace('$', ''));
+          case 'price-desc':
+            return parseFloat(b.pricing.perRequest.replace('$', '')) - parseFloat(a.pricing.perRequest.replace('$', ''));
+          case 'rating-asc':
+            return a.reputation.rating - b.reputation.rating;
+          case 'rating-desc':
+            return b.reputation.rating - a.reputation.rating;
+          case 'name-asc':
+            return a.name.localeCompare(b.name);
+          case 'name-desc':
+            return b.name.localeCompare(a.name);
+          default:
+            return 0;
+        }
+      });
+    }
+
     setFilteredServices(filtered);
   }, [services, filters]);
 
   /**
-   * Load services when data source changes
+   * Load services on mount
    */
   useEffect(() => {
     loadServices();
@@ -97,13 +103,6 @@ export function useMarketplace() {
   useEffect(() => {
     applyFilters();
   }, [applyFilters]);
-
-  /**
-   * Toggle between mock and real data
-   */
-  const toggleDataSource = useCallback(() => {
-    setUseMockData(prev => !prev);
-  }, []);
 
   /**
    * Update filters
@@ -123,12 +122,12 @@ export function useMarketplace() {
    * Get marketplace statistics
    */
   const getStats = useCallback((): MarketplaceStats => {
-    if (useMockData || services.length === 0) {
-      return USE_100_SERVICES ? getMarketplaceStats100() : {
-        totalServices: 6,
-        totalJobs: 14547,
-        avgRating: 4.7,
-        activeServices: 5
+    if (services.length === 0) {
+      return {
+        totalServices: 0,
+        totalJobs: 0,
+        avgRating: 0,
+        activeServices: 0
       };
     }
 
@@ -143,7 +142,7 @@ export function useMarketplace() {
       avgRating: parseFloat(avgRating.toFixed(1)),
       activeServices
     };
-  }, [services, useMockData]);
+  }, [services]);
 
   /**
    * Get service by ID
@@ -169,13 +168,11 @@ export function useMarketplace() {
     // State
     isLoading,
     error,
-    useMockData,
     isBackendAvailable,
 
     // Actions
     updateFilters,
     clearFilters,
-    toggleDataSource,
     loadServices,
     getServiceById,
     getSharedCapabilities

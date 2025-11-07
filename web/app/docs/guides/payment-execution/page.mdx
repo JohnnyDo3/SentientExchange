@@ -1,0 +1,636 @@
+# Payment Execution
+
+**TL;DR:** AgentMarket uses client-side transaction signing on Solana. Your private key never leaves your machine - the server only verifies transactions after they're on-chain. This guide explains the complete payment flow from discovery to verification.
+
+## Overview
+
+The x402 payment protocol with client-side signing consists of **7 steps**:
+
+```
+1. Discover Service    → Find service by capability
+2. Request Service     → POST to service endpoint (returns 402)
+3. Parse Payment Info  → Extract recipient, amount, token
+4. Sign Transaction    → CLIENT-SIDE: Sign SPL token transfer
+5. Send to Blockchain  → Submit to Solana
+6. Verify On-Chain     → Server verifies payment
+7. Retry with Proof    → Complete service request with JWT
+```
+
+**Critical Principle**: Steps 4-5 happen **on the client** (MCP environment). The server never has access to private keys.
+
+## Step 1: Discover Service
+
+Find a service that matches your requirements.
+
+**Tool**: `discover_services`
+
+```typescript
+const services = await discover_services({
+  capability: "sentiment-analysis",
+  maxPrice: "$0.10",
+  minRating: 4.0,
+  limit: 5
+});
+
+// Response:
+{
+  "services": [
+    {
+      "id": "service-sentiment-001",
+      "name": "Sentiment Analyzer Pro",
+      "price": "$0.01",
+      "rating": 4.9,
+      "endpoint": "https://sentientexchange.com/api/ai/sentiment/analyze",
+      "provider": "SentientExchange",
+      "provider_wallet": "ABC123...XYZ789"
+    }
+  ],
+  "count": 1
+}
+```
+
+## Step 2: Request Service (Initial 402)
+
+Make initial request to service endpoint without payment.
+
+**Tool**: `purchase_service`
+
+```typescript
+const purchase = await purchase_service({
+  serviceId: "service-sentiment-001",
+  input: {
+    text: "I absolutely love this product!"
+  }
+});
+
+// Response (HTTP 402 Payment Required):
+{
+  "status": 402,
+  "message": "Payment Required",
+  "paymentInstruction": {
+    "transactionId": "tx-1699876543-abc123",
+    "amount": "10000",  // 0.01 USDC (6 decimals: 10000 = 0.01 * 1,000,000)
+    "currency": "USDC",
+    "recipient": "ABC123...XYZ789",  // Service provider's wallet
+    "token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  // USDC mint
+    "network": "solana-devnet"
+  }
+}
+```
+
+### x402 Response Format
+
+The 402 response follows the x402 standard:
+
+```json
+{
+  "error": "Payment Required",
+  "accepts": [
+    {
+      "receiverAddress": "ABC123...XYZ789",
+      "amount": "10000",
+      "tokenAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "chainId": "solana-devnet",
+      "network": "solana"
+    }
+  ]
+}
+```
+
+AgentMarket normalizes this to `paymentInstruction` for convenience.
+
+## Step 3: Parse Payment Information
+
+Extract payment details from the 402 response:
+
+```typescript
+const {
+  transactionId,  // Unique ID for tracking
+  amount,         // Amount in base units (string)
+  currency,       // "USDC", "SOL", etc.
+  recipient,      // Provider's wallet address
+  token,          // Token mint address (for SPL tokens)
+  network         // "solana-devnet" or "mainnet-beta"
+} = purchase.paymentInstruction;
+
+// Convert amount to bigint for precise calculation
+const amountBigInt = BigInt(amount);  // 10000n
+
+console.log(`Paying ${amount} (0.01 USDC) to ${recipient}`);
+```
+
+### USDC Decimal Handling
+
+**CRITICAL**: USDC has **6 decimals** (not 18 like Ethereum tokens):
+
+```typescript
+// USDC amounts
+1 USDC = 1,000,000 base units
+0.01 USDC = 10,000 base units
+0.001 USDC = 1,000 base units
+
+// Convert dollar string to base units
+function usdcToBaseUnits(dollarAmount: string): bigint {
+  const dollars = parseFloat(dollarAmount.replace('$', ''));
+  return BigInt(Math.floor(dollars * 1_000_000));
+}
+
+usdcToBaseUnits("$0.01") // => 10000n ✅
+usdcToBaseUnits("$1.00") // => 1000000n ✅
+```
+
+## Step 4: Sign Transaction (CLIENT-SIDE)
+
+**RUNS ON CLIENT ONLY** - Your private key is loaded from the MCP client environment.
+
+**Tool**: `execute_payment`
+
+**Reference**: `src/tools/execute-payment.ts` (Lines 53-157)
+
+```typescript
+const payment = await execute_payment({
+  paymentInstructions: purchase.paymentInstruction
+});
+
+// What happens internally:
+async function executePayment(args) {
+  // 1. Load private key from LOCAL environment
+  const privateKey = process.env.SOLANA_PRIVATE_KEY;  // Base58 format
+  if (!privateKey) {
+    throw new Error('SOLANA_PRIVATE_KEY not configured');
+  }
+
+  // 2. Create keypair from private key
+  const payer = Keypair.fromSecretKey(bs58.decode(privateKey));
+  console.log('Paying from:', payer.publicKey.toBase58());
+
+  // 3. Initialize Solana connection
+  const connection = new Connection(getRpcUrl(network), 'confirmed');
+
+  // 4. Get token accounts (sender + recipient)
+  const senderTokenAccount = await getAssociatedTokenAddress(
+    USDC_MINT,  // EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+    payer.publicKey
+  );
+
+  const recipientTokenAccount = await getAssociatedTokenAddress(
+    USDC_MINT,
+    new PublicKey(recipient)
+  );
+
+  // 5. Create SPL token transfer instruction
+  const transferInstruction = createTransferInstruction(
+    senderTokenAccount,       // From: Your USDC token account
+    recipientTokenAccount,    // To: Service provider's USDC token account
+    payer.publicKey,          // Authority: Your wallet
+    amountBigInt,             // Amount: 10000 (0.01 USDC)
+    [],                       // Multi-signers: none
+    TOKEN_PROGRAM_ID          // SPL Token Program
+  );
+
+  // 6. Build transaction
+  const transaction = new Transaction().add(transferInstruction);
+  transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+  transaction.feePayer = payer.publicKey;
+
+  // 7. Sign transaction (PRIVATE KEY USED HERE!)
+  transaction.sign(payer);
+
+  // 8. Send transaction to Solana blockchain
+  const signature = await sendAndConfirmTransaction(
+    connection,
+    transaction,
+    [payer],
+    { commitment: 'confirmed', maxRetries: 3 }
+  );
+
+  console.log('✅ Payment sent:', signature);
+
+  return {
+    success: true,
+    signature,
+    transactionId,
+    network
+  };
+}
+```
+
+### Security: Where Private Keys Live
+
+| Component | Has Private Key? | Can Sign Transactions? |
+|-----------|------------------|----------------------|
+| **MCP Client (Claude Desktop)** | ✅ YES | ✅ YES |
+| **AgentMarket MCP Server** | ❌ NO | ❌ NO |
+| **AgentMarket API Server** | ❌ NO | ❌ NO |
+| **Service Providers** | ❌ NO | ❌ NO |
+
+**MCP Configuration** (`~/.config/claude/config.json`):
+
+```json
+{
+  "mcpServers": {
+    "agentmarket": {
+      "command": "node",
+      "args": ["/path/to/agentmarket-mcp/dist/index.js"],
+      "env": {
+        "SOLANA_PRIVATE_KEY": "your-base58-private-key-here",  // ⬅️ Key lives here!
+        "SOLANA_RPC_URL": "https://api.devnet.solana.com",
+        "DATABASE_PATH": "/path/to/db.sqlite"
+      }
+    }
+  }
+}
+```
+
+The private key is **only accessible to code running in the MCP server process** (which runs locally on your machine).
+
+## Step 5: Send to Blockchain
+
+The signed transaction is sent to Solana:
+
+```typescript
+const signature = await sendAndConfirmTransaction(
+  connection,
+  transaction,
+  [payer],
+  {
+    commitment: 'confirmed',  // Wait for confirmation
+    maxRetries: 3             // Auto-retry on network issues
+  }
+);
+
+// Signature example: "3Xy7z8K5...abc123def" (87-88 characters, base58)
+```
+
+**Confirmation Levels**:
+
+| Level | Latency | Finality | Rollback Risk |
+|-------|---------|----------|---------------|
+| `processed` | ~400ms | Low | Possible |
+| `confirmed` | ~600ms | Medium | Very unlikely |
+| `finalized` | ~32s | High | Impossible |
+
+AgentMarket uses **`confirmed`** as the best balance of speed and security.
+
+## Step 6: Verify On-Chain (SERVER-SIDE)
+
+The server verifies the transaction is valid and on-chain.
+
+**Tool**: `submit_payment`
+
+**Reference**: `src/payment/SolanaVerifier.ts` (Lines 56-299)
+
+```typescript
+const result = await submit_payment({
+  transactionId: purchase.paymentInstruction.transactionId,
+  signature: payment.signature,
+  serviceId: "service-sentiment-001",
+  input: { text: "I absolutely love this product!" }
+});
+
+// What happens internally:
+async function submitPayment(args) {
+  const { transactionId, signature, serviceId, input } = args;
+
+  // 1. Fetch transaction from Solana blockchain
+  const connection = new Connection(getRpcUrl(network), 'confirmed');
+  const tx = await connection.getParsedTransaction(signature, {
+    maxSupportedTransactionVersion: 0,
+  });
+
+  if (!tx) {
+    return {
+      error: 'Transaction not found on blockchain',
+      hint: 'Wait for confirmation or check signature'
+    };
+  }
+
+  // 2. Check transaction succeeded
+  if (tx.meta?.err) {
+    return {
+      error: 'Transaction failed on-chain',
+      details: tx.meta.err
+    };
+  }
+
+  // 3. Parse SPL token transfer from transaction
+  const instructions = tx.transaction.message.instructions;
+
+  for (const instruction of instructions) {
+    if ('parsed' in instruction && instruction.program === 'spl-token') {
+      const parsed = instruction.parsed;
+
+      if (parsed.type === 'transfer' || parsed.type === 'transferChecked') {
+        const info = parsed.info;
+
+        // Extract actual values from transaction
+        const actualAmount = BigInt(info.amount || info.tokenAmount?.amount || '0');
+        const actualDestination = info.destination;
+        const actualMint = info.mint;
+
+        // 4. Verify amount matches expected
+        const expectedAmount = BigInt(paymentInstruction.amount);
+        if (actualAmount !== expectedAmount) {
+          return {
+            error: 'Amount mismatch',
+            expected: expectedAmount.toString(),
+            actual: actualAmount.toString()
+          };
+        }
+
+        // 5. Verify recipient matches service provider
+        const expectedRecipient = service.provider_wallet;
+        if (actualDestination !== expectedRecipient) {
+          return {
+            error: 'Recipient mismatch',
+            expected: expectedRecipient,
+            actual: actualDestination
+          };
+        }
+
+        // 6. Verify token mint is USDC
+        const expectedToken = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+        if (actualMint !== expectedToken) {
+          return {
+            error: 'Token mismatch',
+            expected: expectedToken,
+            actual: actualMint
+          };
+        }
+
+        // ✅ Payment verified!
+        break;
+      }
+    }
+  }
+
+  // 7. Check for double-spending
+  const existingTx = await db.get(
+    'SELECT * FROM transactions WHERE solana_signature = ?',
+    [signature]
+  );
+
+  if (existingTx) {
+    return { error: 'Transaction already used' };
+  }
+
+  // 8. Record transaction in database
+  await db.run(
+    'INSERT INTO transactions (id, user_id, service_id, price, status, solana_signature) VALUES (?, ?, ?, ?, ?, ?)',
+    [transactionId, userId, serviceId, paymentInstruction.amount, 'completed', signature]
+  );
+
+  // Now proceed to Step 7...
+}
+```
+
+### On-Chain Verification Checklist
+
+✅ **Transaction exists** on blockchain
+✅ **Transaction succeeded** (no errors)
+✅ **Transfer type** is SPL token transfer
+✅ **Amount** matches expected payment
+✅ **Recipient** matches service provider wallet
+✅ **Token mint** matches USDC address
+✅ **Signature** hasn't been used before (no double-spending)
+
+## Step 7: Retry with Proof (Complete Purchase)
+
+After verification, retry the service request with payment proof.
+
+### Standard x402: `X-Payment` Header
+
+```bash
+curl -X POST https://service.com/analyze \
+  -H "X-Payment: 3Xy7z8K5...abc123def" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "I love this!"}'
+```
+
+Service verifies signature on-chain (expensive, slow).
+
+### AgentMarket: `X-AgentMarket-Auth` JWT
+
+AgentMarket generates a **JWT token** signed by the server:
+
+```typescript
+// Generate JWT token (proof of verified payment)
+const jwtToken = jwt.sign(
+  {
+    signature,
+    serviceId,
+    amount: paymentInstruction.amount,
+    recipient: service.provider_wallet,
+    network,
+    verifiedAt: Date.now()
+  },
+  process.env.JWT_SECRET,
+  { expiresIn: '5m' }  // Short-lived
+);
+
+// Retry request with JWT
+const response = await axios.post(
+  service.endpoint,
+  input,
+  {
+    headers: {
+      'X-AgentMarket-Auth': jwtToken,
+      'Content-Type': 'application/json'
+    }
+  }
+);
+
+// Response (HTTP 200 OK):
+{
+  "success": true,
+  "result": {
+    "sentiment": "positive",
+    "score": 0.95,
+    "confidence": 0.89,
+    "emotions": {
+      "joy": 0.87,
+      "trust": 0.45
+    }
+  }
+}
+```
+
+### Why JWT Instead of Signature?
+
+| Aspect | `X-Payment: <signature>` | `X-AgentMarket-Auth: <JWT>` |
+|--------|------------------------|---------------------------|
+| **Verification** | Service checks blockchain | Service verifies JWT signature |
+| **Blockchain RPCs** | 1 per request | 0 per request |
+| **Latency** | ~500ms (RPC call) | ~10ms (crypto verify) |
+| **Cost** | RPC rate limits | Free (local) |
+| **Security** | On-chain verification | Cryptographically signed by AgentMarket |
+
+## Complete Flow Example
+
+### Standard Workflow (Manual Steps)
+
+```typescript
+// 1. Discover
+const services = await discover_services({
+  capability: "sentiment-analysis",
+  maxPrice: "$0.10"
+});
+
+// 2. Request (get 402)
+const purchase = await purchase_service({
+  serviceId: services[0].id,
+  input: { text: "I love this!" }
+});
+
+// 3. Execute payment (CLIENT-SIDE)
+const payment = await execute_payment({
+  paymentInstructions: purchase.paymentInstruction
+});
+
+// 4. Submit payment proof
+const result = await submit_payment({
+  transactionId: purchase.paymentInstruction.transactionId,
+  signature: payment.signature,
+  serviceId: services[0].id,
+  input: { text: "I love this!" }
+});
+
+console.log(result.result);  // { sentiment: "positive", score: 0.95 }
+```
+
+### Smart Workflow (Optimized)
+
+```typescript
+// 1. Discover + prepare (1 call instead of 3)
+const prepared = await discover_and_prepare_service({
+  capability: "sentiment-analysis",
+  requestData: { text: "I love this!" },
+  requirements: { maxPrice: "$0.10" },
+  userId: "user-wallet-address"
+});
+
+// 2. Execute payment (CLIENT-SIDE)
+const payment = await execute_payment({
+  paymentInstructions: prepared.paymentReady.paymentInstructions
+});
+
+// 3. Complete with auto-retry (1 call instead of 2)
+const result = await complete_service_with_payment({
+  sessionId: prepared.sessionId,
+  signature: payment.signature
+});
+
+console.log(result.result);  // { sentiment: "positive", score: 0.95 }
+```
+
+## Error Handling
+
+### Common Errors and Solutions
+
+#### Transaction Not Found
+
+```json
+{
+  "error": "Transaction not found on blockchain",
+  "signature": "3Xy7z8...",
+  "hint": "Wait 1-2 seconds for confirmation, then retry"
+}
+```
+
+**Solution**: Wait for transaction confirmation:
+
+```typescript
+// Wait for confirmation before submitting
+const signature = await sendAndConfirmTransaction(...);
+await new Promise(resolve => setTimeout(resolve, 1000));  // Wait 1s
+await submit_payment({ signature, ... });
+```
+
+#### Amount Mismatch
+
+```json
+{
+  "error": "Amount mismatch",
+  "expected": "10000",
+  "actual": "5000",
+  "hint": "Payment amount does not match service price"
+}
+```
+
+**Solution**: Check USDC decimal conversion:
+
+```typescript
+// ❌ Wrong: Using wrong decimals
+const amount = BigInt(0.01 * 1_000_000_000);  // 18 decimals (Ethereum)
+
+// ✅ Correct: USDC has 6 decimals
+const amount = BigInt(0.01 * 1_000_000);  // 6 decimals (Solana USDC)
+```
+
+#### Recipient Mismatch
+
+```json
+{
+  "error": "Recipient mismatch",
+  "expected": "ABC123...XYZ789",
+  "actual": "DEF456...UVW012",
+  "hint": "Payment sent to wrong address"
+}
+```
+
+**Solution**: Use `provider_wallet` from service details:
+
+```typescript
+// ❌ Wrong: Using wrong wallet
+const recipient = "random-address";
+
+// ✅ Correct: Use service provider's wallet
+const service = await get_service_details({ serviceId });
+const recipient = service.provider_wallet;
+```
+
+#### Transaction Already Used
+
+```json
+{
+  "error": "Transaction already used",
+  "signature": "3Xy7z8...",
+  "hint": "This signature has already been submitted"
+}
+```
+
+**Solution**: Each transaction can only be used once. Make a new payment:
+
+```typescript
+// Don't reuse signatures - make a new payment
+const newPayment = await execute_payment({ paymentInstructions });
+await submit_payment({ signature: newPayment.signature, ... });
+```
+
+## Performance Characteristics
+
+| Operation | Average Latency | Notes |
+|-----------|----------------|-------|
+| **Transaction Signing** | ~50ms | Client-side, depends on hardware |
+| **Send to Solana** | ~400ms | Network + confirmation |
+| **On-Chain Verification** | ~200ms | RPC call to fetch transaction |
+| **JWT Generation** | ~10ms | Server-side crypto |
+| **Service Request** | ~500ms | Depends on service |
+| **Total Payment Flow** | ~1,200ms | End-to-end (sign + confirm + verify + request) |
+
+## Code References
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `src/tools/execute-payment.ts` | 53-275 | Client-side payment execution |
+| `src/payment/DirectSolanaProvider.ts` | 72-126 | Direct Solana wallet signing |
+| `src/payment/SolanaVerifier.ts` | 56-299 | On-chain payment verification |
+| `src/tools/submit-payment.ts` | 1-200 | Payment proof submission |
+| `src/payment/solana-transfer.ts` | 1-100 | SPL token transfer utility |
+
+## Next Steps
+
+- [Smart Workflows](/docs/guides/smart-workflows) - Optimize payment flow
+- [Spending Limits](/docs/guides/spending-limits) - Budget controls
+- [Building Services](/docs/guides/building-services) - Create x402 services
+- [Security Model](/docs/concepts/security-model) - Client-side signing explained

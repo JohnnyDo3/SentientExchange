@@ -1,0 +1,736 @@
+# Security Model
+
+**TL;DR:** AgentMarket uses defense-in-depth security: client-side wallet signing, JWT + SIWE authentication, rate limiting, input sanitization, and comprehensive audit logging. Your private keys never touch the server.
+
+## Security Principles
+
+AgentMarket is built on these core security principles:
+
+1. **Client-Side Signing** - Private keys stay on user's machine
+2. **Defense in Depth** - Multiple security layers
+3. **Least Privilege** - Minimal permissions by default
+4. **Audit Everything** - Complete transaction history
+5. **Fail Securely** - Errors don't leak sensitive data
+
+<Callout type="danger">
+**CRITICAL**: AgentMarket servers **NEVER** have access to user private keys. All transaction signing happens client-side.
+</Callout>
+
+## Authentication Architecture
+
+### Two Authentication Methods
+
+AgentMarket supports two authentication schemes:
+
+#### 1. JWT (JSON Web Tokens)
+
+For traditional authentication with username/password or API keys.
+
+**Use Case**: Service providers, admin users, API access
+
+**Flow**:
+```
+1. User logs in with credentials
+2. Server generates JWT (expires in 7 days)
+3. JWT stored in httpOnly cookie + returned in response
+4. Client includes JWT in Authorization header
+5. Server verifies JWT signature on each request
+```
+
+**Configuration**:
+```bash
+# .env
+JWT_SECRET=<64-char-random-string>
+```
+
+**Generation** (src/auth/jwt.ts):
+```typescript
+import jwt from 'jsonwebtoken';
+
+export function generateToken(userId: string, metadata?: any): string {
+  const payload = {
+    sub: userId,  // Subject (user ID)
+    iat: Math.floor(Date.now() / 1000),  // Issued at
+    exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60),  // Expires in 7 days
+    ...metadata
+  };
+
+  return jwt.sign(payload, process.env.JWT_SECRET!);
+}
+```
+
+**Verification** (src/middleware/auth.ts):
+```typescript
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  // Check Authorization header OR httpOnly cookie
+  const token = req.headers.authorization?.replace('Bearer ', '') ||
+                req.cookies['auth-token'];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!);
+    req.user = decoded;  // Attach to request
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+```
+
+#### 2. SIWE (Sign-In with Ethereum)
+
+For wallet-based authentication (works with Solana too, despite the name).
+
+**Use Case**: Web3 users, wallet-based access, decentralized identity
+
+**Flow**:
+```
+1. Client requests nonce: POST /api/auth/nonce
+2. Server generates nonce, stores temporarily
+3. Client signs message with wallet
+4. Client submits signature: POST /api/auth/verify
+5. Server verifies signature
+6. Server issues JWT token
+```
+
+**Implementation** (src/auth/siwe.ts):
+```typescript
+import { SiweMessage } from 'siwe';
+
+const nonces = new Map<string, { nonce: string; expires: number }>();
+
+export function generateNonce(address: string): string {
+  const nonce = randomBytes(16).toString('hex');
+  const expires = Date.now() + (5 * 60 * 1000);  // 5 minutes
+
+  nonces.set(address, { nonce, expires });
+
+  // Clean up expired nonces
+  setTimeout(() => nonces.delete(address), 5 * 60 * 1000);
+
+  return `Sign this message to authenticate with SentientExchange.\n\nNonce: ${nonce}`;
+}
+
+export async function verifySiweMessage(
+  message: string,
+  signature: string
+): Promise<{ address: string; chainId: number }> {
+  const siweMessage = new SiweMessage(message);
+
+  // Verify signature
+  const fields = await siweMessage.verify({ signature });
+
+  // Check nonce is valid
+  const stored = nonces.get(fields.address);
+  if (!stored || stored.nonce !== fields.nonce) {
+    throw new Error('Invalid nonce');
+  }
+
+  if (Date.now() > stored.expires) {
+    throw new Error('Nonce expired');
+  }
+
+  // Remove used nonce (prevent replay)
+  nonces.delete(fields.address);
+
+  return {
+    address: fields.address,
+    chainId: fields.chainId
+  };
+}
+```
+
+**Frontend Integration**:
+```typescript
+import { SiweMessage } from 'siwe';
+import { ethers } from 'ethers';
+
+async function signInWithWallet() {
+  const provider = new ethers.providers.Web3Provider(window.ethereum);
+  const signer = provider.getSigner();
+  const address = await signer.getAddress();
+
+  // 1. Get nonce
+  const { nonce } = await fetch('/api/auth/nonce', {
+    method: 'POST',
+    body: JSON.stringify({ address })
+  }).then(r => r.json());
+
+  // 2. Create SIWE message
+  const siweMessage = new SiweMessage({
+    domain: window.location.host,
+    address,
+    statement: 'Sign in to AgentMarket',
+    uri: window.location.origin,
+    version: '1',
+    chainId: await signer.getChainId(),
+    nonce
+  });
+
+  // 3. Sign message
+  const message = siweMessage.prepareMessage();
+  const signature = await signer.signMessage(message);
+
+  // 4. Verify and get JWT
+  const { token } = await fetch('/api/auth/verify', {
+    method: 'POST',
+    body: JSON.stringify({ message, signature })
+  }).then(r => r.json());
+
+  return token;
+}
+```
+
+## Authorization Model
+
+### Role-Based Access Control (RBAC)
+
+| Role | Permissions | How to Get |
+|------|-------------|------------|
+| **Anonymous** | Read public data | Default |
+| **Authenticated** | Create/update own services | Sign in with wallet |
+| **Service Owner** | Manage own services | Create a service |
+| **Admin** | Approve services, view all data | Wallet in `ADMIN_WALLETS` |
+
+**Implementation**:
+```typescript
+// Check if user is admin
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const adminWallets = process.env.ADMIN_WALLETS?.split(',') || [];
+  const isAdmin = adminWallets.includes(req.user.address);
+
+  if (!isAdmin) {
+    return res.status(403).json({ error: 'Forbidden - Admin access required' });
+  }
+
+  next();
+}
+
+// Check if user owns resource
+export function checkOwnership(resourceOwner: string, req: Request): boolean {
+  if (!req.user) return false;
+
+  return resourceOwner.toLowerCase() === req.user.address.toLowerCase();
+}
+```
+
+**Usage**:
+```typescript
+// Public endpoint
+app.get('/api/services', (req, res) => { ... });
+
+// Requires authentication
+app.get('/api/services/my-services', requireAuth, (req, res) => { ... });
+
+// Requires ownership
+app.put('/api/services/:id', requireAuth, async (req, res) => {
+  const service = await getService(req.params.id);
+
+  if (!checkOwnership(service.metadata.walletAddress, req)) {
+    return res.status(403).json({ error: 'Not your service' });
+  }
+
+  // Update service...
+});
+
+// Requires admin
+app.post('/api/admin/approve/:id', requireAuth, requireAdmin, (req, res) => { ... });
+```
+
+## Rate Limiting
+
+Prevents abuse and DoS attacks.
+
+**Implementation** (src/middleware/security.ts):
+```typescript
+import rateLimit from 'express-rate-limit';
+
+// Global API rate limit
+export const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 100,  // 100 requests per window
+  message: 'Too many requests, please try again later',
+  standardHeaders: true,  // Return rate limit info in headers
+  legacyHeaders: false
+});
+
+// Write operations (more restrictive)
+export const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many write requests, please slow down'
+});
+
+// Service registration (very restrictive)
+export const registrationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,  // 1 hour
+  max: 5,
+  message: 'Registration limit exceeded, try again later'
+});
+
+// MCP connections
+export const mcpConnectionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many MCP connections'
+});
+
+// MCP messages
+export const mcpMessageLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 60,
+  message: 'Too many MCP messages per minute'
+});
+```
+
+**Application**:
+```typescript
+// Apply to all /api routes
+app.use('/api', apiLimiter);
+
+// Apply to specific endpoints
+app.post('/api/services', registrationLimiter, writeLimiter, handler);
+app.get('/mcp/sse', mcpConnectionLimiter, handler);
+app.post('/mcp/message', mcpMessageLimiter, handler);
+```
+
+**Rate Limit Headers**:
+```http
+HTTP/1.1 200 OK
+RateLimit-Limit: 100
+RateLimit-Remaining: 87
+RateLimit-Reset: 1699564800
+
+HTTP/1.1 429 Too Many Requests
+Retry-After: 300
+RateLimit-Limit: 100
+RateLimit-Remaining: 0
+RateLimit-Reset: 1699564800
+```
+
+## Input Sanitization
+
+Prevents XSS, SQL injection, and other injection attacks.
+
+**Middleware** (src/middleware/security.ts):
+```typescript
+export function sanitizeRequest(req: Request, res: Response, next: NextFunction) {
+  // Sanitize query parameters
+  for (const key in req.query) {
+    if (typeof req.query[key] === 'string') {
+      req.query[key] = sanitizeString(req.query[key] as string);
+    }
+  }
+
+  // Sanitize body (if JSON)
+  if (req.body && typeof req.body === 'object') {
+    req.body = sanitizeObject(req.body);
+  }
+
+  next();
+}
+
+function sanitizeString(str: string): string {
+  return str
+    .replace(/[<>'"]/g, '')  // Remove HTML-like chars
+    .trim()
+    .slice(0, 10000);  // Limit length
+}
+
+function sanitizeObject(obj: any): any {
+  if (typeof obj !== 'object' || obj === null) {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeObject);
+  }
+
+  const sanitized: any = {};
+  for (const key in obj) {
+    if (typeof obj[key] === 'string') {
+      sanitized[key] = sanitizeString(obj[key]);
+    } else if (typeof obj[key] === 'object') {
+      sanitized[key] = sanitizeObject(obj[key]);
+    } else {
+      sanitized[key] = obj[key];
+    }
+  }
+
+  return sanitized;
+}
+```
+
+## Validation with Zod
+
+All inputs are validated before processing.
+
+**Schema Definition** (src/validation/schemas.ts):
+```typescript
+import { z } from 'zod';
+
+export const serviceSchema = z.object({
+  name: z.string().min(3).max(100),
+  description: z.string().min(10).max(500),
+  endpoint: z.string().url(),
+  capabilities: z.array(z.string()).min(1).max(20),
+  pricing: z.object({
+    perRequest: z.string().regex(/^\d+(\.\d{1,4})?$/),  // Decimal, max 4 precision
+    currency: z.enum(['USDC', 'USD', 'SOL'])
+  }),
+  walletAddress: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/),  // Solana address
+  image: z.string().optional(),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional()
+});
+
+export function validateService(data: unknown) {
+  return serviceSchema.parse(data);  // Throws if invalid
+}
+```
+
+**Usage**:
+```typescript
+app.post('/api/services', async (req, res) => {
+  try {
+    const validatedData = validateService(req.body);
+    // validatedData is typed and validated!
+
+    const service = await registry.registerService(validatedData);
+    res.json({ success: true, service });
+
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.errors
+      });
+    }
+    throw error;
+  }
+});
+```
+
+## Security Headers (Helmet)
+
+Protects against common web vulnerabilities.
+
+**Configuration** (src/middleware/security.ts):
+```typescript
+import helmet from 'helmet';
+
+export const helmetConfig = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api.solana.com", "https://api.devnet.solana.com"]
+    }
+  },
+  hsts: {
+    maxAge: 31536000,  // 1 year
+    includeSubDomains: true,
+    preload: true
+  },
+  frameguard: { action: 'deny' },
+  noSniff: true,
+  xssFilter: true
+});
+
+app.use(helmetConfig);
+```
+
+**Headers Set**:
+```http
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Content-Security-Policy: default-src 'self'; ...
+```
+
+## CORS Configuration
+
+Controls which origins can access the API.
+
+**Implementation**:
+```typescript
+import cors from 'cors';
+
+export const corsOptions = {
+  origin: (origin: string | undefined, callback: Function) => {
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+      'http://localhost:3000',  // Local dev
+      'https://sentientexchange.com',
+      'https://www.sentientexchange.com'
+    ];
+
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,  // Allow cookies
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
+```
+
+## Audit Logging
+
+Every important action is logged for security analysis.
+
+**Schema**:
+```sql
+CREATE TABLE audit_log (
+  id TEXT PRIMARY KEY,
+  entity_type TEXT NOT NULL,      -- 'service', 'transaction', 'user'
+  entity_id TEXT NOT NULL,
+  action TEXT NOT NULL,            -- 'CREATE', 'UPDATE', 'DELETE'
+  actor TEXT,                      -- Who performed the action
+  changes TEXT,                    -- JSON of what changed
+  ip_address TEXT,
+  user_agent TEXT,
+  timestamp TEXT NOT NULL
+);
+```
+
+**Logging Function** (src/registry/database.ts):
+```typescript
+async logAudit(
+  entityType: string,
+  entityId: string,
+  action: string,
+  changes: any,
+  actor?: string,
+  req?: Request
+): Promise<void> {
+  await this.run(
+    `INSERT INTO audit_log (id, entity_type, entity_id, action, actor, changes, ip_address, user_agent, timestamp)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      randomUUID(),
+      entityType,
+      entityId,
+      action,
+      actor || 'system',
+      JSON.stringify(changes),
+      req?.ip || null,
+      req?.headers['user-agent'] || null,
+      new Date().toISOString()
+    ]
+  );
+}
+```
+
+**Usage**:
+```typescript
+// Log service creation
+await db.logAudit('service', serviceId, 'CREATE', service, req.user.address, req);
+
+// Log service update
+await db.logAudit('service', serviceId, 'UPDATE', { before, after }, req.user.address, req);
+
+// Log payment
+await db.logAudit('transaction', txId, 'PAYMENT', { amount, recipient }, buyerAddress);
+```
+
+## Security Event Logging
+
+Critical security events trigger alerts.
+
+**Implementation** (src/utils/logger.ts):
+```typescript
+export const securityLogger = {
+  authFailure(details: {
+    reason: string;
+    ip?: string;
+    userAgent?: string;
+  }) {
+    logger.warn('🚨 AUTH_FAILURE', details);
+    // Could send to SIEM, alert admin, etc.
+  },
+
+  authSuccess(details: {
+    address: string;
+    chainId: number;
+    ip?: string;
+  }) {
+    logger.info('✅ AUTH_SUCCESS', details);
+  },
+
+  suspiciousActivity(details: {
+    type: string;
+    description: string;
+    ip?: string;
+  }) {
+    logger.error('⚠️ SUSPICIOUS_ACTIVITY', details);
+    // Could block IP, notify admin, etc.
+  }
+};
+```
+
+**Triggers**:
+```typescript
+// Failed authentication
+securityLogger.authFailure({
+  reason: 'Invalid SIWE signature',
+  ip: req.ip,
+  userAgent: req.headers['user-agent']
+});
+
+// Rapid requests from same IP
+if (requestCount > threshold) {
+  securityLogger.suspiciousActivity({
+    type: 'RATE_LIMIT_ABUSE',
+    description: `${requestCount} requests in ${windowMs}ms`,
+    ip: req.ip
+  });
+}
+
+// Payment amount mismatch
+securityLogger.suspiciousActivity({
+  type: 'PAYMENT_MISMATCH',
+  description: `Expected ${expected}, got ${actual}`,
+  ip: req.ip
+});
+```
+
+## SQL Injection Prevention
+
+All database queries use parameterized statements.
+
+**NEVER DO THIS**:
+```typescript
+// ❌ VULNERABLE TO SQL INJECTION
+const query = `SELECT * FROM services WHERE id = '${userInput}'`;
+await db.all(query);
+```
+
+**ALWAYS DO THIS**:
+```typescript
+// ✅ SAFE - Parameterized query
+const query = 'SELECT * FROM services WHERE id = ?';
+await db.all(query, [userInput]);
+```
+
+**Why It Matters**:
+```sql
+-- Malicious input: "1' OR '1'='1"
+-- Vulnerable query becomes:
+SELECT * FROM services WHERE id = '1' OR '1'='1'
+-- Returns ALL services!
+
+-- Parameterized query treats it as literal string:
+SELECT * FROM services WHERE id = '1'' OR ''1''=''1'
+-- Returns nothing (no match)
+```
+
+## Session Security
+
+### httpOnly Cookies
+
+JWTs stored in httpOnly cookies cannot be accessed by JavaScript.
+
+**Why Important**:
+- ✅ Prevents XSS attacks from stealing tokens
+- ✅ Automatically sent with requests
+- ✅ Can set `Secure` flag for HTTPS-only
+
+**Configuration**:
+```typescript
+res.cookie('auth-token', token, {
+  httpOnly: true,        // JavaScript can't access
+  secure: process.env.NODE_ENV === 'production',  // HTTPS only in prod
+  sameSite: 'strict',    // CSRF protection
+  maxAge: 7 * 24 * 60 * 60 * 1000  // 7 days
+});
+```
+
+### Token Refresh
+
+Tokens expire after 7 days. Users must re-authenticate.
+
+**Future Enhancement**: Implement refresh tokens for seamless renewal.
+
+## Best Practices Checklist
+
+### For Developers
+
+- [ ] Never commit `.env` files
+- [ ] Use environment variables for secrets
+- [ ] Always use parameterized queries
+- [ ] Validate all inputs with Zod
+- [ ] Check authorization before writes
+- [ ] Log security events
+- [ ] Test with malicious inputs
+- [ ] Keep dependencies updated
+
+### For Service Providers
+
+- [ ] Use strong wallet passwords
+- [ ] Don't share private keys
+- [ ] Enable 2FA on accounts
+- [ ] Monitor service logs
+- [ ] Report suspicious activity
+- [ ] Keep endpoints updated
+
+### For Users
+
+- [ ] Use hardware wallets for large amounts
+- [ ] Verify transaction details before signing
+- [ ] Don't approve unlimited spending
+- [ ] Review transaction history regularly
+- [ ] Report lost/compromised wallets immediately
+
+## Security Roadmap
+
+**Currently Implemented**:
+- ✅ Client-side wallet signing
+- ✅ JWT + SIWE authentication
+- ✅ Rate limiting
+- ✅ Input sanitization
+- ✅ Audit logging
+- ✅ CORS + Helmet
+- ✅ Parameterized queries
+
+**Planned Enhancements**:
+- 🔜 2FA for admin accounts
+- 🔜 IP whitelisting for admin endpoints
+- 🔜 Automated security scanning (Snyk, Dependabot)
+- 🔜 Bug bounty program
+- 🔜 Penetration testing
+- 🔜 Web Application Firewall (WAF)
+
+## Incident Response
+
+If you discover a security vulnerability:
+
+1. **DO NOT** disclose publicly
+2. Email: security@sentientexchange.com
+3. Include:
+   - Description of vulnerability
+   - Steps to reproduce
+   - Potential impact
+   - Suggested fix (if known)
+4. We'll respond within 48 hours
+5. Fix will be deployed ASAP
+6. Credit given in security advisory (if desired)
+
+## Next Steps
+
+- [Authentication Guide](/docs/guides/authentication) - Implement JWT + SIWE
+- [Spending Limits](/docs/guides/spending-limits) - Budget controls
+- [Payment Execution](/docs/guides/payment-execution) - Secure payment flow
+- [Security Middleware](/docs/architecture/security-middleware) - Deep dive into middleware stack

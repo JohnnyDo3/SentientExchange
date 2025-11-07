@@ -109,3 +109,82 @@ export function checkOwnership(resourceOwner: string, req: Request): boolean {
   // Compare addresses (case-insensitive)
   return req.user.address.toLowerCase() === resourceOwner.toLowerCase();
 }
+
+/**
+ * Middleware to require admin privileges
+ * Returns 403 if user is not an admin
+ * SECURITY: Checks if wallet address is in ADMIN_WALLETS environment variable
+ */
+export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
+  try {
+    // First check authentication
+    if (!req.user) {
+      securityLogger.authFailure({
+        reason: 'Admin access attempted without authentication',
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+        message: 'Admin access requires authentication',
+      });
+      return;
+    }
+
+    // Check if user is admin
+    const adminWallets = (process.env.ADMIN_WALLETS || '').split(',').map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
+
+    if (adminWallets.length === 0) {
+      securityLogger.authFailure({
+        reason: 'Admin access attempted but no admins configured',
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        address: req.user.address,
+      });
+
+      res.status(403).json({
+        success: false,
+        error: 'Admin access denied',
+        message: 'No admins configured',
+      });
+      return;
+    }
+
+    const userAddress = req.user.address.toLowerCase();
+    const isAdmin = adminWallets.includes(userAddress);
+
+    if (!isAdmin) {
+      securityLogger.authFailure({
+        reason: 'Admin access denied - user is not an admin',
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        address: req.user.address,
+      });
+
+      res.status(403).json({
+        success: false,
+        error: 'Admin access denied',
+        message: 'You do not have admin privileges',
+      });
+      return;
+    }
+
+    // User is admin, proceed
+    next();
+  } catch (error: unknown) {
+    const message = getErrorMessage(error);
+    securityLogger.authFailure({
+      reason: `Admin check failed: ${message}`,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.status(500).json({
+      success: false,
+      error: 'Admin verification failed',
+      message,
+    });
+  }
+}

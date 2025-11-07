@@ -1,0 +1,708 @@
+# Authentication (JWT + SIWE)
+
+**TL;DR:** AgentMarket uses JWT tokens with Sign-In with Ethereum (SIWE) for authentication. Generate nonces, sign messages with your wallet, receive JWT tokens, use for authenticated API requests. Tokens are valid for 7 days and set as httpOnly cookies for XSS protection.
+
+## Overview
+
+AgentMarket implements **dual authentication**:
+
+1. **JWT (JSON Web Tokens)**: For API authentication and payment verification
+2. **SIWE (Sign-In with Ethereum)**: For wallet-based user authentication
+
+### Why Both?
+
+| Use Case | Authentication Method |
+|----------|---------------------|
+| **User Login** | SIWE (sign message with wallet) |
+| **API Requests** | JWT (Bearer token in header) |
+| **Payment Verification** | JWT (signed by AgentMarket server) |
+| **Service Authorization** | JWT (with payment proof) |
+
+## Sign-In with Ethereum (SIWE)
+
+SIWE lets users authenticate with their Ethereum wallet instead of passwords.
+
+### Authentication Flow
+
+```
+1. User → Request nonce from server
+2. Server → Generate random nonce, store temporarily
+3. User → Sign SIWE message with wallet (MetaMask, WalletConnect, etc.)
+4. User → Send signed message to server
+5. Server → Verify signature, check nonce
+6. Server → Generate JWT token, return to user
+7. User → Use JWT for authenticated requests
+```
+
+### Step 1: Request Nonce
+
+**Endpoint**: `POST /api/auth/nonce`
+
+```bash
+curl -X POST https://sentientexchange.com/api/auth/nonce \
+  -H "Content-Type: application/json" \
+  -d '{"address": "0x1234567890abcdef1234567890abcdef12345678"}'
+```
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "nonce": "Sign this message to authenticate with SentientExchange. Nonce: abc123def456",
+  "message": "Sign this message to authenticate"
+}
+```
+
+**Reference**: `src/auth/siwe.ts`
+
+```typescript
+// Nonce generation and storage
+const nonces = new Map<string, { nonce: string; timestamp: number }>();
+
+export function generateNonce(address: string): string {
+  const randomBytes = crypto.randomBytes(32).toString('hex');
+  const nonce = `Sign this message to authenticate with SentientExchange. Nonce: ${randomBytes}`;
+
+  // Store nonce with 5-minute expiration
+  nonces.set(address.toLowerCase(), {
+    nonce,
+    timestamp: Date.now()
+  });
+
+  // Clean up expired nonces
+  setTimeout(() => {
+    nonces.delete(address.toLowerCase());
+  }, 5 * 60 * 1000);
+
+  return nonce;
+}
+```
+
+### Step 2: Sign SIWE Message
+
+**Client-side** (using `siwe` and `ethers`):
+
+```typescript
+import { SiweMessage } from 'siwe';
+import { ethers } from 'ethers';
+
+async function signInWithEthereum(walletAddress: string) {
+  // 1. Get nonce from server
+  const nonceResponse = await fetch('https://sentientexchange.com/api/auth/nonce', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address: walletAddress })
+  });
+  const { nonce } = await nonceResponse.json();
+
+  // 2. Create SIWE message
+  const siweMessage = new SiweMessage({
+    domain: 'sentientexchange.com',
+    address: walletAddress,
+    statement: 'Sign this message to authenticate with SentientExchange',
+    uri: 'https://sentientexchange.com',
+    version: '1',
+    chainId: 1,  // Ethereum mainnet
+    nonce: nonce,
+    issuedAt: new Date().toISOString()
+  });
+
+  // 3. Prepare message string
+  const messageToSign = siweMessage.prepareMessage();
+
+  // 4. Sign with wallet (MetaMask example)
+  const provider = new ethers.providers.Web3Provider(window.ethereum);
+  const signer = provider.getSigner();
+  const signature = await signer.signMessage(messageToSign);
+
+  return { message: messageToSign, signature };
+}
+```
+
+**SIWE Message Format**:
+
+```
+sentientexchange.com wants you to sign in with your Ethereum account:
+0x1234567890abcdef1234567890abcdef12345678
+
+Sign this message to authenticate with SentientExchange
+
+URI: https://sentientexchange.com
+Version: 1
+Chain ID: 1
+Nonce: abc123def456
+Issued At: 2025-11-06T12:00:00Z
+```
+
+### Step 3: Verify and Get JWT
+
+**Endpoint**: `POST /api/auth/verify`
+
+```bash
+curl -X POST https://sentientexchange.com/api/auth/verify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "sentientexchange.com wants you to sign in...",
+    "signature": "0xabcdef1234567890..."
+  }'
+```
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "address": "0x1234567890abcdef1234567890abcdef12345678"
+  },
+  "expiresIn": "7d"
+}
+```
+
+**Server-side verification** (`src/auth/siwe.ts`):
+
+```typescript
+import { SiweMessage } from 'siwe';
+
+export async function verifySiweMessage(
+  message: string,
+  signature: string
+): Promise<{ valid: boolean; address?: string; error?: string }> {
+  try {
+    // 1. Parse SIWE message
+    const siweMessage = new SiweMessage(message);
+
+    // 2. Verify signature
+    const fields = await siweMessage.verify({ signature });
+
+    // 3. Check nonce exists and matches
+    const storedNonce = nonces.get(fields.data.address.toLowerCase());
+    if (!storedNonce) {
+      return { valid: false, error: 'Nonce not found or expired' };
+    }
+
+    if (storedNonce.nonce !== fields.data.nonce) {
+      return { valid: false, error: 'Nonce mismatch' };
+    }
+
+    // 4. Check nonce timestamp (5-minute window)
+    if (Date.now() - storedNonce.timestamp > 5 * 60 * 1000) {
+      nonces.delete(fields.data.address.toLowerCase());
+      return { valid: false, error: 'Nonce expired' };
+    }
+
+    // 5. Clear used nonce (prevent replay attacks)
+    nonces.delete(fields.data.address.toLowerCase());
+
+    // Signature valid
+    return {
+      valid: true,
+      address: fields.data.address
+    };
+
+  } catch (error) {
+    return {
+      valid: false,
+      error: `Verification failed: ${error.message}`
+    };
+  }
+}
+```
+
+### Step 4: Generate JWT Token
+
+After SIWE verification succeeds, generate a JWT token:
+
+**Reference**: `src/auth/jwt.ts`
+
+```typescript
+import jwt from 'jsonwebtoken';
+import fs from 'fs';
+
+// Load RSA keys (generated once, stored securely)
+const PRIVATE_KEY = fs.readFileSync('./keys/private.pem', 'utf8');
+const PUBLIC_KEY = fs.readFileSync('./keys/public.pem', 'utf8');
+
+export function generateToken(address: string): string {
+  const payload = {
+    address: address.toLowerCase(),
+    type: 'user',
+    iat: Math.floor(Date.now() / 1000)
+  };
+
+  return jwt.sign(payload, PRIVATE_KEY, {
+    algorithm: 'RS256',
+    expiresIn: '7d',
+    issuer: 'agentmarket',
+    audience: 'agentmarket-api'
+  });
+}
+
+export function verifyToken(token: string): { address: string } | null {
+  try {
+    const decoded = jwt.verify(token, PUBLIC_KEY, {
+      algorithms: ['RS256'],
+      issuer: 'agentmarket',
+      audience: 'agentmarket-api'
+    });
+
+    return decoded as { address: string };
+  } catch (error) {
+    console.error('JWT verification failed:', error.message);
+    return null;
+  }
+}
+```
+
+### JWT Token Structure
+
+**Decoded JWT**:
+
+```json
+{
+  "address": "0x1234567890abcdef1234567890abcdef12345678",
+  "type": "user",
+  "iat": 1699876543,
+  "exp": 1700481343,
+  "iss": "agentmarket",
+  "aud": "agentmarket-api"
+}
+```
+
+**Fields**:
+- `address`: Ethereum wallet address (lowercase)
+- `type`: Token type (`user` or `payment`)
+- `iat`: Issued at (Unix timestamp)
+- `exp`: Expires at (7 days from issue)
+- `iss`: Issuer (agentmarket)
+- `aud`: Audience (agentmarket-api)
+
+## Using JWT Tokens
+
+### Authorization Header
+
+```bash
+curl https://sentientexchange.com/api/services/my-services \
+  -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### httpOnly Cookies (XSS Protection)
+
+AgentMarket also sets JWT as an httpOnly cookie:
+
+```typescript
+// Set cookie on login
+res.cookie('agentmarket_token', token, {
+  httpOnly: true,      // Cannot be accessed by JavaScript (XSS protection)
+  secure: true,        // HTTPS only
+  sameSite: 'strict',  // CSRF protection
+  maxAge: 7 * 24 * 60 * 60 * 1000  // 7 days
+});
+```
+
+**Benefits**:
+- **XSS Protection**: Cookie not accessible via JavaScript
+- **CSRF Protection**: `sameSite: 'strict'`
+- **Automatic**: Browser sends cookie with every request
+
+**Client-side** (browser automatically includes cookie):
+
+```typescript
+// No need to manually add token!
+fetch('https://sentientexchange.com/api/services/my-services', {
+  credentials: 'include'  // Include cookies
+});
+```
+
+## Authentication Middleware
+
+### requireAuth Middleware
+
+**Reference**: `src/middleware/auth.ts`
+
+```typescript
+import { Request, Response, NextFunction } from 'express';
+import { verifyToken } from '../auth/jwt.js';
+
+export interface AuthenticatedRequest extends Request {
+  user?: {
+    address: string;
+  };
+}
+
+export function requireAuth(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  // Check Authorization header
+  const authHeader = req.headers.authorization;
+  const tokenFromHeader = authHeader?.startsWith('Bearer ')
+    ? authHeader.substring(7)
+    : null;
+
+  // Check cookie
+  const tokenFromCookie = req.cookies?.agentmarket_token;
+
+  const token = tokenFromHeader || tokenFromCookie;
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication required',
+      message: 'No token provided'
+    });
+  }
+
+  // Verify token
+  const decoded = verifyToken(token);
+  if (!decoded) {
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid or expired token',
+      message: 'Please sign in again'
+    });
+  }
+
+  // Attach user to request
+  req.user = { address: decoded.address };
+  next();
+}
+```
+
+**Usage**:
+
+```typescript
+import { requireAuth } from './middleware/auth.js';
+
+// Protected endpoint
+app.get('/api/services/my-services', requireAuth, async (req, res) => {
+  const userAddress = req.user.address;
+
+  const services = await registry.getServicesByProvider(userAddress);
+
+  res.json({
+    success: true,
+    services
+  });
+});
+```
+
+### requireAdmin Middleware
+
+```typescript
+const ADMIN_ADDRESSES = [
+  '0x1234567890abcdef1234567890abcdef12345678',
+  // Add more admin addresses
+];
+
+export function requireAdmin(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  if (!req.user) {
+    return res.status(401).json({
+      error: 'Authentication required'
+    });
+  }
+
+  if (!ADMIN_ADDRESSES.includes(req.user.address.toLowerCase())) {
+    return res.status(403).json({
+      error: 'Admin access required',
+      message: 'You do not have permission to access this endpoint'
+    });
+  }
+
+  next();
+}
+```
+
+**Usage**:
+
+```typescript
+// Admin-only endpoint
+app.post('/api/admin/approve/:id',
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const { id } = req.params;
+    await registry.approveService(id);
+    res.json({ success: true });
+  }
+);
+```
+
+### checkOwnership Middleware
+
+```typescript
+export function checkOwnership(resourceType: 'service') {
+  return async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ) => {
+    const resourceId = req.params.id;
+    const userAddress = req.user?.address;
+
+    if (!userAddress) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Check ownership based on resource type
+    if (resourceType === 'service') {
+      const service = await registry.getService(resourceId);
+
+      if (!service) {
+        return res.status(404).json({ error: 'Service not found' });
+      }
+
+      if (service.provider.toLowerCase() !== userAddress.toLowerCase()) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You do not own this service'
+        });
+      }
+    }
+
+    next();
+  };
+}
+```
+
+**Usage**:
+
+```typescript
+// Update service (owner only)
+app.put('/api/services/:id',
+  requireAuth,
+  checkOwnership('service'),
+  async (req, res) => {
+    const { id } = req.params;
+    await registry.updateService(id, req.body);
+    res.json({ success: true });
+  }
+);
+```
+
+## Payment JWT Tokens
+
+AgentMarket generates **payment-specific JWT tokens** after verifying Solana transactions.
+
+### Payment Token Generation
+
+**Reference**: `src/tools/submit-payment.ts`
+
+```typescript
+async function generatePaymentToken(params: {
+  signature: string;
+  serviceId: string;
+  amount: string;
+  recipient: string;
+  network: string;
+}): Promise<string> {
+  const payload = {
+    type: 'payment',
+    signature: params.signature,
+    serviceId: params.serviceId,
+    amount: params.amount,
+    recipient: params.recipient,
+    network: params.network,
+    verifiedAt: Date.now(),
+    iat: Math.floor(Date.now() / 1000)
+  };
+
+  return jwt.sign(payload, PRIVATE_KEY, {
+    algorithm: 'RS256',
+    expiresIn: '5m',  // Short-lived (payment proof expires quickly)
+    issuer: 'agentmarket',
+    audience: 'x402-services'
+  });
+}
+```
+
+### Payment Token Structure
+
+```json
+{
+  "type": "payment",
+  "signature": "3Xy7z8K5...abc123def",
+  "serviceId": "service-sentiment-001",
+  "amount": "10000",
+  "recipient": "ABC123...XYZ789",
+  "network": "solana-devnet",
+  "verifiedAt": 1699876543000,
+  "iat": 1699876543,
+  "exp": 1699876843,
+  "iss": "agentmarket",
+  "aud": "x402-services"
+}
+```
+
+**Key Differences**:
+- **Type**: `payment` (not `user`)
+- **Audience**: `x402-services` (not `agentmarket-api`)
+- **Expiration**: 5 minutes (not 7 days)
+- **Contains**: Payment proof details
+
+### Service Verification (x402 Middleware)
+
+Services verify payment tokens:
+
+```typescript
+import jwt from 'jsonwebtoken';
+
+const AGENTMARKET_PUBLIC_KEY = process.env.AGENTMARKET_PUBLIC_KEY;
+
+function verifyPaymentToken(token: string): PaymentProof | null {
+  try {
+    const decoded = jwt.verify(token, AGENTMARKET_PUBLIC_KEY, {
+      algorithms: ['RS256'],
+      issuer: 'agentmarket',
+      audience: 'x402-services'
+    });
+
+    if (decoded.type !== 'payment') {
+      return null;
+    }
+
+    return decoded as PaymentProof;
+  } catch (error) {
+    console.error('Payment token verification failed:', error.message);
+    return null;
+  }
+}
+```
+
+## Key Management
+
+### Generating RSA Keys
+
+```bash
+# Generate private key
+openssl genrsa -out private.pem 2048
+
+# Extract public key
+openssl rsa -in private.pem -pubout -out public.pem
+```
+
+### Storing Keys Securely
+
+**Development**:
+```bash
+# .env
+JWT_PRIVATE_KEY_PATH=./keys/private.pem
+JWT_PUBLIC_KEY_PATH=./keys/public.pem
+```
+
+**Production**:
+```bash
+# Use environment variables (Railway, Heroku, AWS)
+JWT_PRIVATE_KEY="$(cat private.pem)"
+JWT_PUBLIC_KEY="$(cat public.pem)"
+```
+
+### Key Rotation
+
+```typescript
+// Support multiple public keys for gradual rotation
+const PUBLIC_KEYS = [
+  fs.readFileSync('./keys/public-v1.pem', 'utf8'),  // Old key
+  fs.readFileSync('./keys/public-v2.pem', 'utf8'),  // New key
+];
+
+export function verifyToken(token: string) {
+  for (const publicKey of PUBLIC_KEYS) {
+    try {
+      return jwt.verify(token, publicKey, { algorithms: ['RS256'] });
+    } catch (error) {
+      continue; // Try next key
+    }
+  }
+  throw new Error('Token verification failed with all keys');
+}
+```
+
+## Security Best Practices
+
+### 1. Short-Lived Tokens
+
+```typescript
+// User tokens: 7 days (reasonable for UX)
+generateToken(address, { expiresIn: '7d' });
+
+// Payment tokens: 5 minutes (security-critical)
+generatePaymentToken(params, { expiresIn: '5m' });
+```
+
+### 2. Secure Cookie Settings
+
+```typescript
+res.cookie('token', jwt, {
+  httpOnly: true,      // XSS protection
+  secure: true,        // HTTPS only
+  sameSite: 'strict',  // CSRF protection
+  maxAge: 7 * 24 * 60 * 60 * 1000
+});
+```
+
+### 3. Token Revocation
+
+```typescript
+// Store revoked tokens in Redis/database
+const revokedTokens = new Set<string>();
+
+export function revokeToken(token: string) {
+  revokedTokens.add(token);
+}
+
+export function isTokenRevoked(token: string): boolean {
+  return revokedTokens.has(token);
+}
+
+// Check in middleware
+export function requireAuth(req, res, next) {
+  const token = extractToken(req);
+
+  if (isTokenRevoked(token)) {
+    return res.status(401).json({ error: 'Token has been revoked' });
+  }
+
+  // ... verify token
+}
+```
+
+### 4. Rate Limiting Login Attempts
+
+```typescript
+import rateLimit from 'express-rate-limit';
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 5,  // 5 attempts per window
+  message: {
+    error: 'Too many login attempts',
+    retryAfter: '15 minutes'
+  }
+});
+
+app.post('/api/auth/verify', loginLimiter, verifyHandler);
+```
+
+## Code References
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `src/auth/siwe.ts` | 1-100 | SIWE nonce generation and verification |
+| `src/auth/jwt.ts` | 1-80 | JWT token generation and verification |
+| `src/middleware/auth.ts` | 1-150 | Authentication middleware |
+| `src/api/apiServer.ts` | 169-250 | Auth endpoints implementation |
+
+## Next Steps
+
+- [Building Services](/docs/guides/building-services) - Implement x402 middleware with JWT verification
+- [REST API Reference](/docs/api/rest-endpoints) - Use authenticated endpoints
+- [Security Model](/docs/concepts/security-model) - Understand security architecture
+- [Payment Execution](/docs/guides/payment-execution) - Payment token flow

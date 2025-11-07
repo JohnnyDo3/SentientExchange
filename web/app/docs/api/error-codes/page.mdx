@@ -1,0 +1,1157 @@
+# Error Codes Reference
+
+**TL;DR:** Complete error code reference with HTTP status codes, error types, descriptions, and solutions. All errors follow a standardized JSON format.
+
+## Error Response Format
+
+All AgentMarket APIs (REST, MCP, WebSocket) return errors in this standardized format:
+
+```json
+{
+  "success": false,
+  "error": "ErrorType",
+  "message": "Human-readable error description",
+  "code": "ERROR_CODE_CONSTANT",
+  "statusCode": 400,
+  "details": {
+    "field": "fieldName",
+    "reason": "Additional context"
+  }
+}
+```
+
+### MCP-Specific Format
+
+MCP tools return errors in JSON-RPC 2.0 format:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32000,
+    "message": "Error description",
+    "data": {
+      "errorCode": "ERROR_CODE_CONSTANT",
+      "statusCode": 400,
+      "details": {}
+    }
+  }
+}
+```
+
+---
+
+## HTTP Status Codes
+
+| Code | Name | Description | Use Cases |
+|------|------|-------------|-----------|
+| `200` | OK | Request successful | Successful GET, PUT, DELETE |
+| `201` | Created | Resource created successfully | POST /api/services |
+| `400` | Bad Request | Invalid input or malformed request | Validation errors, missing fields |
+| `401` | Unauthorized | Authentication required or failed | Missing/invalid JWT token |
+| `402` | Payment Required | Payment needed to proceed | x402 protocol, insufficient funds |
+| `403` | Forbidden | Insufficient permissions | Non-owner editing service, non-admin accessing admin endpoint |
+| `404` | Not Found | Resource does not exist | Invalid service ID, transaction not found |
+| `409` | Conflict | Resource conflict | Duplicate service registration |
+| `429` | Too Many Requests | Rate limit exceeded | Too many API calls |
+| `500` | Internal Server Error | Server-side error | Database failures, unexpected exceptions |
+| `503` | Service Unavailable | Service temporarily down | External service health check failed |
+| `504` | Gateway Timeout | Request timed out | Service response too slow |
+
+---
+
+## Error Categories
+
+### Validation Errors (400)
+
+Errors related to invalid input, missing fields, or schema violations.
+
+#### VALIDATION_ERROR
+
+Generic validation error.
+
+**HTTP Status**: 400 Bad Request
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "ValidationError",
+  "message": "Invalid request data",
+  "code": "VALIDATION_ERROR",
+  "statusCode": 400,
+  "details": {
+    "errors": [
+      {
+        "field": "pricing.perRequest",
+        "message": "Must be in format $X.XX"
+      }
+    ]
+  }
+}
+```
+
+**Solution**: Check input against API schema and fix validation errors.
+
+---
+
+#### INVALID_INPUT
+
+Specific field has invalid value or format.
+
+**HTTP Status**: 400 Bad Request
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "InvalidInputError",
+  "message": "Invalid input",
+  "code": "INVALID_INPUT",
+  "statusCode": 400,
+  "details": {
+    "field": "maxPrice",
+    "reason": "Must be in format $X.XX",
+    "provided": "10.50"
+  }
+}
+```
+
+**Solution**: Fix field format (e.g., "$10.50" instead of "10.50").
+
+---
+
+#### MISSING_REQUIRED_FIELD
+
+Required field is missing from request.
+
+**HTTP Status**: 400 Bad Request
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "MissingRequiredFieldError",
+  "message": "Missing required field: serviceId",
+  "code": "MISSING_REQUIRED_FIELD",
+  "statusCode": 400,
+  "details": {
+    "field": "serviceId"
+  }
+}
+```
+
+**Solution**: Include all required fields in request body.
+
+---
+
+### Authentication Errors (401)
+
+Errors related to authentication and identity verification.
+
+#### AUTHENTICATION_FAILED
+
+Generic authentication failure.
+
+**HTTP Status**: 401 Unauthorized
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "AuthenticationError",
+  "message": "Authentication failed",
+  "code": "AUTHENTICATION_FAILED",
+  "statusCode": 401
+}
+```
+
+**Solution**: Verify credentials and authentication method.
+
+---
+
+#### INVALID_TOKEN
+
+JWT token is invalid, malformed, or expired.
+
+**HTTP Status**: 401 Unauthorized
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "InvalidTokenError",
+  "message": "Invalid or expired token",
+  "code": "INVALID_TOKEN",
+  "statusCode": 401,
+  "details": {
+    "reason": "Token expired at 2025-11-06T12:00:00Z"
+  }
+}
+```
+
+**Solution**: Re-authenticate via SIWE to get new token.
+
+---
+
+#### MISSING_TOKEN
+
+No authentication token provided.
+
+**HTTP Status**: 401 Unauthorized
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "MissingTokenError",
+  "message": "No authentication token provided",
+  "code": "MISSING_TOKEN",
+  "statusCode": 401
+}
+```
+
+**Solution**: Include token in `Authorization: Bearer <token>` header or ensure httpOnly cookie is sent.
+
+---
+
+### Authorization Errors (403)
+
+Errors related to permissions and access control.
+
+#### AUTHORIZATION_FAILED
+
+Generic authorization failure.
+
+**HTTP Status**: 403 Forbidden
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "AuthorizationError",
+  "message": "Authorization failed",
+  "code": "AUTHORIZATION_FAILED",
+  "statusCode": 403
+}
+```
+
+**Solution**: Verify you have required permissions for this action.
+
+---
+
+#### PERMISSION_DENIED
+
+Insufficient permissions for the requested action.
+
+**HTTP Status**: 403 Forbidden
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "PermissionDeniedError",
+  "message": "You do not have permission to perform this action",
+  "code": "PERMISSION_DENIED",
+  "statusCode": 403,
+  "details": {
+    "action": "update_service",
+    "resource": "service-123",
+    "reason": "You do not own this service"
+  }
+}
+```
+
+**Solution**: Only service owners can update/delete their services. Contact support if you believe this is an error.
+
+---
+
+### Payment Errors (402)
+
+Errors related to x402 payment protocol and blockchain transactions.
+
+#### PAYMENT_ERROR
+
+Generic payment error.
+
+**HTTP Status**: 402 Payment Required
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "PaymentError",
+  "message": "Payment processing failed",
+  "code": "PAYMENT_ERROR",
+  "statusCode": 402
+}
+```
+
+**Solution**: Check payment details and retry.
+
+---
+
+#### PAYMENT_VERIFICATION_FAILED
+
+Transaction signature could not be verified on-chain.
+
+**HTTP Status**: 402 Payment Required
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "PaymentVerificationError",
+  "message": "Payment verification failed",
+  "code": "PAYMENT_VERIFICATION_FAILED",
+  "statusCode": 402,
+  "details": {
+    "signature": "3Xy7z8...abc123",
+    "reason": "Transaction not found on Solana blockchain",
+    "network": "devnet"
+  }
+}
+```
+
+**Solutions**:
+1. Wait 10-30 seconds for transaction confirmation
+2. Verify transaction on Solana Explorer
+3. Check you're on correct network (devnet vs mainnet)
+4. Retry payment if transaction failed
+
+---
+
+#### INSUFFICIENT_FUNDS
+
+Wallet does not have enough balance.
+
+**HTTP Status**: 402 Payment Required
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "InsufficientFundsError",
+  "message": "Insufficient funds",
+  "code": "INSUFFICIENT_FUNDS",
+  "statusCode": 402,
+  "details": {
+    "required": "$0.01",
+    "available": "$0.005",
+    "currency": "USDC"
+  }
+}
+```
+
+**Solution**: Add funds to your wallet before retrying.
+
+---
+
+#### PAYMENT_TIMEOUT
+
+Payment transaction timed out.
+
+**HTTP Status**: 402 Payment Required
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "PaymentTimeoutError",
+  "message": "Payment timeout",
+  "code": "PAYMENT_TIMEOUT",
+  "statusCode": 402,
+  "details": {
+    "signature": "3Xy7z8...abc123",
+    "timeout": "30s"
+  }
+}
+```
+
+**Solution**: Check Solana network status and retry payment.
+
+---
+
+#### SPENDING_LIMIT_EXCEEDED
+
+Transaction exceeds configured spending limits.
+
+**HTTP Status**: 429 Too Many Requests
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "SpendingLimitExceeded",
+  "message": "Spending limit exceeded",
+  "code": "SPENDING_LIMIT_EXCEEDED",
+  "statusCode": 429,
+  "details": {
+    "limit": "$5.00",
+    "requested": "$10.00",
+    "type": "perTransaction",
+    "currentSpending": {
+      "today": "$45.00",
+      "thisMonth": "$320.00"
+    }
+  }
+}
+```
+
+**Solutions**:
+1. Increase spending limits via `set_spending_limits` MCP tool
+2. Wait for daily/monthly reset
+3. Check current spending via `check_spending` tool
+
+---
+
+### Resource Errors (404)
+
+Errors related to missing or non-existent resources.
+
+#### NOT_FOUND
+
+Generic resource not found.
+
+**HTTP Status**: 404 Not Found
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "NotFoundError",
+  "message": "Service with id service-123 not found",
+  "code": "NOT_FOUND",
+  "statusCode": 404,
+  "details": {
+    "resource": "Service",
+    "id": "service-123"
+  }
+}
+```
+
+**Solution**: Verify resource ID is correct. Use discovery tools to find valid IDs.
+
+---
+
+#### SERVICE_NOT_FOUND
+
+Specific service does not exist.
+
+**HTTP Status**: 404 Not Found
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "ServiceNotFound",
+  "message": "Service not found",
+  "code": "SERVICE_NOT_FOUND",
+  "statusCode": 404,
+  "details": {
+    "serviceId": "invalid-service-id"
+  }
+}
+```
+
+**Solution**: Use `discover_services` or `list_all_services` to find valid service IDs.
+
+---
+
+#### TRANSACTION_NOT_FOUND
+
+Transaction does not exist.
+
+**HTTP Status**: 404 Not Found
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "TransactionNotFound",
+  "message": "Transaction not found",
+  "code": "TRANSACTION_NOT_FOUND",
+  "statusCode": 404,
+  "details": {
+    "transactionId": "tx-invalid"
+  }
+}
+```
+
+**Solution**: Verify transaction ID is correct.
+
+---
+
+### Conflict Errors (409)
+
+Errors related to resource conflicts and duplicates.
+
+#### RESOURCE_CONFLICT
+
+Generic resource conflict.
+
+**HTTP Status**: 409 Conflict
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "ResourceConflictError",
+  "message": "Resource conflict",
+  "code": "RESOURCE_CONFLICT",
+  "statusCode": 409
+}
+```
+
+---
+
+#### RESOURCE_ALREADY_EXISTS
+
+Resource with same identifier already exists.
+
+**HTTP Status**: 409 Conflict
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "ResourceAlreadyExistsError",
+  "message": "Service already exists",
+  "code": "RESOURCE_ALREADY_EXISTS",
+  "statusCode": 409,
+  "details": {
+    "resource": "Service",
+    "identifier": "service-sentiment-001"
+  }
+}
+```
+
+**Solution**: Use different name/identifier or update existing resource.
+
+---
+
+### Service Errors (500-504)
+
+Errors related to external services and system failures.
+
+#### SERVICE_ERROR
+
+Generic service error.
+
+**HTTP Status**: 500 Internal Server Error
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "ServiceError",
+  "message": "Service error",
+  "code": "SERVICE_ERROR",
+  "statusCode": 500
+}
+```
+
+---
+
+#### SERVICE_UNAVAILABLE
+
+External service is unavailable or unhealthy.
+
+**HTTP Status**: 503 Service Unavailable
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "ServiceUnavailableError",
+  "message": "Service sentiment-analyzer is currently unavailable",
+  "code": "SERVICE_UNAVAILABLE",
+  "statusCode": 503,
+  "details": {
+    "service": "sentiment-analyzer",
+    "endpoint": "https://api.sentimentai.com/analyze",
+    "healthCheckFailed": true,
+    "lastChecked": "2025-11-06T12:30:00Z"
+  }
+}
+```
+
+**Solutions**:
+1. Wait and retry in a few minutes
+2. Use backup service if available
+3. Check service status page
+4. Contact service provider
+
+---
+
+#### SERVICE_TIMEOUT
+
+Service request timed out.
+
+**HTTP Status**: 504 Gateway Timeout
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "ServiceTimeoutError",
+  "message": "Service sentiment-analyzer timed out",
+  "code": "SERVICE_TIMEOUT",
+  "statusCode": 504,
+  "details": {
+    "service": "sentiment-analyzer",
+    "timeout": "30s",
+    "endpoint": "https://api.sentimentai.com/analyze"
+  }
+}
+```
+
+**Solutions**:
+1. Retry request
+2. Use faster backup service
+3. Check service performance
+
+---
+
+### Database Errors (500)
+
+Errors related to database operations.
+
+#### DATABASE_ERROR
+
+Generic database error.
+
+**HTTP Status**: 500 Internal Server Error
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "DatabaseError",
+  "message": "Database error",
+  "code": "DATABASE_ERROR",
+  "statusCode": 500
+}
+```
+
+**Solution**: Contact support. This is usually a server-side issue.
+
+---
+
+#### DATABASE_CONNECTION_ERROR
+
+Database connection failed.
+
+**HTTP Status**: 500 Internal Server Error
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "DatabaseConnectionError",
+  "message": "Failed to connect to database",
+  "code": "DATABASE_CONNECTION_ERROR",
+  "statusCode": 500,
+  "details": {
+    "database": "PostgreSQL",
+    "host": "db.sentientexchange.com"
+  }
+}
+```
+
+**Solution**: Contact support. Server needs to reconnect to database.
+
+---
+
+#### DATABASE_QUERY_ERROR
+
+Database query failed.
+
+**HTTP Status**: 500 Internal Server Error
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "DatabaseQueryError",
+  "message": "Database query failed",
+  "code": "DATABASE_QUERY_ERROR",
+  "statusCode": 500,
+  "details": {
+    "query": "SELECT * FROM services WHERE id = ?",
+    "error": "Table 'services' doesn't exist"
+  }
+}
+```
+
+**Solution**: Contact support. Database schema may need migration.
+
+---
+
+### Wallet Errors (404, 500)
+
+Errors related to cryptocurrency wallets.
+
+#### WALLET_ERROR
+
+Generic wallet error.
+
+**HTTP Status**: 500 Internal Server Error
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "WalletError",
+  "message": "Wallet error",
+  "code": "WALLET_ERROR",
+  "statusCode": 500
+}
+```
+
+---
+
+#### WALLET_NOT_FOUND
+
+Solana wallet not configured or not found.
+
+**HTTP Status**: 404 Not Found
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "WalletNotFoundError",
+  "message": "Wallet ABC123xyz...789 not found",
+  "code": "WALLET_NOT_FOUND",
+  "statusCode": 404,
+  "details": {
+    "address": "ABC123xyz...789",
+    "reason": "No SOLANA_PRIVATE_KEY in environment"
+  }
+}
+```
+
+**Solution**: Configure `SOLANA_PRIVATE_KEY` in MCP client environment (Claude Desktop config).
+
+---
+
+#### WALLET_INITIALIZATION_ERROR
+
+Failed to initialize wallet.
+
+**HTTP Status**: 500 Internal Server Error
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "WalletInitializationError",
+  "message": "Failed to initialize wallet",
+  "code": "WALLET_INITIALIZATION_ERROR",
+  "statusCode": 500,
+  "details": {
+    "reason": "Invalid private key format"
+  }
+}
+```
+
+**Solution**: Verify `SOLANA_PRIVATE_KEY` is valid base58-encoded Solana private key.
+
+---
+
+### Rate Limiting Errors (429)
+
+Errors related to rate limiting.
+
+#### RATE_LIMIT_EXCEEDED
+
+API rate limit exceeded.
+
+**HTTP Status**: 429 Too Many Requests
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "RateLimitError",
+  "message": "Rate limit exceeded",
+  "code": "RATE_LIMIT_EXCEEDED",
+  "statusCode": 429,
+  "details": {
+    "limit": 100,
+    "window": "15 minutes",
+    "retryAfter": 900
+  }
+}
+```
+
+**HTTP Headers**:
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1699276800
+Retry-After: 900
+```
+
+**Solution**: Wait for `retryAfter` seconds before retrying.
+
+---
+
+### Network Errors (500, 504)
+
+Errors related to network connectivity.
+
+#### NETWORK_ERROR
+
+Generic network error.
+
+**HTTP Status**: 500 Internal Server Error
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "NetworkError",
+  "message": "Network error",
+  "code": "NETWORK_ERROR",
+  "statusCode": 500
+}
+```
+
+---
+
+#### CONNECTION_ERROR
+
+Failed to establish connection.
+
+**HTTP Status**: 500 Internal Server Error
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "ConnectionError",
+  "message": "Connection error",
+  "code": "CONNECTION_ERROR",
+  "statusCode": 500,
+  "details": {
+    "host": "api.external-service.com",
+    "reason": "Connection refused"
+  }
+}
+```
+
+**Solution**: Check network connectivity and external service status.
+
+---
+
+#### TIMEOUT
+
+Request timed out.
+
+**HTTP Status**: 504 Gateway Timeout
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "TimeoutError",
+  "message": "Request timed out",
+  "code": "TIMEOUT",
+  "statusCode": 504,
+  "details": {
+    "timeout": "30s"
+  }
+}
+```
+
+**Solution**: Retry request or increase timeout if possible.
+
+---
+
+### Configuration Errors (500)
+
+Errors related to server configuration.
+
+#### CONFIGURATION_ERROR
+
+Generic configuration error.
+
+**HTTP Status**: 500 Internal Server Error
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "ConfigurationError",
+  "message": "Configuration error",
+  "code": "CONFIGURATION_ERROR",
+  "statusCode": 500
+}
+```
+
+**Solution**: Contact support. Server configuration needs fixing.
+
+---
+
+#### MISSING_CONFIGURATION
+
+Required configuration is missing.
+
+**HTTP Status**: 500 Internal Server Error
+
+**Example**:
+```json
+{
+  "success": false,
+  "error": "MissingConfigurationError",
+  "message": "Missing required configuration: DATABASE_URL",
+  "code": "MISSING_CONFIGURATION",
+  "statusCode": 500,
+  "details": {
+    "key": "DATABASE_URL"
+  }
+}
+```
+
+**Solution**: Contact support. Server environment needs configuration.
+
+---
+
+## Error Handling Best Practices
+
+### 1. Always Check Response Status
+
+```typescript
+const response = await fetch('/api/services/service-123');
+
+if (!response.ok) {
+  const error = await response.json();
+  console.error('Error:', error.code, error.message);
+
+  // Handle specific errors
+  switch (error.code) {
+    case 'SERVICE_NOT_FOUND':
+      showNotification('Service not found');
+      break;
+    case 'RATE_LIMIT_EXCEEDED':
+      showNotification(`Rate limit exceeded. Retry in ${error.details.retryAfter}s`);
+      break;
+    default:
+      showNotification('An error occurred');
+  }
+}
+```
+
+### 2. Implement Retry Logic
+
+```typescript
+async function fetchWithRetry(url: string, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await fetch(url);
+
+      if (response.ok) {
+        return await response.json();
+      }
+
+      const error = await response.json();
+
+      // Don't retry on client errors (4xx)
+      if (response.status >= 400 && response.status < 500) {
+        throw new Error(error.message);
+      }
+
+      // Retry on server errors (5xx)
+      if (i < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Exponential backoff
+        continue;
+      }
+
+      throw new Error(error.message);
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+    }
+  }
+}
+```
+
+### 3. Handle Rate Limits
+
+```typescript
+async function fetchWithRateLimit(url: string) {
+  const response = await fetch(url);
+
+  if (response.status === 429) {
+    const error = await response.json();
+    const retryAfter = error.details.retryAfter * 1000; // Convert to ms
+
+    console.log(`Rate limited. Retrying in ${retryAfter}ms`);
+    await new Promise(resolve => setTimeout(resolve, retryAfter));
+
+    // Retry request
+    return fetchWithRateLimit(url);
+  }
+
+  return response.json();
+}
+```
+
+### 4. Type-Safe Error Handling
+
+```typescript
+interface ApiError {
+  success: false;
+  error: string;
+  message: string;
+  code: string;
+  statusCode: number;
+  details?: Record<string, any>;
+}
+
+function isApiError(data: any): data is ApiError {
+  return data && data.success === false && 'code' in data;
+}
+
+async function safeApiCall<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  const data = await response.json();
+
+  if (isApiError(data)) {
+    throw new Error(`API Error [${data.code}]: ${data.message}`);
+  }
+
+  return data as T;
+}
+```
+
+### 5. User-Friendly Error Messages
+
+```typescript
+const ERROR_MESSAGES: Record<string, string> = {
+  'SERVICE_NOT_FOUND': 'The service you requested could not be found.',
+  'INSUFFICIENT_FUNDS': 'Your wallet does not have enough funds for this transaction.',
+  'SPENDING_LIMIT_EXCEEDED': 'This transaction would exceed your spending limits.',
+  'RATE_LIMIT_EXCEEDED': 'You are making requests too quickly. Please slow down.',
+  'AUTHENTICATION_FAILED': 'Please log in to continue.',
+  'PERMISSION_DENIED': 'You do not have permission to perform this action.'
+};
+
+function getUserFriendlyMessage(errorCode: string): string {
+  return ERROR_MESSAGES[errorCode] || 'An unexpected error occurred. Please try again.';
+}
+```
+
+---
+
+## Error Monitoring
+
+### Log Errors for Debugging
+
+```typescript
+function logError(error: ApiError, context: string) {
+  console.error(`[${context}] Error:`, {
+    code: error.code,
+    message: error.message,
+    statusCode: error.statusCode,
+    details: error.details,
+    timestamp: new Date().toISOString()
+  });
+
+  // Send to error tracking service (e.g., Sentry)
+  if (window.Sentry) {
+    window.Sentry.captureException(error, {
+      tags: {
+        errorCode: error.code,
+        statusCode: error.statusCode
+      },
+      extra: error.details
+    });
+  }
+}
+```
+
+### Track Error Rates
+
+```typescript
+class ErrorTracker {
+  private errorCounts: Map<string, number> = new Map();
+
+  trackError(errorCode: string) {
+    const count = this.errorCounts.get(errorCode) || 0;
+    this.errorCounts.set(errorCode, count + 1);
+  }
+
+  getStats() {
+    return Array.from(this.errorCounts.entries())
+      .map(([code, count]) => ({ code, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  reset() {
+    this.errorCounts.clear();
+  }
+}
+```
+
+---
+
+## Common Error Scenarios
+
+### Scenario 1: Service Purchase Fails
+
+```
+User attempts to purchase service
+→ 402 Payment Required
+→ Execute payment (CLIENT-SIDE)
+→ Submit payment proof
+→ 402 PAYMENT_VERIFICATION_FAILED
+
+Problem: Transaction not confirmed on-chain yet
+
+Solution: Wait 10-30 seconds and retry
+```
+
+### Scenario 2: Rate Limit Hit
+
+```
+User makes 100 requests in 10 minutes
+→ 429 RATE_LIMIT_EXCEEDED
+
+Problem: Exceeded 100 requests / 15 minutes limit
+
+Solution: Wait for rate limit reset (check Retry-After header)
+```
+
+### Scenario 3: Wallet Not Configured
+
+```
+Agent attempts to execute payment
+→ 404 WALLET_NOT_FOUND
+
+Problem: SOLANA_PRIVATE_KEY not in MCP client environment
+
+Solution: Add wallet to Claude Desktop config (~/.config/claude/config.json)
+```
+
+### Scenario 4: Service Unavailable
+
+```
+User requests service
+→ 503 SERVICE_UNAVAILABLE
+
+Problem: Service health check failed
+
+Solution: Use backup service or wait for service to recover
+```
+
+---
+
+## Next Steps
+
+- [MCP Protocol Reference](/docs/api/mcp-protocol) - MCP tool schemas
+- [REST API Reference](/docs/api/rest-endpoints) - HTTP endpoints
+- [WebSocket Events](/docs/api/websocket-events) - Real-time updates
+- [Smart Workflows](/docs/guides/smart-workflows) - Error recovery patterns

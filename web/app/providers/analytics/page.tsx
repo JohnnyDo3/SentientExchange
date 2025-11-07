@@ -3,12 +3,21 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowLeft, TrendingUp, DollarSign, Users, Star } from 'lucide-react';
+import { ArrowLeft, TrendingUp, DollarSign, Users, Star, Loader2 } from 'lucide-react';
 import { Service } from '@/lib/types';
-import { mockServices } from '@/lib/mock-services';
+import { MarketplaceAPI } from '@/lib/marketplace-api';
 import ServiceMetrics from '@/components/providers/ServiceMetrics';
 import ParticleScene from '@/components/3d/ParticleScene';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+interface Analytics {
+  totalRevenue: string;
+  totalRequests: number;
+  revenueByDay: Array<{ date: string; revenue: number }>;
+  requestsByHour: Array<{ hour: string; requests: number }>;
+  topUsers: Array<{ name: string; requests: number; spent: string }>;
+  recentTransactions: Array<any>;
+}
 
 function ServiceAnalyticsContent() {
   const router = useRouter();
@@ -16,22 +25,58 @@ function ServiceAnalyticsContent() {
   const serviceId = searchParams.get('service');
 
   const [service, setService] = useState<Service | null>(null);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (serviceId) {
-      // TODO: Fetch from API
-      const found = mockServices.find(s => s.id === serviceId);
-      setService(found || null);
-    }
+    const loadData = async () => {
+      if (!serviceId) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // Fetch service details
+        const serviceData = await MarketplaceAPI.getServiceDetails(serviceId);
+        setService(serviceData);
+
+        // Fetch analytics
+        const analyticsData = await MarketplaceAPI.getServiceAnalytics(serviceId);
+        setAnalytics(analyticsData);
+
+      } catch (err: any) {
+        console.error('Failed to load analytics:', err);
+        setError(err.message || 'Failed to load analytics');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
   }, [serviceId]);
 
-  if (!service) {
+  if (isLoading) {
+    return (
+      <div className="relative min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-16 h-16 animate-spin text-purple mx-auto mb-4" />
+          <p className="text-gray-400">Loading analytics...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !service || !analytics) {
     return (
       <div className="relative min-h-screen bg-black text-white flex items-center justify-center">
         <div className="text-center">
           <div className="text-6xl mb-4">📊</div>
-          <h1 className="text-2xl font-bold mb-2">Service Not Found</h1>
-          <p className="text-gray-400 mb-6">The service you're looking for doesn't exist.</p>
+          <h1 className="text-2xl font-bold mb-2">{error || 'Service Not Found'}</h1>
+          <p className="text-gray-400 mb-6">{error || "The service you're looking for doesn't exist."}</p>
           <button
             onClick={() => router.push('/providers/my-services')}
             className="px-6 py-3 bg-gradient-to-r from-purple to-pink text-white rounded-xl font-semibold hover:scale-105 transition-transform"
@@ -44,25 +89,17 @@ function ServiceAnalyticsContent() {
   }
 
   const price = parseFloat(service.pricing.perRequest.replace('$', ''));
-  const revenue = (service.reputation.totalJobs * price).toFixed(2);
+  const revenue = analytics.totalRevenue;
 
-  // Generate mock detailed analytics data
-  const revenueData = Array.from({ length: 30 }, (_, i) => ({
-    day: `Day ${i + 1}`,
-    revenue: Math.random() * 5 + 1
+  // Extract chart data from analytics
+  const revenueData = analytics.revenueByDay.map((item) => ({
+    day: new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    revenue: item.revenue
   }));
 
-  const requestsByHour = Array.from({ length: 24 }, (_, i) => ({
-    hour: `${i}:00`,
-    requests: Math.floor(Math.random() * 30) + 5
-  }));
-
-  const topUsers = [
-    { name: 'ResearchBot_Alpha', requests: 245, spent: '$12.25' },
-    { name: 'DataAnalyzer_Pro', requests: 198, spent: '$9.90' },
-    { name: 'ContentCurator_v2', requests: 156, spent: '$7.80' },
-    { name: 'InsightEngine_AI', requests: 123, spent: '$6.15' },
-    { name: 'QueryMaster_Plus', requests: 98, spent: '$4.90' }
+  const requestsByHour = analytics.requestsByHour;
+  const topUsers = analytics.topUsers.length > 0 ? analytics.topUsers : [
+    { name: 'No users yet', requests: 0, spent: '$0.00' }
   ];
 
   return (
@@ -116,11 +153,11 @@ function ServiceAnalyticsContent() {
         <div className="container mx-auto px-4 md:px-6 pb-16 space-y-8">
           {/* Overview Metrics */}
           <ServiceMetrics
-            totalRevenue={parseFloat(revenue)}
-            totalRequests={service.reputation.totalJobs}
+            totalRevenue={parseFloat(revenue.replace('$', ''))}
+            totalRequests={analytics.totalRequests}
             avgRating={service.reputation.rating}
-            revenueTrend={23}
-            requestsTrend={45}
+            revenueTrend={0}
+            requestsTrend={0}
             ratingTrend={0.2}
           />
 

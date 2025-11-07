@@ -3,10 +3,14 @@ import { getErrorMessage } from '../types/errors';
 import Joi from 'joi';
 import { ServiceRegistry } from '../registry/ServiceRegistry';
 import { SpendingLimitManager } from '../payment/SpendingLimitManager';
+import { SolanaVerifier } from '../payment/SolanaVerifier';
+import { Database } from '../registry/database';
 import axios from 'axios';
+import jwt from 'jsonwebtoken';
+import { v4 as uuid } from 'uuid';
 
 /**
- * Arguments for purchase_service tool
+ * Arguments for purchase_service tool (Step 1: Get payment instructions)
  */
 export interface PurchaseServiceArgs {
   serviceId: string;
@@ -15,7 +19,16 @@ export interface PurchaseServiceArgs {
 }
 
 /**
- * Validation schema for purchase_service
+ * Arguments for submit_payment tool (Step 2: Submit payment proof)
+ */
+export interface SubmitPaymentArgs {
+  serviceId: string;
+  txSignature: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Validation schemas
  */
 const purchaseServiceSchema = Joi.object({
   serviceId: Joi.string().required().description('UUID of the service to purchase'),
@@ -23,32 +36,26 @@ const purchaseServiceSchema = Joi.object({
   maxPayment: Joi.string().pattern(/^\$\d+(\.\d{1,2})?$/).optional().description('Maximum acceptable payment in format $X.XX')
 });
 
+const submitPaymentSchema = Joi.object({
+  serviceId: Joi.string().required().description('UUID of the service'),
+  txSignature: Joi.string().required().description('Solana transaction signature'),
+  data: Joi.object().required().description('Request data to send to the service')
+});
+
 /**
- * Purchase a service with x402 payment protocol
+ * STEP 1: Purchase Service (Returns 402 Payment Required)
  *
- * Makes initial request to service. If 402 Payment Required is returned,
- * returns payment instructions for the client to execute payment locally.
- * Client should then call execute_payment tool, then submit_payment with signature.
+ * Initiates service purchase. Returns 402 with payment instructions.
+ * Client pays service owner directly on Solana, then calls submitPayment.
+ *
+ * NEW ARCHITECTURE:
+ * - WE return 402 (not the service)
+ * - Payment goes to service owner's wallet
+ * - We verify payment and proxy request with JWT
  *
  * @param registry - Service registry instance
  * @param args - Purchase parameters
- * @returns MCP response with payment instructions (402) or service result (200)
- *
- * @example
- * const result = await purchaseService(registry, {
- *   serviceId: '123e4567-e89b-12d3-a456-426614174000',
- *   data: { text: 'Analyze this sentiment' },
- *   maxPayment: '$1.00'
- * });
- *
- * // On 402 Payment Required returns:
- * // {
- * //   status: 402,
- * //   message: 'Payment Required',
- * //   transactionId: 'tx-...',
- * //   paymentInstructions: { amount, recipient, token, network },
- * //   nextSteps: [...]
- * // }
+ * @returns MCP response with payment instructions (402)
  */
 export async function purchaseService(
   registry: ServiceRegistry,
@@ -57,7 +64,7 @@ export async function purchaseService(
   userId?: string
 ) {
   try {
-    // Step 1: Validate input
+    // Validate input
     const { error, value } = purchaseServiceSchema.validate(args);
     if (error) {
       logger.error('Validation error:', error.details);
@@ -74,8 +81,8 @@ export async function purchaseService(
 
     const { serviceId, data, maxPayment } = value;
 
-    // Step 2: Get service from registry
-    logger.info(`Purchasing service: ${serviceId}`);
+    // Get service from registry
+    logger.info(`Initiating purchase for service: ${serviceId}`);
     const service = await registry.getService(serviceId);
 
     if (!service) {
@@ -83,16 +90,28 @@ export async function purchaseService(
       return {
         content: [{
           type: 'text',
+          text: JSON.stringify({ error: `Service not found: ${serviceId}` })
+        }],
+        isError: true
+      };
+    }
+
+    // Check service status
+    if ((service as any).status !== 'approved') {
+      logger.error(`Service not approved: ${serviceId}`);
+      return {
+        content: [{
+          type: 'text',
           text: JSON.stringify({
-            error: `Service not found: ${serviceId}`
+            error: 'Service is not approved',
+            status: (service as any).status
           })
         }],
         isError: true
       };
     }
 
-    // Step 3: Check price limit (user-provided maxPayment)
-    // Handle both pricing formats: perRequest or amount
+    // Check price limit
     const priceString = service.pricing.perRequest || service.pricing.amount || '0';
     const servicePrice = parseFloat(priceString.toString().replace('$', ''));
     const servicePriceFormatted = `$${servicePrice.toFixed(2)}`;
@@ -100,12 +119,11 @@ export async function purchaseService(
     if (maxPayment) {
       const maxPrice = parseFloat(maxPayment.replace('$', ''));
       if (servicePrice > maxPrice) {
-        logger.error(`Price ${servicePrice} exceeds max payment ${maxPrice}`);
         return {
           content: [{
             type: 'text',
             text: JSON.stringify({
-              error: `Service price $${servicePrice} exceeds maximum payment ${maxPayment}`,
+              error: `Service price ${servicePriceFormatted} exceeds maximum payment ${maxPayment}`,
               servicePrice: servicePriceFormatted,
               maxPayment
             })
@@ -115,11 +133,10 @@ export async function purchaseService(
       }
     }
 
-    // Step 3.5: Check spending limits (if enabled and userId provided)
+    // Check spending limits
     if (limitManager && userId) {
       const limitCheck = await limitManager.checkLimit(userId, servicePriceFormatted);
       if (!limitCheck.allowed) {
-        logger.warn(`Spending limit exceeded for ${userId}: ${limitCheck.reason}`);
         return {
           content: [{
             type: 'text',
@@ -129,136 +146,55 @@ export async function purchaseService(
               servicePrice: servicePriceFormatted,
               currentSpending: limitCheck.currentSpending,
               limits: limitCheck.limits,
-              hint: 'Use check_spending to view your spending or set_spending_limits to adjust limits'
+              hint: 'Use check_spending or set_spending_limits to adjust'
             })
           }],
           isError: true
         };
       }
-
-      logger.info(`✓ Spending limit check passed for ${userId}`, {
-        amount: servicePriceFormatted,
-        remaining: limitCheck.currentSpending
-      });
     }
 
-    // Step 4: Make initial request to service
-    logger.info(`Making initial request to service: ${service.endpoint}`);
+    // Return 402 Payment Required with service owner's wallet
+    const providerWallet = (service as any).provider_wallet || (service as any).providerWallet || service.provider;
+    const network = (service as any).network || 'solana';
+    const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // USDC devnet
+    const amountInCents = Math.round(servicePrice * 100); // Convert to cents
+    const amountInSmallestUnit = amountInCents * 10000; // USDC has 6 decimals, so $0.01 = 10000
 
-    try {
-      const response = await axios.post(
-        service.endpoint,
-        data,
-        {
-          headers: {
-            'Content-Type': 'application/json'
+    logger.info('💳 Returning 402 Payment Required', {
+      serviceId: service.id,
+      price: servicePriceFormatted,
+      recipient: providerWallet
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          status: 402,
+          message: 'Payment Required',
+          service: {
+            id: service.id,
+            name: service.name,
+            description: service.description,
+            provider: service.provider
           },
-          timeout: 30000, // 30 second timeout
-          validateStatus: (status) => status < 500 // Don't throw on 4xx
-        }
-      );
-
-      // Check for 402 Payment Required
-      if (response.status === 402) {
-        logger.info('Service returned 402 Payment Required');
-
-        // Parse payment details from response (x402 format)
-        const x402Response = response.data;
-        const paymentOption = x402Response.accepts?.[0];
-
-        if (!paymentOption) {
-          throw new Error('No payment options in 402 response');
-        }
-
-        // Extract payment details from x402 response
-        const recipient = paymentOption.receiverAddress || paymentOption.payTo || service.provider;
-        const amount = paymentOption.amount || paymentOption.maxAmountRequired || '0';
-        const tokenAddress = paymentOption.tokenAddress || paymentOption.asset || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // USDC devnet
-        const network = (paymentOption.chainId || paymentOption.network || 'solana-devnet');
-
-        // Return 402 Payment Required with instructions for client to pay
-        logger.info('💳 Service requires payment - returning 402 instructions');
-
-        // Create pending transaction ID
-        const transactionId = `tx-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-
-        // TODO: Store pending transaction in database via registry
-        // await registry.createTransaction({...});
-
-        // Return payment instructions for client to execute locally
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              status: 402,
-              message: 'Payment Required',
-              transactionId,
-              service: {
-                id: service.id,
-                name: service.name,
-                endpoint: service.endpoint,
-              },
-              paymentInstructions: {
-                transactionId,
-                amount,
-                currency: 'USDC',
-                recipient,
-                token: tokenAddress,
-                network,
-              },
-              nextSteps: [
-                '1. Call execute_payment tool with these paymentInstructions',
-                '2. Get the transaction signature from execute_payment',
-                '3. Call submit_payment with the signature to complete purchase'
-              ]
-            }, null, 2)
-          }]
-        };
-      }
-
-      // If status 200, service didn't require payment (unlikely for x402 services)
-      if (response.status === 200) {
-        logger.info('Service completed without payment (unusual for x402)');
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              serviceResult: response.data,
-              note: 'Service completed without payment requirement'
-            }, null, 2)
-          }]
-        };
-      }
-
-      // Other 4xx errors
-      logger.error(`Service returned ${response.status}:`, response.data);
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            error: `Service error (${response.status})`,
-            details: response.data
-          })
-        }],
-        isError: true
-      };
-
-    } catch (requestError: unknown) {
-      const message = getErrorMessage(requestError);
-      logger.error('Service request failed:', message);
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            error: 'Failed to contact service',
-            details: message,
-            endpoint: service.endpoint
-          })
-        }],
-        isError: true
-      };
-    }
+          paymentInstructions: {
+            amount: amountInSmallestUnit.toString(),
+            currency: 'USDC',
+            recipient: providerWallet,
+            token: tokenAddress,
+            network: network,
+            priceFormatted: servicePriceFormatted,
+          },
+          nextSteps: [
+            '1. Pay the specified amount to the recipient wallet on Solana',
+            '2. Get the transaction signature from your wallet',
+            '3. Call submit_payment tool with the signature to complete the request'
+          ]
+        }, null, 2)
+      }]
+    };
 
   } catch (error: unknown) {
     logger.error('Error in purchaseService:', error);
@@ -267,6 +203,269 @@ export async function purchaseService(
         type: 'text',
         text: JSON.stringify({
           error: getErrorMessage(error) || 'Unknown error during service purchase'
+        })
+      }],
+      isError: true
+    };
+  }
+}
+
+/**
+ * STEP 2: Submit Payment (Verify payment and execute service)
+ *
+ * After client pays service owner on Solana:
+ * 1. Verify payment on blockchain using SolanaVerifier
+ * 2. Check replay prevention (requestId not used)
+ * 3. Generate signed JWT with payment details
+ * 4. Call service with JWT in X-AgentMarket-Auth header
+ * 5. Return service result
+ *
+ * @param registry - Service registry
+ * @param db - Database for replay prevention
+ * @param verifier - Solana payment verifier
+ * @param args - Payment submission args
+ * @returns Service result or error
+ */
+export async function submitPayment(
+  registry: ServiceRegistry,
+  db: Database,
+  verifier: SolanaVerifier,
+  args: SubmitPaymentArgs,
+  limitManager?: SpendingLimitManager,
+  userId?: string
+) {
+  try {
+    // Validate input
+    const { error, value } = submitPaymentSchema.validate(args);
+    if (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({ error: `Validation error: ${getErrorMessage(error)}` })
+        }],
+        isError: true
+      };
+    }
+
+    const { serviceId, txSignature, data } = value;
+
+    // Get service
+    const service = await registry.getService(serviceId);
+    if (!service) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({ error: 'Service not found' })
+        }],
+        isError: true
+      };
+    }
+
+    // Get payment details
+    const priceString = service.pricing.perRequest || service.pricing.amount || '0';
+    const servicePrice = parseFloat(priceString.toString().replace('$', ''));
+    const providerWallet = (service as any).provider_wallet || (service as any).providerWallet;
+    const network = (service as any).network || 'devnet';
+    const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // USDC devnet
+
+    // Calculate expected amount in smallest unit (USDC has 6 decimals)
+    const amountInCents = Math.round(servicePrice * 100);
+    const expectedAmount = BigInt(amountInCents * 10000);
+
+    logger.info('🔍 Verifying payment on Solana', {
+      txSignature,
+      expectedAmount: expectedAmount.toString(),
+      recipient: providerWallet,
+      network
+    });
+
+    // Step 1: Verify payment on blockchain
+    const verificationResult = await verifier.verifyPayment({
+      signature: txSignature,
+      expectedAmount,
+      expectedRecipient: providerWallet,
+      expectedToken: tokenAddress,
+      network: network === 'mainnet-beta' ? 'mainnet-beta' : 'devnet'
+    });
+
+    if (!verificationResult.verified) {
+      logger.error('Payment verification failed', verificationResult);
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            error: 'Payment verification failed',
+            details: verificationResult.error
+          })
+        }],
+        isError: true
+      };
+    }
+
+    logger.info('✅ Payment verified successfully');
+
+    // Step 2: Generate unique requestId and check replay
+    const requestId = uuid();
+
+    // Check if this tx signature was already used
+    const alreadyUsed = await db.get<{ request_id: string }>(
+      'SELECT request_id FROM used_request_ids WHERE tx_signature = ?',
+      [txSignature]
+    );
+
+    if (alreadyUsed) {
+      logger.error('Transaction already used (replay attack prevented)', { txSignature });
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            error: 'Payment already used',
+            details: 'This transaction signature has already been used for a previous request'
+          })
+        }],
+        isError: true
+      };
+    }
+
+    // Step 3: Record requestId as used
+    const now = Date.now();
+    const expiresAt = now + 3600000; // 1 hour
+
+    await db.run(`
+      INSERT INTO used_request_ids (request_id, service_id, tx_signature, used_at, expires_at)
+      VALUES (?, ?, ?, ?, ?)
+    `, [requestId, serviceId, txSignature, now, expiresAt]);
+
+    logger.info('✓ Request ID recorded', { requestId });
+
+    // Step 4: Generate signed JWT
+    const privateKey = process.env.JWT_PRIVATE_KEY;
+    if (!privateKey) {
+      throw new Error('JWT_PRIVATE_KEY not configured');
+    }
+
+    // Parse the private key (handle escaped newlines)
+    const formattedKey = privateKey.replace(/\\n/g, '\n');
+
+    const jwtPayload = {
+      serviceId: service.id,
+      requestId,
+      txSignature,
+      walletAddress: providerWallet,
+      price: priceString,
+      timestamp: now,
+      exp: Math.floor((now + 300000) / 1000) // 5 min expiry
+    };
+
+    const token = jwt.sign(jwtPayload, formattedKey, { algorithm: 'RS256' });
+
+    logger.info('✓ JWT generated', { requestId, expiresIn: '5min' });
+
+    // Step 5: Call service with JWT
+    logger.info(`🚀 Calling service with JWT: ${service.endpoint}`);
+
+    const serviceResponse = await axios.post(
+      service.endpoint,
+      data,
+      {
+        headers: {
+          'X-AgentMarket-Auth': token,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000,
+        validateStatus: (status) => status < 500
+      }
+    );
+
+    // Handle service response
+    if (serviceResponse.status === 402) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            error: 'Service still requires payment',
+            details: 'Service middleware may not be configured correctly',
+            hint: 'Service should accept our JWT in X-AgentMarket-Auth header'
+          })
+        }],
+        isError: true
+      };
+    }
+
+    if (serviceResponse.status === 401) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            error: 'Service rejected payment proof',
+            details: serviceResponse.data
+          })
+        }],
+        isError: true
+      };
+    }
+
+    if (serviceResponse.status !== 200) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            error: `Service error (${serviceResponse.status})`,
+            details: serviceResponse.data
+          })
+        }],
+        isError: true
+      };
+    }
+
+    // Step 7: Record transaction in database
+    const transactionId = `tx-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    await db.run(`
+      INSERT INTO transactions (id, serviceId, buyer, seller, amount, currency, status, request, response, paymentHash, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      transactionId,
+      serviceId,
+      userId || 'anonymous',
+      service.provider,
+      priceString,
+      'USDC',
+      'completed',
+      JSON.stringify(data),
+      JSON.stringify(serviceResponse.data),
+      txSignature,
+      new Date().toISOString()
+    ]);
+
+    logger.info('✅ Transaction completed successfully', { serviceId, requestId, transactionId });
+
+    // Return service result
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          service: {
+            id: service.id,
+            name: service.name
+          },
+          payment: {
+            amount: `$${servicePrice.toFixed(2)}`,
+            txSignature,
+            verified: true
+          },
+          result: serviceResponse.data
+        }, null, 2)
+      }]
+    };
+
+  } catch (error: unknown) {
+    logger.error('Error in submitPayment:', error);
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          error: getErrorMessage(error) || 'Unknown error during payment submission'
         })
       }],
       isError: true

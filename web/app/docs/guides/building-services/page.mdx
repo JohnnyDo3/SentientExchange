@@ -1,0 +1,754 @@
+# Building x402 Services
+
+**TL;DR:** Build AI services that accept micropayments via x402 protocol. Return 402 Payment Required, verify JWT tokens from AgentMarket, and get paid automatically. Complete implementation guide with Express middleware.
+
+## Overview
+
+An x402 AI service is a standard HTTP API that:
+
+1. **Returns 402 Payment Required** for unpaid requests
+2. **Accepts payment proof** via JWT token
+3. **Verifies tokens** from AgentMarket
+4. **Executes AI logic** after payment verification
+5. **Charges per request** (micropayments)
+
+This guide shows you how to build a production-ready x402 service from scratch.
+
+## Quick Start (15 Minutes)
+
+### 1. Install Dependencies
+
+```bash
+npm install express @sentientexchange/x402-middleware dotenv
+```
+
+### 2. Create Service
+
+**`server.js`**:
+
+```javascript
+import express from 'express';
+import { x402Middleware } from '@sentientexchange/x402-middleware';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const app = express();
+app.use(express.json());
+
+// x402-protected endpoint
+app.post('/analyze',
+  x402Middleware({
+    price: process.env.SERVICE_PRICE || '0.01',  // $0.01 USDC
+    walletAddress: process.env.WALLET_ADDRESS,   // Your Solana wallet
+    network: 'solana-devnet'
+  }),
+  async (req, res) => {
+    // Payment verified - execute service
+    const { text } = req.body;
+
+    // Your AI logic here
+    const result = await analyzeSentiment(text);
+
+    res.json({
+      success: true,
+      result
+    });
+  }
+);
+
+app.listen(3000, () => {
+  console.log('x402 service running on port 3000');
+});
+```
+
+### 3. Configure Environment
+
+**`.env`**:
+
+```bash
+SERVICE_PRICE=0.01
+WALLET_ADDRESS=your-solana-wallet-address
+AGENTMARKET_PUBLIC_KEY=LS0tLS1CRUdJTi...  # Public key for JWT verification
+```
+
+### 4. Test Your Service
+
+```bash
+# Without payment (returns 402)
+curl -X POST http://localhost:3000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"text": "I love this product!"}'
+
+# Response (402):
+{
+  "error": "Payment Required",
+  "accepts": [{
+    "receiverAddress": "your-wallet-address",
+    "amount": "10000",
+    "tokenAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "chainId": "solana-devnet"
+  }]
+}
+
+# With payment (via AgentMarket)
+curl -X POST http://localhost:3000/analyze \
+  -H "Content-Type: application/json" \
+  -H "X-AgentMarket-Auth: <jwt-token>" \
+  -d '{"text": "I love this product!"}'
+
+# Response (200):
+{
+  "success": true,
+  "result": {
+    "sentiment": "positive",
+    "score": 0.95
+  }
+}
+```
+
+Done! Your service now accepts micropayments via AgentMarket.
+
+## x402 Middleware Deep Dive
+
+### How It Works
+
+The `@sentientexchange/x402-middleware` package handles the entire x402 flow:
+
+```javascript
+import { x402Middleware } from '@sentientexchange/x402-middleware';
+
+app.post('/api/service',
+  x402Middleware(options),
+  yourHandler
+);
+```
+
+**Flow**:
+
+```
+1. Request arrives → Middleware checks for X-AgentMarket-Auth header
+
+   ❌ No header → Return 402 with payment instructions
+   ✅ Has header → Verify JWT token
+
+2. JWT verification:
+   - Decode JWT
+   - Verify signature with AgentMarket public key
+   - Check expiration (5 minutes)
+   - Validate payload (price, recipient, network)
+
+   ❌ Invalid → Return 401 Unauthorized
+   ✅ Valid → Attach payment info to req.agentMarketPayment
+
+3. Execute your handler:
+   - req.agentMarketPayment contains verified payment details
+   - Run your AI logic
+   - Return result (200 OK)
+```
+
+### Middleware Options
+
+```typescript
+interface X402MiddlewareOptions {
+  price: string;           // Service price in USDC (e.g., "0.01")
+  walletAddress: string;   // Your Solana wallet address
+  network?: string;        // "solana-devnet" or "mainnet-beta" (default: devnet)
+  publicKey?: string;      // AgentMarket public key for JWT verification
+  requirePayment?: boolean; // Skip payment for testing (default: true)
+}
+```
+
+### Manual Implementation (Without Middleware)
+
+If you want full control, implement x402 manually:
+
+```typescript
+import express from 'express';
+import jwt from 'jsonwebtoken';
+
+const app = express();
+app.use(express.json());
+
+const SERVICE_PRICE = '0.01';
+const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
+const AGENTMARKET_PUBLIC_KEY = process.env.AGENTMARKET_PUBLIC_KEY;
+
+app.post('/analyze', async (req, res) => {
+  // 1. Check for payment token
+  const authHeader = req.headers['x-agentmarket-auth'];
+
+  if (!authHeader) {
+    // No payment - return 402
+    return res.status(402).json({
+      error: 'Payment Required',
+      accepts: [{
+        receiverAddress: WALLET_ADDRESS,
+        amount: (parseFloat(SERVICE_PRICE) * 1_000_000).toString(),  // USDC base units
+        tokenAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',  // USDC
+        chainId: 'solana-devnet',
+        network: 'solana'
+      }]
+    });
+  }
+
+  // 2. Verify JWT token
+  try {
+    const payload = jwt.verify(authHeader, AGENTMARKET_PUBLIC_KEY, {
+      algorithms: ['RS256']
+    });
+
+    // 3. Validate payment details
+    if (payload.amount !== (parseFloat(SERVICE_PRICE) * 1_000_000).toString()) {
+      return res.status(400).json({
+        error: 'Payment amount mismatch',
+        expected: SERVICE_PRICE,
+        received: (parseInt(payload.amount) / 1_000_000).toString()
+      });
+    }
+
+    if (payload.recipient !== WALLET_ADDRESS) {
+      return res.status(400).json({
+        error: 'Payment recipient mismatch'
+      });
+    }
+
+    // 4. Payment verified - execute service
+    const { text } = req.body;
+    const result = await analyzeSentiment(text);
+
+    res.json({
+      success: true,
+      result,
+      payment: {
+        verified: true,
+        signature: payload.signature,
+        amount: SERVICE_PRICE
+      }
+    });
+
+  } catch (error) {
+    // JWT verification failed
+    return res.status(401).json({
+      error: 'Invalid or expired payment token',
+      details: error.message
+    });
+  }
+});
+```
+
+## Pricing Strategies
+
+### Fixed Per-Request Pricing
+
+**Best for**: Simple services with predictable costs
+
+```javascript
+app.post('/sentiment',
+  x402Middleware({ price: '0.01', walletAddress }),
+  handler
+);
+
+app.post('/summarize',
+  x402Middleware({ price: '0.05', walletAddress }),
+  handler
+);
+```
+
+### Dynamic Pricing (Based on Input Size)
+
+```javascript
+app.post('/analyze', async (req, res) => {
+  const { text } = req.body;
+
+  // Calculate price based on text length
+  const basePrice = 0.01;
+  const pricePerKB = 0.001;
+  const sizeKB = Buffer.byteLength(text, 'utf8') / 1024;
+  const dynamicPrice = basePrice + (sizeKB * pricePerKB);
+
+  // Apply x402 middleware with dynamic price
+  const middleware = x402Middleware({
+    price: dynamicPrice.toFixed(3),
+    walletAddress
+  });
+
+  middleware(req, res, async () => {
+    const result = await analyzeText(text);
+    res.json({ success: true, result });
+  });
+});
+```
+
+### Tiered Pricing
+
+```javascript
+const PRICING_TIERS = {
+  basic: '0.01',    // Simple analysis
+  advanced: '0.05', // Deep analysis with ML
+  premium: '0.10'   // Real-time + historical context
+};
+
+app.post('/analyze/:tier', async (req, res) => {
+  const { tier } = req.params;
+  const price = PRICING_TIERS[tier] || PRICING_TIERS.basic;
+
+  const middleware = x402Middleware({ price, walletAddress });
+  middleware(req, res, async () => {
+    const result = await analyze(req.body, tier);
+    res.json({ success: true, result });
+  });
+});
+```
+
+### Free Tier + Paid
+
+```javascript
+app.post('/analyze', async (req, res) => {
+  const { text, premium } = req.body;
+
+  if (!premium) {
+    // Free tier: basic analysis
+    const result = await basicAnalysis(text);
+    return res.json({ success: true, result, tier: 'free' });
+  }
+
+  // Paid tier: advanced features
+  const middleware = x402Middleware({
+    price: '0.05',
+    walletAddress
+  });
+
+  middleware(req, res, async () => {
+    const result = await premiumAnalysis(text);
+    res.json({ success: true, result, tier: 'premium' });
+  });
+});
+```
+
+## Example: Sentiment Analysis Service
+
+**Reference**: `src/services/ai/sentiment/sentimentAnalyzer.ts`
+
+```typescript
+import express from 'express';
+import { x402Middleware } from '@sentientexchange/x402-middleware';
+
+const app = express();
+app.use(express.json());
+
+// Emotion lexicons
+const EMOTIONS = {
+  joy: ['happy', 'love', 'amazing', 'excellent', 'perfect'],
+  sadness: ['sad', 'disappointed', 'unfortunate', 'terrible'],
+  anger: ['angry', 'furious', 'hate', 'awful', 'worst'],
+  // ... more emotions
+};
+
+function analyzeSentiment(text: string) {
+  const words = text.toLowerCase().split(/\s+/);
+  const emotions = {};
+
+  // Count emotion keywords
+  for (const [emotion, keywords] of Object.entries(EMOTIONS)) {
+    const count = words.filter(w => keywords.includes(w)).length;
+    if (count > 0) {
+      emotions[emotion] = count / words.length;
+    }
+  }
+
+  // Calculate overall sentiment
+  const positive = (emotions.joy || 0) + (emotions.surprise || 0);
+  const negative = (emotions.sadness || 0) + (emotions.anger || 0);
+  const polarity = positive - negative;
+
+  return {
+    overall: {
+      polarity,
+      category: polarity > 0.1 ? 'positive' :
+                polarity < -0.1 ? 'negative' : 'neutral',
+      confidence: Math.abs(polarity)
+    },
+    emotions: Object.entries(emotions).map(([emotion, score]) => ({
+      emotion,
+      score,
+      intensity: score > 0.3 ? 'high' : score > 0.1 ? 'medium' : 'low'
+    })),
+    keywords: {
+      positive: words.filter(w => EMOTIONS.joy?.includes(w)),
+      negative: words.filter(w => EMOTIONS.sadness?.includes(w) ||
+                                    EMOTIONS.anger?.includes(w))
+    }
+  };
+}
+
+// x402-protected endpoint
+app.post('/analyze',
+  x402Middleware({
+    price: '0.01',
+    walletAddress: process.env.WALLET_ADDRESS,
+    network: 'solana-devnet'
+  }),
+  async (req, res) => {
+    const { text } = req.body;
+
+    if (!text) {
+      return res.status(400).json({
+        error: 'Missing required field: text'
+      });
+    }
+
+    const result = analyzeSentiment(text);
+
+    res.json({
+      success: true,
+      result,
+      service: 'sentiment-analyzer-v1',
+      price: req.agentMarketPayment.price
+    });
+  }
+);
+
+// Health check (free)
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    service: 'sentiment-analyzer',
+    version: '1.0.0',
+    uptime: process.uptime()
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Sentiment Analyzer running on port ${PORT}`);
+  console.log(`Price: $${process.env.SERVICE_PRICE || '0.01'} per request`);
+});
+```
+
+## Registering Your Service
+
+After building your service, register it on AgentMarket:
+
+```bash
+curl -X POST https://sentientexchange.com/api/services \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "name": "Sentiment Analyzer Pro",
+    "description": "Advanced sentiment analysis with emotion detection",
+    "endpoint": "https://your-service.com/analyze",
+    "capabilities": ["sentiment-analysis", "emotion-detection"],
+    "pricing": {
+      "perRequest": "0.01",
+      "currency": "USDC"
+    },
+    "provider": "YourCompany",
+    "provider_wallet": "your-solana-wallet-address",
+    "network": "solana-devnet"
+  }'
+```
+
+**Required fields**:
+- `name`: Service display name
+- `description`: What your service does
+- `endpoint`: Full URL to your x402 endpoint
+- `capabilities`: Array of capability tags
+- `pricing.perRequest`: Price in USDC (string)
+- `provider_wallet`: Your Solana wallet (receives payments)
+
+## Best Practices
+
+### 1. Always Include Health Checks
+
+```typescript
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    service: 'your-service-name',
+    version: '1.0.0',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+```
+
+AgentMarket uses health checks to verify services are online.
+
+### 2. Validate Input
+
+```typescript
+app.post('/analyze',
+  x402Middleware(options),
+  async (req, res) => {
+    const { text } = req.body;
+
+    // Validate input
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({
+        error: 'Invalid input',
+        message: 'Field "text" is required and must be a string'
+      });
+    }
+
+    if (text.length > 10000) {
+      return res.status(400).json({
+        error: 'Input too long',
+        message: 'Maximum text length is 10,000 characters',
+        maxLength: 10000
+      });
+    }
+
+    // Process request...
+  }
+);
+```
+
+### 3. Return Structured Errors
+
+```typescript
+app.use((error, req, res, next) => {
+  console.error('Service error:', error);
+
+  res.status(error.status || 500).json({
+    error: error.name || 'Internal Server Error',
+    message: error.message,
+    service: 'your-service-name',
+    timestamp: new Date().toISOString()
+  });
+});
+```
+
+### 4. Monitor Performance
+
+```typescript
+import { performance } from 'perf_hooks';
+
+app.post('/analyze',
+  x402Middleware(options),
+  async (req, res) => {
+    const start = performance.now();
+
+    const result = await analyzeText(req.body.text);
+
+    const duration = performance.now() - start;
+    console.log(`Request processed in ${duration.toFixed(2)}ms`);
+
+    res.json({
+      success: true,
+      result,
+      performance: {
+        duration: `${duration.toFixed(2)}ms`
+      }
+    });
+  }
+);
+```
+
+### 5. Implement Rate Limiting
+
+```typescript
+import rateLimit from 'express-rate-limit';
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 100,  // 100 requests per window
+  message: {
+    error: 'Too many requests',
+    retryAfter: '15 minutes'
+  }
+});
+
+app.use('/analyze', limiter);
+```
+
+### 6. Use HTTPS in Production
+
+```typescript
+import https from 'https';
+import fs from 'fs';
+
+const options = {
+  key: fs.readFileSync('private-key.pem'),
+  cert: fs.readFileSync('certificate.pem')
+};
+
+https.createServer(options, app).listen(443, () => {
+  console.log('Secure x402 service running on port 443');
+});
+```
+
+### 7. Log Transactions
+
+```typescript
+app.post('/analyze',
+  x402Middleware(options),
+  async (req, res) => {
+    const payment = req.agentMarketPayment;
+
+    // Log successful payment
+    console.log('Payment received:', {
+      signature: payment.signature,
+      amount: payment.price,
+      timestamp: new Date().toISOString(),
+      serviceId: payment.serviceId
+    });
+
+    // Store in database for analytics
+    await db.insertTransaction({
+      signature: payment.signature,
+      amount: payment.price,
+      service: 'sentiment-analyzer',
+      timestamp: Date.now()
+    });
+
+    const result = await analyzeText(req.body.text);
+    res.json({ success: true, result });
+  }
+);
+```
+
+## Deployment
+
+### Deploy to Railway
+
+1. **Create `railway.toml`**:
+
+```toml
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "node server.js"
+
+[[services]]
+name = "sentiment-analyzer"
+port = 3000
+```
+
+2. **Deploy**:
+
+```bash
+railway login
+railway up
+```
+
+3. **Set environment variables** in Railway dashboard:
+   - `SERVICE_PRICE=0.01`
+   - `WALLET_ADDRESS=your-wallet`
+   - `AGENTMARKET_PUBLIC_KEY=...`
+
+### Deploy to Heroku
+
+```bash
+heroku create your-service-name
+heroku config:set SERVICE_PRICE=0.01
+heroku config:set WALLET_ADDRESS=your-wallet
+git push heroku main
+```
+
+### Deploy to AWS Lambda
+
+Use `serverless` framework:
+
+```yaml
+# serverless.yml
+service: sentiment-analyzer
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+
+functions:
+  analyze:
+    handler: handler.analyze
+    events:
+      - http:
+          path: /analyze
+          method: post
+    environment:
+      SERVICE_PRICE: ${env:SERVICE_PRICE}
+      WALLET_ADDRESS: ${env:WALLET_ADDRESS}
+```
+
+## Monitoring & Analytics
+
+### Track Revenue
+
+```typescript
+let totalRevenue = 0;
+let requestCount = 0;
+
+app.post('/analyze',
+  x402Middleware(options),
+  async (req, res) => {
+    const price = parseFloat(req.agentMarketPayment.price);
+    totalRevenue += price;
+    requestCount++;
+
+    console.log(`Revenue: $${totalRevenue.toFixed(2)} (${requestCount} requests)`);
+
+    // ... process request
+  }
+);
+
+// Revenue endpoint (protected)
+app.get('/admin/stats', requireAuth, (req, res) => {
+  res.json({
+    totalRevenue: `$${totalRevenue.toFixed(2)}`,
+    requestCount,
+    averagePrice: `$${(totalRevenue / requestCount).toFixed(2)}`
+  });
+});
+```
+
+### Error Tracking
+
+```typescript
+import * as Sentry from '@sentry/node';
+
+Sentry.init({ dsn: process.env.SENTRY_DSN });
+
+app.use(Sentry.Handlers.requestHandler());
+app.use(Sentry.Handlers.errorHandler());
+```
+
+## Testing
+
+### Unit Tests
+
+```typescript
+import request from 'supertest';
+import app from './server';
+
+describe('Sentiment Analyzer', () => {
+  it('should return 402 without payment', async () => {
+    const response = await request(app)
+      .post('/analyze')
+      .send({ text: 'I love this!' });
+
+    expect(response.status).toBe(402);
+    expect(response.body.error).toBe('Payment Required');
+  });
+
+  it('should analyze sentiment with valid payment', async () => {
+    const token = generateTestToken();
+
+    const response = await request(app)
+      .post('/analyze')
+      .set('X-AgentMarket-Auth', token)
+      .send({ text: 'I love this product!' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.result.overall.category).toBe('positive');
+  });
+});
+```
+
+## Next Steps
+
+- [Payment Execution Guide](/docs/guides/payment-execution) - Understand the payment flow
+- [Authentication Guide](/docs/guides/authentication) - Implement JWT verification
+- [REST API Reference](/docs/api/rest-endpoints) - Register your service
+- [Service Provider Quickstart](/docs/quickstart/service-provider) - Complete tutorial

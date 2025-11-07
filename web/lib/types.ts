@@ -38,6 +38,7 @@ export interface ServiceFilters {
   minPrice?: number;
   maxPrice?: number;
   minRating?: number;
+  sortBy?: 'price-asc' | 'price-desc' | 'rating-asc' | 'rating-desc' | 'name-asc' | 'name-desc';
 }
 
 export interface MarketplaceStats {

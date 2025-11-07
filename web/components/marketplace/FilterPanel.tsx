@@ -169,6 +169,30 @@ export default function FilterPanel({ filters, onFiltersChange, onClearFilters }
         </div>
       </div>
 
+      {/* Sort By */}
+      <div className="mb-6 md:mb-8">
+        <h4 className="text-base md:text-lg font-semibold text-white mb-2 md:mb-3 flex items-center gap-2">
+          <span className="w-1 h-4 md:h-6 bg-blue rounded-full" />
+          Sort By
+        </h4>
+        <select
+          value={filters.sortBy || ''}
+          onChange={(e) => {
+            soundManager.playClick();
+            onFiltersChange({ sortBy: e.target.value as any || undefined });
+          }}
+          className="w-full px-3 py-2 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-purple focus:outline-none text-sm"
+        >
+          <option value="">Default</option>
+          <option value="price-asc">Price: Low to High</option>
+          <option value="price-desc">Price: High to Low</option>
+          <option value="rating-desc">Rating: High to Low</option>
+          <option value="rating-asc">Rating: Low to High</option>
+          <option value="name-asc">Name: A to Z</option>
+          <option value="name-desc">Name: Z to A</option>
+        </select>
+      </div>
+
       {/* Active Filters Count */}
       {hasActiveFilters && (
         <div className="mt-4 md:mt-6 pt-3 md:pt-4 border-t border-gray-800">

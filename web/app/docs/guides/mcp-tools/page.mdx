@@ -1,0 +1,651 @@
+# MCP Tools Reference
+
+**TL;DR:** AgentMarket provides 13 MCP tools (7 standard + 6 smart) for service discovery, payment execution, and budget management. Smart tools reduce API calls by 40%.
+
+## Tool Categories
+
+| Category | Tools | Purpose |
+|----------|-------|---------|
+| **Discovery** | `discover_services`, `get_service_details`, `list_all_services` | Find and evaluate services |
+| **Payment** | `purchase_service`, `execute_payment`, `submit_payment` | Complete payment flow |
+| **Analytics** | `get_transaction`, `rate_service` | Transaction history and reviews |
+| **Budget** | `set_spending_limits`, `check_spending`, `reset_spending_limits` | Budget controls |
+| **Smart Workflows** | `discover_and_prepare_service`, `complete_service_with_payment` | Optimize workflows |
+
+## Standard Tools (7)
+
+### 1. discover_services
+
+Search for AI services by capability, price, and rating.
+
+**Schema**:
+```json
+{
+  "name": "discover_services",
+  "description": "Search for AI services by capability, price, or rating",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "capability": {
+        "type": "string",
+        "description": "Filter by service capability (e.g., 'sentiment-analysis')"
+      },
+      "maxPrice": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Maximum price in format $X.XX"
+      },
+      "minRating": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 5,
+        "description": "Minimum rating (1-5 stars)"
+      },
+      "limit": {
+        "type": "number",
+        "default": 10,
+        "minimum": 1,
+        "maximum": 100,
+        "description": "Maximum number of results"
+      }
+    }
+  }
+}
+```
+
+**Example Usage**:
+```
+User: Find sentiment analysis services under $0.10 with rating above 4.0
+
+Claude calls:
+{
+  "capability": "sentiment-analysis",
+  "maxPrice": "$0.10",
+  "minRating": 4.0,
+  "limit": 10
+}
+
+Response:
+{
+  "services": [
+    {
+      "id": "service-sentiment-001",
+      "name": "Sentiment Analyzer Pro",
+      "description": "Advanced sentiment analysis",
+      "price": "$0.01",
+      "rating": 4.9,
+      "capabilities": ["sentiment-analysis", "emotion-detection"]
+    }
+  ],
+  "count": 1
+}
+```
+
+### 2. get_service_details
+
+Get complete information about a specific service.
+
+**Schema**:
+```json
+{
+  "name": "get_service_details",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "serviceId": {
+        "type": "string",
+        "description": "Unique service identifier"
+      }
+    },
+    "required": ["serviceId"]
+  }
+}
+```
+
+**Response Includes**:
+- Full service metadata
+- Pricing details
+- Reputation stats (totalJobs, successRate, rating)
+- Provider information
+- Health check URL
+- Payment wallet address
+
+### 3. list_all_services
+
+List all available services with pagination.
+
+**Schema**:
+```json
+{
+  "name": "list_all_services",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "offset": {
+        "type": "number",
+        "default": 0,
+        "description": "Pagination offset"
+      },
+      "limit": {
+        "type": "number",
+        "default": 20,
+        "maximum": 100,
+        "description": "Results per page"
+      }
+    }
+  }
+}
+```
+
+### 4. purchase_service
+
+Request service execution (returns payment instruction if needed).
+
+**Schema**:
+```json
+{
+  "name": "purchase_service",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "serviceId": {
+        "type": "string",
+        "description": "Service to purchase"
+      },
+      "input": {
+        "type": "object",
+        "description": "Service-specific input parameters"
+      }
+    },
+    "required": ["serviceId", "input"]
+  }
+}
+```
+
+**Response (402 Payment Required)**:
+```json
+{
+  "status": 402,
+  "message": "Payment Required",
+  "paymentInstruction": {
+    "recipient": "ABC123...XYZ",
+    "amount": "0.01",
+    "currency": "USDC",
+    "transaction_id": "tx-67890",
+    "network": "solana"
+  }
+}
+```
+
+### 5. execute_payment
+
+Execute payment with local Solana wallet (CLIENT-SIDE SIGNING).
+
+**Schema**:
+```json
+{
+  "name": "execute_payment",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "paymentInstruction": {
+        "type": "object",
+        "properties": {
+          "recipient": { "type": "string" },
+          "amount": { "type": "string" },
+          "currency": { "type": "string" },
+          "transaction_id": { "type": "string" }
+        },
+        "required": ["recipient", "amount", "transaction_id"]
+      }
+    },
+    "required": ["paymentInstruction"]
+  }
+}
+```
+
+**What Happens**:
+1. Loads `SOLANA_PRIVATE_KEY` from MCP client environment
+2. Signs SPL token transfer (USDC)
+3. Sends transaction to Solana blockchain
+4. Returns transaction signature
+
+**Response**:
+```json
+{
+  "success": true,
+  "signature": "3Xy7z8...abc123",
+  "message": "Payment executed successfully"
+}
+```
+
+<Callout type="danger">
+**RUNS CLIENT-SIDE ONLY!** This tool accesses `SOLANA_PRIVATE_KEY` from the MCP client environment (Claude Desktop config), NOT the server.
+</Callout>
+
+### 6. submit_payment
+
+Complete purchase by submitting payment proof.
+
+**Schema**:
+```json
+{
+  "name": "submit_payment",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "transactionId": {
+        "type": "string",
+        "description": "Transaction ID from payment instruction"
+      },
+      "signature": {
+        "type": "string",
+        "description": "Solana transaction signature"
+      },
+      "serviceId": {
+        "type": "string",
+        "description": "Service ID being purchased"
+      },
+      "input": {
+        "type": "object",
+        "description": "Service input parameters"
+      }
+    },
+    "required": ["transactionId", "signature", "serviceId", "input"]
+  }
+}
+```
+
+**What Happens**:
+1. Server verifies signature on Solana blockchain
+2. Checks payment amount and recipient
+3. Generates JWT payment token
+4. Retries service request with payment proof
+5. Returns service result
+
+**Response**:
+```json
+{
+  "success": true,
+  "result": {
+    "sentiment": "positive",
+    "score": 0.95
+  },
+  "payment": {
+    "verified": true,
+    "signature": "3Xy7z8...abc123",
+    "amount": "$0.01"
+  }
+}
+```
+
+### 7. rate_service
+
+Submit rating and review for a completed transaction.
+
+**Schema**:
+```json
+{
+  "name": "rate_service",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "serviceId": { "type": "string" },
+      "transactionId": { "type": "string" },
+      "score": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 5,
+        "description": "Rating (1-5 stars)"
+      },
+      "review": {
+        "type": "string",
+        "maxLength": 500,
+        "description": "Optional review text"
+      }
+    },
+    "required": ["serviceId", "score"]
+  }
+}
+```
+
+## Budget Management Tools (3)
+
+### 8. set_spending_limits
+
+Configure budget controls for autonomous agents.
+
+**Schema**:
+```json
+{
+  "name": "set_spending_limits",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "perTransaction": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Max per service call (e.g., '$5.00')"
+      },
+      "daily": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Max per 24 hours (e.g., '$50.00')"
+      },
+      "monthly": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Max per 30 days (e.g., '$500.00')"
+      }
+    }
+  }
+}
+```
+
+**Example**:
+```
+User: Set my spending limits to $5 per transaction, $50 per day, $500 per month
+
+Response:
+{
+  "success": true,
+  "limits": {
+    "perTransaction": "$5.00",
+    "daily": "$50.00",
+    "monthly": "$500.00"
+  },
+  "message": "Spending limits updated"
+}
+```
+
+### 9. check_spending
+
+View current spending stats and remaining budget.
+
+**Response**:
+```json
+{
+  "limits": {
+    "perTransaction": "$5.00",
+    "daily": "$50.00",
+    "monthly": "$500.00"
+  },
+  "spending": {
+    "today": "$12.34",
+    "thisMonth": "$87.65"
+  },
+  "remaining": {
+    "daily": "$37.66",
+    "monthly": "$412.35"
+  }
+}
+```
+
+### 10. reset_spending_limits
+
+Remove all budget limits.
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "All spending limits removed"
+}
+```
+
+## Smart Workflow Tools (2)
+
+### 11. discover_and_prepare_service
+
+**Combines 3 operations into 1 call**: discover + health check + prepare payment
+
+**Schema**:
+```json
+{
+  "name": "discover_and_prepare_service",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "capability": { "type": "string" },
+      "maxPrice": { "type": "string" },
+      "minRating": { "type": "number" },
+      "input": {
+        "type": "object",
+        "description": "Service input for preparation"
+      }
+    },
+    "required": ["capability", "input"]
+  }
+}
+```
+
+**What It Does**:
+1. Searches services with filters
+2. Checks health endpoint of top result
+3. Prepares payment instruction
+4. Returns ready-to-pay instruction
+
+**Benefit**: 3 API calls → 1 API call (67% reduction)
+
+### 12. complete_service_with_payment
+
+**Combines verify + submit + retry**: Auto-retry with backup services on failure
+
+**Schema**:
+```json
+{
+  "name": "complete_service_with_payment",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "transactionId": { "type": "string" },
+      "signature": { "type": "string" },
+      "serviceId": { "type": "string" },
+      "input": { "type": "object" },
+      "backupServiceIds": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Fallback services if primary fails"
+      }
+    },
+    "required": ["transactionId", "signature", "serviceId", "input"]
+  }
+}
+```
+
+**What It Does**:
+1. Verifies payment on-chain
+2. Submits to primary service
+3. If fails, automatically retries with backups
+4. Returns first successful result
+
+**Benefit**: Built-in retry logic + error recovery
+
+## Workflow Comparison
+
+### Standard Workflow (5 calls)
+
+```
+1. discover_services({ capability: "sentiment" })
+2. get_service_details({ serviceId: "..." })
+3. purchase_service({ serviceId, input })
+4. execute_payment({ paymentInstruction })
+5. submit_payment({ signature, serviceId, input })
+
+Total: 5 tool calls
+```
+
+### Smart Workflow (3 calls)
+
+```
+1. discover_and_prepare_service({ capability: "sentiment", input })
+2. execute_payment({ paymentInstruction })
+3. complete_service_with_payment({ signature, serviceId, input })
+
+Total: 3 tool calls (40% reduction)
+```
+
+## Tool Usage Patterns
+
+### Pattern 1: Simple Service Call
+
+```
+User: "Analyze sentiment of: I love this product!"
+
+Claude:
+1. discover_services({ capability: "sentiment-analysis", limit: 1 })
+2. purchase_service({ serviceId, input: { text: "..." } })
+3. execute_payment({ paymentInstruction })
+4. submit_payment({ signature, serviceId, input })
+
+Result: Sentiment analysis returned
+```
+
+### Pattern 2: Price-Conscious Search
+
+```
+User: "Find the cheapest image analysis service with good ratings"
+
+Claude:
+1. discover_services({
+     capability: "image-analysis",
+     minRating: 4.0,
+     maxPrice: "$1.00",
+     limit: 5
+   })
+2. Sort by price
+3. Display options to user
+
+Result: List of affordable, quality services
+```
+
+### Pattern 3: Budget Management
+
+```
+User: "Set budget limits then analyze sentiment"
+
+Claude:
+1. set_spending_limits({
+     perTransaction: "$0.50",
+     daily: "$5.00"
+   })
+2. discover_services({ capability: "sentiment" })
+3. purchase_service({ serviceId, input })
+4. execute_payment({ paymentInstruction })
+   → Checked against limits before execution!
+5. submit_payment({ signature, serviceId, input })
+
+Result: Payment blocked if exceeds $0.50
+```
+
+## Error Handling
+
+All tools return structured error responses:
+
+```json
+{
+  "error": "Error type",
+  "message": "Human-readable description",
+  "details": {
+    // Additional context
+  }
+}
+```
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `SERVICE_NOT_FOUND` | Invalid service ID | Check `discover_services` results |
+| `PAYMENT_VERIFICATION_FAILED` | TX not on-chain or invalid | Wait for confirmation, retry |
+| `SPENDING_LIMIT_EXCEEDED` | Over budget | Increase limits or wait for reset |
+| `INVALID_INPUT` | Missing required field | Check tool schema |
+| `SERVICE_UNAVAILABLE` | Health check failed | Try backup service |
+
+## Best Practices
+
+### 1. Use Smart Tools for Production
+
+```typescript
+// Good: Smart workflow
+await discover_and_prepare_service({ capability, input });
+await execute_payment({ paymentInstruction });
+await complete_service_with_payment({ signature, serviceId, input, backupServiceIds });
+
+// Works but less efficient: Standard workflow
+await discover_services({ capability });
+await get_service_details({ serviceId });
+await purchase_service({ serviceId, input });
+await execute_payment({ paymentInstruction });
+await submit_payment({ signature, serviceId, input });
+```
+
+### 2. Always Set Spending Limits
+
+```typescript
+// Before any payments
+await set_spending_limits({
+  perTransaction: "$5.00",
+  daily: "$50.00",
+  monthly: "$500.00"
+});
+
+// Now protected from runaway costs
+```
+
+### 3. Check Spending Regularly
+
+```typescript
+const stats = await check_spending();
+console.log(`Spent today: ${stats.spending.today}`);
+console.log(`Remaining: ${stats.remaining.daily}`);
+```
+
+### 4. Provide Backup Services
+
+```typescript
+await complete_service_with_payment({
+  serviceId: "primary-service",
+  backupServiceIds: ["backup-1", "backup-2"],  // Auto-retry if primary fails
+  signature,
+  transactionId,
+  input
+});
+```
+
+### 5. Rate Services You Use
+
+```typescript
+// After successful service call
+await rate_service({
+  serviceId,
+  transactionId,
+  score: 5,
+  review: "Excellent accuracy and fast response!"
+});
+```
+
+## Tool Implementation Locations
+
+| Tool | File | Lines |
+|------|------|-------|
+| `discover_services` | `src/tools/discover.ts` | 1-120 |
+| `get_service_details` | `src/tools/details.ts` | 1-80 |
+| `purchase_service` | `src/tools/purchase.ts` | 1-150 |
+| `execute_payment` | `src/tools/execute-payment.ts` | 1-100 |
+| `submit_payment` | `src/tools/submit-payment.ts` | 1-120 |
+| `rate_service` | `src/tools/rate.ts` | 1-90 |
+| `list_all_services` | `src/tools/list.ts` | 1-70 |
+| `get_transaction` | `src/tools/transaction.ts` | 1-60 |
+| `set_spending_limits` | `src/tools/spending-limits.ts` | 1-80 |
+| `check_spending` | `src/tools/spending-limits.ts` | 81-140 |
+| `reset_spending_limits` | `src/tools/spending-limits.ts` | 141-170 |
+| `discover_and_prepare_service` | `src/tools/smart-discover-prepare.ts` | 1-180 |
+| `complete_service_with_payment` | `src/tools/smart-execute-complete.ts` | 1-200 |
+
+## Next Steps
+
+- [Smart Workflows](/docs/guides/smart-workflows) - Optimize with smart tools
+- [Spending Limits](/docs/guides/spending-limits) - Budget configuration
+- [Payment Execution](/docs/guides/payment-execution) - Deep dive into payment flow
+- [MCP Protocol Reference](/docs/api/mcp-protocol) - Complete schemas

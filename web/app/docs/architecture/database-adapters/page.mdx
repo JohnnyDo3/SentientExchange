@@ -1,0 +1,879 @@
+# Database Adapter Architecture
+
+**TL;DR:** AgentMarket uses a database adapter pattern to seamlessly switch between SQLite (local development) and PostgreSQL (Railway production) without code changes - auto-detection based on connection string format with unified query interface.
+
+## Overview
+
+The database layer provides a unified interface for data persistence across development and production environments. Auto-detection logic chooses the appropriate adapter based on the connection string, enabling zero-configuration database switching.
+
+```
+┌──────────────────────────────────────────────────────┐
+│              Application Code                         │
+│  (ServiceRegistry, API Server, MCP Tools)            │
+└───────────────────┬──────────────────────────────────┘
+                    │
+                    ▼
+┌──────────────────────────────────────────────────────┐
+│              Database (Unified Interface)             │
+│  - initialize()                                      │
+│  - run(sql, params)                                  │
+│  - get<T>(sql, params)                               │
+│  - all<T>(sql, params)                               │
+│  - close()                                           │
+└───────────────────┬──────────────────────────────────┘
+                    │
+        ┌───────────┴───────────┐
+        │                       │
+        ▼                       ▼
+┌──────────────┐      ┌──────────────────┐
+│ SQLiteAdapter│      │ PostgresAdapter  │
+│ (Development)│      │  (Production)    │
+└──────┬───────┘      └────────┬─────────┘
+       │                       │
+       ▼                       ▼
+┌──────────────┐      ┌──────────────────┐
+│ SQLite File  │      │ PostgreSQL DB    │
+│ (Local Disk) │      │  (Railway)       │
+└──────────────┘      └──────────────────┘
+```
+
+<Callout type="info">
+**Zero Configuration**: Change from SQLite to PostgreSQL by simply setting `DATABASE_URL=postgres://...` - no code changes required!
+</Callout>
+
+## Auto-Detection Logic
+
+The Database class automatically detects the appropriate adapter based on the connection string format.
+
+### Connection String Patterns
+
+```typescript
+export class Database {
+  private adapter: DatabaseAdapter;
+
+  constructor(dbPathOrUrl: string) {
+    // Auto-detect database type from connection string
+    if (dbPathOrUrl.startsWith('postgres://') ||
+        dbPathOrUrl.startsWith('postgresql://')) {
+      // Use PostgreSQL for Railway production
+      this.adapter = new PostgresAdapter(dbPathOrUrl);
+      logger.info('Using PostgreSQL database (production)');
+    } else {
+      // Use SQLite for local development
+      this.adapter = new SQLiteAdapter(dbPathOrUrl);
+      logger.info('Using SQLite database (local development)');
+    }
+  }
+}
+```
+
+**Detection Rules**:
+
+| Connection String | Adapter | Environment |
+|-------------------|---------|-------------|
+| `postgres://user:pass@host/db` | PostgresAdapter | Production (Railway) |
+| `postgresql://user:pass@host/db` | PostgresAdapter | Production (Railway) |
+| `./data/agentmarket.db` | SQLiteAdapter | Local development |
+| `/absolute/path/db.sqlite` | SQLiteAdapter | Local development |
+| `agentmarket.db` | SQLiteAdapter | Local development (relative) |
+
+### Environment Variable Configuration
+
+```bash
+# Development (.env.local)
+DATABASE_PATH=./data/agentmarket.db
+
+# Production (Railway environment variables)
+DATABASE_URL=postgres://user:password@hostname:5432/railway
+```
+
+## DatabaseAdapter Interface
+
+All adapters implement a common interface for database operations.
+
+### Interface Definition
+
+```typescript
+export interface DatabaseAdapter {
+  /**
+   * Initialize the database connection and schema
+   */
+  initialize(): Promise<void>;
+
+  /**
+   * Execute a SQL statement (INSERT, UPDATE, DELETE)
+   * @param sql SQL statement with placeholders
+   * @param params Parameters to bind to placeholders
+   */
+  run(sql: string, params?: unknown[]): Promise<void>;
+
+  /**
+   * Execute a query and return a single row
+   * @param sql SQL query with placeholders
+   * @param params Parameters to bind to placeholders
+   * @returns Single row or undefined
+   */
+  get<T = unknown>(sql: string, params?: unknown[]): Promise<T | undefined>;
+
+  /**
+   * Execute a query and return all rows
+   * @param sql SQL query with placeholders
+   * @param params Parameters to bind to placeholders
+   * @returns Array of rows
+   */
+  all<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>;
+
+  /**
+   * Close the database connection
+   */
+  close(): Promise<void>;
+
+  /**
+   * Get the database type (for debugging/logging)
+   */
+  getType(): 'sqlite' | 'postgres';
+
+  /**
+   * Convert parameter placeholder to database-specific format
+   * SQLite uses ? placeholders, Postgres uses $1, $2, etc.
+   */
+  convertPlaceholders(sql: string, paramCount: number): string;
+}
+```
+
+### Unified API Examples
+
+Application code uses the same API regardless of database:
+
+```typescript
+// Works with both SQLite and PostgreSQL
+const db = new Database(process.env.DATABASE_PATH || process.env.DATABASE_URL!);
+await db.initialize();
+
+// Insert
+await db.run(
+  'INSERT INTO services (id, name, endpoint) VALUES (?, ?, ?)',
+  ['service-1', 'Sentiment Analyzer', 'https://api.example.com']
+);
+
+// Query single row
+const service = await db.get<Service>(
+  'SELECT * FROM services WHERE id = ?',
+  ['service-1']
+);
+
+// Query multiple rows
+const services = await db.all<Service>(
+  'SELECT * FROM services WHERE capabilities LIKE ?',
+  ['%sentiment%']
+);
+
+// Close connection
+await db.close();
+```
+
+## SQLite Adapter (Development)
+
+The SQLiteAdapter provides file-based persistence for local development.
+
+### Implementation
+
+```typescript
+import sqlite3Module from 'sqlite3';
+import { promisify } from 'util';
+import path from 'path';
+import fs from 'fs';
+
+export class SQLiteAdapter implements DatabaseAdapter {
+  private db: sqlite3Module.Database;
+  private runAsync: (sql: string, ...params: unknown[]) => Promise<void>;
+  private getAsync: <T = unknown>(sql: string, ...params: unknown[]) => Promise<T | undefined>;
+  private allAsync: <T = unknown>(sql: string, ...params: unknown[]) => Promise<T[]>;
+
+  constructor(private dbPath: string) {
+    // Ensure data directory exists
+    const dir = path.dirname(dbPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    // Initialize SQLite database
+    this.db = new sqlite3Module.Database(dbPath);
+
+    // Promisify database methods for async/await
+    this.runAsync = promisify(this.db.run.bind(this.db));
+    this.getAsync = promisify(this.db.get.bind(this.db));
+    this.allAsync = promisify(this.db.all.bind(this.db));
+
+    logger.info(`SQLite adapter initialized: ${dbPath}`);
+  }
+
+  async initialize(): Promise<void> {
+    // Enable foreign key constraints
+    await this.runAsync('PRAGMA foreign_keys = ON');
+
+    // Create tables (schema shown below)
+    await this.createTables();
+
+    // Create indexes for performance
+    await this.createIndexes();
+
+    logger.info('SQLite schema initialized');
+  }
+
+  async run(sql: string, params?: unknown[]): Promise<void> {
+    await this.runAsync(sql, ...(params || []));
+  }
+
+  async get<T = unknown>(sql: string, params?: unknown[]): Promise<T | undefined> {
+    return await this.getAsync<T>(sql, ...(params || []));
+  }
+
+  async all<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+    return await this.allAsync<T>(sql, ...(params || []));
+  }
+
+  async close(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.db.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+
+  getType(): 'sqlite' | 'postgres' {
+    return 'sqlite';
+  }
+
+  convertPlaceholders(sql: string, _paramCount: number): string {
+    // SQLite uses ? placeholders - no conversion needed
+    return sql;
+  }
+}
+```
+
+### SQLite-Specific Features
+
+**PRAGMA Configuration**:
+```sql
+PRAGMA foreign_keys = ON;  -- Enforce foreign key constraints
+```
+
+**Data Types**:
+- `TEXT` - Strings (name, description, id)
+- `INTEGER` - Numbers (score, response_time_ms)
+- `TEXT` (JSON) - Complex objects serialized as JSON strings
+
+**Placeholder Syntax**:
+```sql
+SELECT * FROM services WHERE id = ?
+INSERT INTO services (id, name) VALUES (?, ?)
+```
+
+### Directory Structure
+
+```
+agentmarket-mcp/
+├─ data/
+│  └─ agentmarket.db        ← SQLite database file
+├─ src/
+│  └─ registry/
+│     └─ adapters/
+│        └─ SQLiteAdapter.ts
+└─ .gitignore               ← data/ is gitignored
+```
+
+## PostgreSQL Adapter (Production)
+
+The PostgresAdapter provides cloud-based persistence for Railway deployment.
+
+### Implementation
+
+```typescript
+import { Pool, PoolClient } from 'pg';
+
+export class PostgresAdapter implements DatabaseAdapter {
+  private pool: Pool;
+
+  constructor(connectionString: string) {
+    this.pool = new Pool({
+      connectionString,
+      max: 20,                    // Maximum number of clients in the pool
+      idleTimeoutMillis: 30000,   // Close idle clients after 30s
+      connectionTimeoutMillis: 2000,
+    });
+
+    // Log connection events
+    this.pool.on('connect', () => {
+      logger.debug('New Postgres client connected');
+    });
+
+    this.pool.on('error', (err) => {
+      logger.error('Unexpected Postgres pool error:', err);
+    });
+
+    logger.info(`PostgreSQL adapter initialized: ${connectionString.split('@')[1]}`);
+  }
+
+  async initialize(): Promise<void> {
+    // Foreign keys are always enabled in Postgres (no PRAGMA needed)
+
+    // Create tables with JSONB columns for better performance
+    await this.createTables();
+
+    // Create B-tree and GIN indexes
+    await this.createIndexes();
+
+    logger.info('PostgreSQL schema initialized with JSONB optimization');
+  }
+
+  async run(sql: string, params?: unknown[]): Promise<void> {
+    // Convert ? placeholders to $1, $2, etc.
+    const convertedSql = this.convertPlaceholders(sql, params?.length || 0);
+
+    const client: PoolClient = await this.pool.connect();
+    try {
+      await client.query(convertedSql, params);
+    } finally {
+      client.release();
+    }
+  }
+
+  async get<T = unknown>(sql: string, params?: unknown[]): Promise<T | undefined> {
+    const convertedSql = this.convertPlaceholders(sql, params?.length || 0);
+
+    const client: PoolClient = await this.pool.connect();
+    try {
+      const result = await client.query(convertedSql, params);
+      return result.rows[0] as T | undefined;
+    } finally {
+      client.release();
+    }
+  }
+
+  async all<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
+    const convertedSql = this.convertPlaceholders(sql, params?.length || 0);
+
+    const client: PoolClient = await this.pool.connect();
+    try {
+      const result = await client.query(convertedSql, params);
+      return result.rows as T[];
+    } finally {
+      client.release();
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.pool.end();
+    logger.info('PostgreSQL connection pool closed');
+  }
+
+  getType(): 'sqlite' | 'postgres' {
+    return 'postgres';
+  }
+
+  convertPlaceholders(sql: string, paramCount: number): string {
+    if (paramCount === 0) return sql;
+
+    let paramIndex = 1;
+    return sql.replace(/\?/g, () => `$${paramIndex++}`);
+  }
+}
+```
+
+### PostgreSQL-Specific Features
+
+**Connection Pooling**:
+```typescript
+max: 20,                    // Maximum connections
+idleTimeoutMillis: 30000,   // Close idle connections
+connectionTimeoutMillis: 2000,
+```
+
+**JSONB Data Type**:
+```sql
+CREATE TABLE services (
+  capabilities JSONB NOT NULL,  -- Native JSON support
+  pricing JSONB NOT NULL,
+  reputation JSONB NOT NULL
+);
+```
+
+**Placeholder Conversion**:
+```typescript
+// Input (SQLite syntax)
+SELECT * FROM services WHERE id = ? AND name = ?
+
+// Output (PostgreSQL syntax)
+SELECT * FROM services WHERE id = $1 AND name = $2
+```
+
+## Schema Design
+
+Both adapters create identical table structures with minor type differences.
+
+### Services Table
+
+```sql
+-- SQLite
+CREATE TABLE IF NOT EXISTS services (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  provider TEXT NOT NULL,
+  provider_wallet TEXT,
+  endpoint TEXT NOT NULL,
+  health_check_url TEXT,
+  capabilities TEXT NOT NULL,          -- JSON string in SQLite
+  pricing TEXT NOT NULL,               -- JSON string in SQLite
+  reputation TEXT NOT NULL,            -- JSON string in SQLite
+  status TEXT DEFAULT 'pending',
+  middleware_verified INTEGER DEFAULT 0,
+  network TEXT DEFAULT 'solana',
+  approval_notes TEXT,
+  approved_at INTEGER,
+  metadata TEXT,
+  created_by TEXT,
+  updated_by TEXT,
+  deleted_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- PostgreSQL
+CREATE TABLE IF NOT EXISTS services (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  provider TEXT NOT NULL,
+  provider_wallet TEXT,
+  endpoint TEXT NOT NULL,
+  health_check_url TEXT,
+  capabilities JSONB NOT NULL,         -- Native JSONB in Postgres
+  pricing JSONB NOT NULL,              -- Native JSONB in Postgres
+  reputation JSONB NOT NULL,           -- Native JSONB in Postgres
+  status TEXT DEFAULT 'pending',
+  middleware_verified BOOLEAN DEFAULT false,
+  network TEXT DEFAULT 'solana',
+  approval_notes TEXT,
+  approved_at BIGINT,
+  metadata JSONB,
+  created_by TEXT,
+  updated_by TEXT,
+  deleted_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Transactions Table
+
+```sql
+-- Both databases (minimal differences)
+CREATE TABLE IF NOT EXISTS transactions (
+  id TEXT PRIMARY KEY,
+  serviceId TEXT NOT NULL,
+  buyer TEXT NOT NULL,
+  seller TEXT NOT NULL,
+  amount TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  status TEXT NOT NULL,
+  request TEXT NOT NULL,               -- JSON in SQLite, JSONB in Postgres
+  response TEXT,                       -- JSON in SQLite, JSONB in Postgres
+  paymentHash TEXT,
+  error TEXT,
+  timestamp TEXT NOT NULL,             -- TEXT in SQLite, TIMESTAMP in Postgres
+  FOREIGN KEY (serviceId) REFERENCES services(id)
+);
+```
+
+### Ratings Table
+
+```sql
+CREATE TABLE IF NOT EXISTS ratings (
+  id TEXT PRIMARY KEY,
+  transactionId TEXT NOT NULL,
+  serviceId TEXT NOT NULL,
+  rater TEXT NOT NULL,
+  score INTEGER NOT NULL CHECK (score >= 1 AND score <= 5),
+  review TEXT,
+  timestamp TEXT NOT NULL,             -- TEXT in SQLite, TIMESTAMP in Postgres
+  FOREIGN KEY (transactionId) REFERENCES transactions(id),
+  FOREIGN KEY (serviceId) REFERENCES services(id)
+);
+```
+
+### Audit Logs Table
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  changes TEXT,                        -- JSON in SQLite, JSONB in Postgres
+  performed_by TEXT,
+  ip_address TEXT,
+  user_agent TEXT,
+  timestamp TEXT NOT NULL              -- TEXT in SQLite, TIMESTAMP in Postgres
+);
+```
+
+### Additional Tables
+
+**Metadata** (schema versioning):
+```sql
+CREATE TABLE IF NOT EXISTS metadata (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+```
+
+**Used Request IDs** (replay attack prevention):
+```sql
+CREATE TABLE IF NOT EXISTS used_request_ids (
+  request_id TEXT PRIMARY KEY,
+  service_id TEXT NOT NULL,
+  tx_signature TEXT NOT NULL,
+  used_at INTEGER NOT NULL,            -- INTEGER in SQLite, BIGINT in Postgres
+  expires_at INTEGER NOT NULL,
+  FOREIGN KEY (service_id) REFERENCES services(id)
+);
+```
+
+**Service Health Checks** (monitoring):
+```sql
+CREATE TABLE IF NOT EXISTS service_health_checks (
+  id TEXT PRIMARY KEY,
+  service_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  response_time_ms INTEGER,
+  error_message TEXT,
+  checked_at INTEGER NOT NULL,         -- INTEGER in SQLite, BIGINT in Postgres
+  FOREIGN KEY (service_id) REFERENCES services(id)
+);
+```
+
+## Index Strategy
+
+Both adapters create indexes for query performance optimization.
+
+### SQLite Indexes
+
+```sql
+-- B-tree indexes for exact lookups
+CREATE INDEX IF NOT EXISTS idx_services_capabilities ON services(capabilities);
+CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider);
+CREATE INDEX IF NOT EXISTS idx_services_deleted ON services(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_services_status ON services(status);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_service ON transactions(serviceId);
+CREATE INDEX IF NOT EXISTS idx_transactions_buyer ON transactions(buyer);
+
+CREATE INDEX IF NOT EXISTS idx_ratings_service ON ratings(serviceId);
+
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_used_request_expires ON used_request_ids(expires_at);
+CREATE INDEX IF NOT EXISTS idx_used_request_service ON used_request_ids(service_id);
+
+CREATE INDEX IF NOT EXISTS idx_health_service ON service_health_checks(service_id, checked_at);
+```
+
+### PostgreSQL Indexes
+
+```sql
+-- B-tree indexes (same as SQLite)
+CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider);
+CREATE INDEX IF NOT EXISTS idx_services_deleted ON services(deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_services_status ON services(status);
+
+-- ... (other B-tree indexes same as SQLite)
+
+-- GIN indexes for JSONB columns (PostgreSQL-specific)
+CREATE INDEX IF NOT EXISTS idx_services_capabilities_gin ON services USING GIN (capabilities);
+CREATE INDEX IF NOT EXISTS idx_services_pricing_gin ON services USING GIN (pricing);
+```
+
+**GIN Index Benefits**:
+- Fast JSON queries: `WHERE capabilities @> '["sentiment-analysis"]'`
+- Array containment: `WHERE capabilities ? 'sentiment-analysis'`
+- JSON path queries: `WHERE pricing->'perRequest' > '0.10'`
+
+## Connection Management
+
+### SQLite Connection
+
+```typescript
+// Single connection, file-based
+const db = new sqlite3.Database(dbPath);
+
+// Auto-close on process exit
+process.on('exit', () => {
+  db.close();
+});
+```
+
+**Characteristics**:
+- Single file on disk
+- No network latency
+- No authentication
+- Limited concurrency (readers OK, single writer)
+
+### PostgreSQL Connection Pool
+
+```typescript
+// Connection pool with 20 max connections
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+// Acquire connection
+const client = await pool.connect();
+try {
+  await client.query('SELECT * FROM services');
+} finally {
+  client.release();  // Return to pool
+}
+
+// Close all connections on shutdown
+await pool.end();
+```
+
+**Characteristics**:
+- Connection pooling (reuse connections)
+- Network-based (latency ~5-50ms)
+- Authentication required
+- High concurrency (20+ simultaneous queries)
+
+## Query Abstraction
+
+The Database class provides high-level methods that work with both adapters.
+
+### Audit Logging
+
+```typescript
+async logAudit(
+  entityType: string,
+  entityId: string,
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'READ',
+  changes?: unknown,
+  performedBy?: string,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<void> {
+  const id = `audit-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+  const timestamp = new Date().toISOString();
+
+  await this.run(
+    `INSERT INTO audit_logs (id, entity_type, entity_id, action, changes, performed_by, ip_address, user_agent, timestamp)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      entityType,
+      entityId,
+      action,
+      changes ? JSON.stringify(changes) : null,
+      performedBy || 'system',
+      ipAddress || null,
+      userAgent || null,
+      timestamp
+    ]
+  );
+}
+```
+
+### Schema Migrations
+
+```typescript
+async migrate(version: number): Promise<void> {
+  // Check current schema version
+  const versionInfo = await this.get<{ value: string }>(
+    'SELECT value FROM metadata WHERE key = ?',
+    ['schema_version']
+  );
+
+  const currentVersion = versionInfo ? parseInt(versionInfo.value) : 0;
+
+  if (currentVersion >= version) {
+    logger.info(`Database already at version ${version}`);
+    return;
+  }
+
+  logger.info(`Migrating database from v${currentVersion} to v${version}...`);
+
+  // Migration logic based on version
+  if (version === 2 && currentVersion < 2) {
+    // Add soft delete columns if they don't exist
+    try {
+      await this.run('ALTER TABLE services ADD COLUMN deleted_at TEXT');
+      await this.run('ALTER TABLE services ADD COLUMN created_by TEXT');
+      await this.run('ALTER TABLE services ADD COLUMN updated_by TEXT');
+    } catch (e) {
+      // Columns might already exist
+    }
+  }
+
+  // Update schema version (handle SQLite vs Postgres UPSERT syntax)
+  const dbType = this.adapter.getType();
+  if (dbType === 'postgres') {
+    await this.run(
+      `INSERT INTO metadata (key, value)
+       VALUES (?, ?)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      ['schema_version', version.toString()]
+    );
+  } else {
+    await this.run(
+      `INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)`,
+      ['schema_version', version.toString()]
+    );
+  }
+
+  logger.info(`Database migrated to version ${version}`);
+}
+```
+
+## Performance Characteristics
+
+### Query Performance
+
+| Operation | SQLite | PostgreSQL | Notes |
+|-----------|--------|------------|-------|
+| **SELECT by ID** | ~0.1ms | ~2-5ms | SQLite faster (no network) |
+| **SELECT with LIKE** | ~5-20ms | ~10-30ms | Depends on dataset size |
+| **INSERT** | ~1ms | ~5-10ms | PostgreSQL has WAL overhead |
+| **UPDATE** | ~1ms | ~5-10ms | Similar to INSERT |
+| **JSON query** | ~10-50ms | ~5-15ms | PostgreSQL JSONB wins |
+| **Complex JOIN** | ~20-100ms | ~10-50ms | PostgreSQL query optimizer |
+
+### Concurrency
+
+| Database | Read Concurrency | Write Concurrency |
+|----------|------------------|-------------------|
+| **SQLite** | Unlimited | 1 (single writer) |
+| **PostgreSQL** | Unlimited | 20+ (connection pool) |
+
+### Scalability
+
+| Metric | SQLite | PostgreSQL |
+|--------|--------|------------|
+| **Max DB Size** | 281 TB | Unlimited |
+| **Max Connections** | 1 active writer | 100+ (configurable) |
+| **Recommended Dataset** | < 100 GB | Any size |
+| **Multi-server** | Not supported | Supported (shared DB) |
+
+## Design Decisions
+
+### 1. Why Adapter Pattern?
+
+**Decision**: Use adapter pattern instead of ORM (like Prisma or TypeORM).
+
+**Rationale**:
+- Lightweight (no ORM overhead)
+- Full SQL control (no query builder abstraction)
+- Easy to optimize queries
+- Simple debugging (raw SQL visible)
+- No code generation step
+
+**Trade-off**: Manual SQL writing, no type-safe query builder.
+
+### 2. Why Auto-Detection?
+
+**Decision**: Automatically detect database type from connection string.
+
+**Rationale**:
+- Zero configuration (no `DATABASE_TYPE` env var needed)
+- Impossible to misconfigure (connection string determines adapter)
+- Seamless transition from dev to production
+- Idiomatic for different environments (file path vs URL)
+
+**Trade-off**: Cannot force specific adapter for testing.
+
+### 3. Why Shared Schema?
+
+**Decision**: Keep table structures identical across SQLite and PostgreSQL.
+
+**Rationale**:
+- Application code is database-agnostic
+- Queries work on both databases
+- Easy to switch between environments
+- Simplified testing (seed data works everywhere)
+
+**Trade-off**: Cannot leverage PostgreSQL-specific features in schema (like ARRAY types).
+
+### 4. Why JSONB for Postgres?
+
+**Decision**: Use JSONB for complex objects in PostgreSQL, TEXT in SQLite.
+
+**Rationale**:
+- Better PostgreSQL performance (indexed JSON queries)
+- Native JSON support (no parsing overhead)
+- Type validation at database level
+- Backwards compatible (TEXT works in both)
+
+**Trade-off**: Schema differs slightly between adapters.
+
+## Future Enhancements
+
+### 1. Query Builder
+
+```typescript
+// Type-safe query builder
+const services = await db
+  .select('*')
+  .from('services')
+  .where('capabilities', 'contains', 'sentiment-analysis')
+  .orderBy('reputation.rating', 'desc')
+  .limit(10)
+  .execute<Service[]>();
+```
+
+### 2. Read Replicas
+
+```typescript
+class PostgresAdapter {
+  private writePool: Pool;
+  private readPools: Pool[];
+
+  async get<T>(sql: string, params?: unknown[]): Promise<T | undefined> {
+    // Route SELECT queries to read replicas
+    const pool = this.selectReadPool();
+    return await pool.query(sql, params);
+  }
+}
+```
+
+### 3. Connection Health Checks
+
+```typescript
+async healthCheck(): Promise<boolean> {
+  try {
+    await this.get('SELECT 1');
+    return true;
+  } catch (error) {
+    logger.error('Database health check failed:', error);
+    return false;
+  }
+}
+```
+
+### 4. Automatic Migrations
+
+```typescript
+// Run migrations on startup
+await db.initialize();
+await db.migrate(LATEST_SCHEMA_VERSION);
+```
+
+## Next Steps
+
+- [Master Orchestrator](/docs/architecture/master-orchestrator) - Multi-agent workflows
+- [Payment Routing](/docs/architecture/payment-routing) - Solana payment execution
+- [SSE Transport](/docs/architecture/sse-transport) - Remote MCP connections
+- [Security Middleware](/docs/architecture/security-middleware) - Input validation and rate limiting

@@ -6,7 +6,8 @@ import { X, Star, DollarSign, Clock, CheckCircle, Zap, TrendingUp, MessageSquare
 import { soundManager } from '@/lib/sound';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { useState } from 'react';
-import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 interface ServiceModalProps {
   service: Service | null;
@@ -14,7 +15,16 @@ interface ServiceModalProps {
   onClose: () => void;
 }
 
-type PurchaseState = 'idle' | 'confirming' | 'signing' | 'processing' | 'success' | 'error';
+type PurchaseState = 'idle' | 'fetching-payment' | 'confirming' | 'signing' | 'processing' | 'submitting' | 'success' | 'error';
+
+interface PaymentInstructions {
+  amount: string;
+  currency: string;
+  recipient: string;
+  token: string;
+  network: string;
+  priceFormatted: string;
+}
 
 export default function ServiceModal({ service, isOpen, onClose }: ServiceModalProps) {
   const { publicKey, sendTransaction } = useWallet();
@@ -22,6 +32,8 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
   const [purchaseState, setPurchaseState] = useState<PurchaseState>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [txSignature, setTxSignature] = useState<string>('');
+  const [paymentInstructions, setPaymentInstructions] = useState<PaymentInstructions | null>(null);
+  const [serviceResult, setServiceResult] = useState<any>(null);
 
   if (!service) return null;
 
@@ -35,12 +47,49 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
       return;
     }
 
-    setPurchaseState('confirming');
+    // Step 1: Fetch payment instructions from backend
+    setPurchaseState('fetching-payment');
+    setErrorMessage('');
+
+    try {
+      // Call backend purchase_service endpoint (returns 402 with payment instructions)
+      const response = await fetch('http://localhost:3333/api/mcp/tools/purchase_service', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'purchase_service',
+          arguments: {
+            serviceId: service.id,
+            data: { requestedBy: 'marketplace-ui' },
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      // Parse the MCP response
+      const result = JSON.parse(data.content[0].text);
+
+      if (result.status !== 402) {
+        throw new Error('Expected 402 Payment Required response');
+      }
+
+      setPaymentInstructions(result.paymentInstructions);
+      setPurchaseState('confirming');
+
+    } catch (error: any) {
+      console.error('Failed to fetch payment instructions:', error);
+      setErrorMessage(error.message || 'Failed to fetch payment details');
+      setPurchaseState('error');
+      soundManager.playError?.();
+    }
   };
 
   const executePurchase = async () => {
-    if (!publicKey || !sendTransaction) {
-      setErrorMessage('Wallet not connected');
+    if (!publicKey || !sendTransaction || !paymentInstructions) {
+      setErrorMessage('Wallet not connected or payment details missing');
       setPurchaseState('error');
       return;
     }
@@ -48,22 +97,32 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
     try {
       setPurchaseState('signing');
 
-      // For demo purposes, use a placeholder recipient address
-      // In production, this would come from the service's payment address
-      const recipientAddress = new PublicKey('7xKXqp9cGEH4FrXNBxHqrJpPGPBFqH5h9c3NSLB9YzB');
+      // Parse payment details
+      const recipientPubkey = new PublicKey(paymentInstructions.recipient);
+      const usdcMint = new PublicKey(paymentInstructions.token);
+      const amount = BigInt(paymentInstructions.amount);
 
-      // Convert USD price to SOL (approximate)
-      // In production, this would come from x402 payment details
-      const solAmount = price / 100; // Rough conversion for demo
-      const lamports = solAmount * LAMPORTS_PER_SOL;
+      // Get associated token accounts
+      const senderTokenAccount = await getAssociatedTokenAddress(
+        usdcMint,
+        publicKey
+      );
 
-      // Create transaction
+      const recipientTokenAccount = await getAssociatedTokenAddress(
+        usdcMint,
+        recipientPubkey
+      );
+
+      // Create USDC transfer transaction
       const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: recipientAddress,
-          lamports: Math.floor(lamports),
-        })
+        createTransferInstruction(
+          senderTokenAccount,
+          recipientTokenAccount,
+          publicKey,
+          amount,
+          [],
+          TOKEN_PROGRAM_ID
+        )
       );
 
       // Send transaction
@@ -74,6 +133,33 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
       await connection.confirmTransaction(signature, 'confirmed');
 
       setTxSignature(signature);
+
+      // Step 2: Submit payment proof to backend
+      setPurchaseState('submitting');
+
+      const submitResponse = await fetch('http://localhost:3333/api/mcp/tools/submit_payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'submit_payment',
+          arguments: {
+            serviceId: service.id,
+            txSignature: signature,
+            data: { requestedBy: 'marketplace-ui' },
+          },
+        }),
+      });
+
+      const submitData = await submitResponse.json();
+      const submitResult = JSON.parse(submitData.content[0].text);
+
+      if (!submitResult.success) {
+        throw new Error(submitResult.error || 'Payment verification failed');
+      }
+
+      setServiceResult(submitResult.result);
       setPurchaseState('success');
       soundManager.playSuccess?.();
 
@@ -89,11 +175,28 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
     setPurchaseState('idle');
     setErrorMessage('');
     setTxSignature('');
+    setPaymentInstructions(null);
+    setServiceResult(null);
   };
 
   const handleClose = () => {
     resetPurchaseFlow();
     onClose();
+  };
+
+  const getButtonText = () => {
+    switch (purchaseState) {
+      case 'fetching-payment':
+        return 'Fetching Payment Details...';
+      case 'signing':
+        return 'Awaiting Wallet Signature...';
+      case 'processing':
+        return 'Confirming Transaction...';
+      case 'submitting':
+        return 'Verifying Payment...';
+      default:
+        return 'Processing...';
+    }
   };
 
   return (
@@ -236,12 +339,12 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
                 {purchaseState === 'idle' ? (
                   <>
                     <DollarSign className="w-5 h-5" />
-                    Purchase Service (${price.toFixed(3)})
+                    Purchase Service (${price.toFixed(3)} USDC)
                   </>
                 ) : (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    Processing...
+                    {getButtonText()}
                   </>
                 )}
               </button>
@@ -273,19 +376,23 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
                     <h3 className="text-2xl font-bold gradient-text mb-4">Confirm Purchase</h3>
                     <p className="text-gray-300 mb-6">
                       You're about to purchase <span className="text-white font-semibold">{service.name}</span> for{' '}
-                      <span className="text-green font-semibold">${price.toFixed(3)}</span>
+                      <span className="text-green font-semibold">{paymentInstructions?.priceFormatted || `$${price.toFixed(3)}`} USDC</span>
                     </p>
                     <div className="bg-gray-800/50 rounded-lg p-4 mb-6 space-y-2 text-sm">
                       <div className="flex justify-between">
                         <span className="text-gray-400">Network:</span>
-                        <span className="text-white">Solana Devnet</span>
+                        <span className="text-white">{paymentInstructions?.network || 'Solana'}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Amount:</span>
-                        <span className="text-white">~{(price / 100).toFixed(4)} SOL</span>
+                        <span className="text-gray-400">Currency:</span>
+                        <span className="text-white">{paymentInstructions?.currency || 'USDC'}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Wallet:</span>
+                        <span className="text-gray-400">Recipient:</span>
+                        <span className="text-white font-mono text-xs">{paymentInstructions?.recipient?.slice(0, 8)}...{paymentInstructions?.recipient?.slice(-8)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Your Wallet:</span>
                         <span className="text-white font-mono text-xs">{publicKey?.toBase58().slice(0, 8)}...</span>
                       </div>
                     </div>
@@ -313,24 +420,44 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="absolute inset-0 bg-black/80 backdrop-blur-sm rounded-3xl flex items-center justify-center p-8"
+                  className="absolute inset-0 bg-black/80 backdrop-blur-sm rounded-3xl flex items-center justify-center p-8 overflow-y-auto"
                 >
                   <motion.div
                     initial={{ scale: 0.9, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    className="bg-gray-900 border-2 border-green rounded-2xl p-8 max-w-md w-full text-center"
+                    className="bg-gray-900 border-2 border-green rounded-2xl p-8 max-w-2xl w-full text-center my-8"
                   >
                     <div className="w-16 h-16 bg-green rounded-full flex items-center justify-center mx-auto mb-4">
                       <CheckCircle className="w-10 h-10 text-white" />
                     </div>
                     <h3 className="text-2xl font-bold text-green mb-2">Purchase Successful!</h3>
                     <p className="text-gray-300 mb-6">
-                      Your transaction has been confirmed on Solana
+                      Payment verified and service executed successfully
                     </p>
-                    <div className="bg-gray-800/50 rounded-lg p-4 mb-6">
+
+                    {/* Transaction Details */}
+                    <div className="bg-gray-800/50 rounded-lg p-4 mb-4 text-left">
                       <p className="text-xs text-gray-400 mb-1">Transaction Signature:</p>
-                      <p className="text-white font-mono text-xs break-all">{txSignature}</p>
+                      <a
+                        href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-purple hover:text-pink font-mono text-xs break-all underline"
+                      >
+                        {txSignature}
+                      </a>
                     </div>
+
+                    {/* Service Result */}
+                    {serviceResult && (
+                      <div className="bg-gray-800/50 rounded-lg p-4 mb-6 text-left max-h-64 overflow-y-auto">
+                        <p className="text-sm font-semibold text-white mb-2">Service Response:</p>
+                        <pre className="text-xs text-gray-300 whitespace-pre-wrap">
+                          {JSON.stringify(serviceResult, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+
                     <button
                       onClick={handleClose}
                       className="w-full bg-gradient-to-r from-purple to-pink text-white font-semibold py-3 rounded-lg hover:scale-105 transition-transform"

@@ -47,9 +47,16 @@ const ServiceSchemaBase = z.object({
 
   walletAddress: z.string()
     .refine((address) => {
-      const result = validateChainAddress(address, 'evm');
+      const result = validateChainAddress(address, 'solana');
       return result.valid;
-    }, 'Invalid Ethereum/EVM wallet address. Must be in format 0x...')
+    }, 'Invalid Solana wallet address. Must be base58 encoded (32-44 characters)')
+    .optional(),
+
+  healthCheckUrl: z.string()
+    .url('Must be a valid URL')
+    .optional(),
+
+  middlewareInstalled: z.boolean()
     .optional(),
 
   paymentAddresses: z.record(z.string())

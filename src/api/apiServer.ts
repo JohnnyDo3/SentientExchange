@@ -4,6 +4,7 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import axios from 'axios';
 import { Database } from '../registry/database.js';
 import { ServiceRegistry } from '../registry/ServiceRegistry.js';
 import { logger, securityLogger } from '../utils/logger.js';
@@ -29,13 +30,18 @@ import {
 } from '../validation/schemas.js';
 import { generateNonce, verifySiweMessage } from '../auth/siwe.js';
 import { generateToken } from '../auth/jwt.js';
-import { requireAuth, checkOwnership } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, checkOwnership } from '../middleware/auth.js';
 import { SSETransportManager } from '../mcp/SSETransport.js';
 import { SolanaVerifier as _SolanaVerifier } from '../payment/SolanaVerifier.js';
 import { SpendingLimitManager as _SpendingLimitManager } from '../payment/SpendingLimitManager.js';
+import { HealthMonitor } from '../monitoring/HealthMonitor.js';
 import { getErrorMessage } from '../types/errors.js';
 import type { Service } from '../types/service.js';
 import type { Transaction } from '../types/transaction.js';
+import { x402Middleware } from '@sentientexchange/x402-middleware';
+import { ImageAnalyzer } from '../services/ai/image/imageAnalyzer.js';
+import { SentimentAnalyzer } from '../services/ai/sentiment/sentimentAnalyzer.js';
+import { TextSummarizer } from '../services/ai/text/textSummarizer.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -56,6 +62,14 @@ const spendingLimitManager = new _SpendingLimitManager(db);
 
 // Initialize SSE Transport for remote MCP connections
 const sseTransport = new SSETransportManager(registry, db, solanaVerifier, spendingLimitManager);
+
+// Initialize Health Monitor
+const healthMonitor = new HealthMonitor(registry, db);
+
+// Initialize AI Services
+const imageAnalyzer = new ImageAnalyzer();
+const sentimentAnalyzer = new SentimentAnalyzer();
+const textSummarizer = new TextSummarizer();
 
 // ============================================================================
 // MIDDLEWARE
@@ -273,11 +287,15 @@ app.post('/api/auth/logout', (req, res) => {
 // SERVICE ENDPOINTS
 // ============================================================================
 
-// GET /api/services - List all services
+// GET /api/services - List all services (only approved)
 app.get('/api/services', async (req, res, next) => {
   try {
-    const services = registry.getAllServices();
-    res.json({ success: true, count: services.length, services });
+    const allServices = registry.getAllServices();
+
+    // Filter to only show approved services in marketplace
+    const approvedServices = allServices.filter((s: any) => s.status === 'approved');
+
+    res.json({ success: true, count: approvedServices.length, services: approvedServices });
   } catch (error: unknown) {
     next(error);
   }
@@ -322,12 +340,43 @@ app.post('/api/services', requireAuth, registrationLimiter, writeLimiter, async 
     // Validate input
     const validatedData = validateService(req.body);
 
+    // Test middleware if claimed to be installed
+    let middlewareVerified = false;
+    if (validatedData.middlewareInstalled) {
+      try {
+        logger.info(`Testing middleware for ${validatedData.endpoint}...`);
+
+        // Send test request expecting 402
+        const testResponse = await axios.post(
+          validatedData.endpoint,
+          { test: true },
+          {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 10000,
+            validateStatus: () => true // Don't throw on any status
+          }
+        );
+
+        // Check if service returned 402 (middleware is working)
+        if (testResponse.status === 402) {
+          middlewareVerified = true;
+          logger.info(`✓ Middleware verified for ${validatedData.endpoint}`);
+        } else {
+          logger.warn(`Middleware test: Expected 402, got ${testResponse.status}`);
+        }
+      } catch (error) {
+        logger.error(`Middleware test error:`, error);
+      }
+    }
+
     // Create service record
-    const serviceInput: Omit<Service, 'id' | 'createdAt' | 'updatedAt'> = {
+    const serviceInput: any = {
       name: validatedData.name,
       description: validatedData.description,
       provider: validatedData.provider,
+      provider_wallet: validatedData.walletAddress, // Solana wallet
       endpoint: validatedData.endpoint,
+      health_check_url: validatedData.healthCheckUrl,
       capabilities: validatedData.capabilities,
       pricing: {
         perRequest: validatedData.pricing?.perRequest,
@@ -340,9 +389,14 @@ app.post('/api/services', requireAuth, registrationLimiter, writeLimiter, async 
         rating: 5.0,
         reviews: 0,
       },
+      status: 'pending', // Require admin approval
+      middleware_verified: middlewareVerified,
+      network: 'solana',
       metadata: {
         apiVersion: 'v1',
         walletAddress: validatedData.walletAddress,
+        providerWallet: validatedData.walletAddress,
+        healthCheckUrl: validatedData.healthCheckUrl,
         paymentAddresses: validatedData.paymentAddresses,
         image: validatedData.image || '🔮',
         color: validatedData.color || '#a855f7',
@@ -353,13 +407,15 @@ app.post('/api/services', requireAuth, registrationLimiter, writeLimiter, async 
     const createdBy = req.user!.address;
     const service = await registry.registerService(serviceInput, createdBy);
 
-    // Broadcast new service via WebSocket
-    io.emit('new-service', service);
+    // Don't broadcast pending services (only after approval)
+    // io.emit('new-service', service);
 
     res.status(201).json({
       success: true,
       service,
-      message: 'Service registered successfully',
+      message: middlewareVerified
+        ? 'Service registered! ✓ Middleware verified. Awaiting admin approval.'
+        : 'Service registered! Please ensure middleware is installed. Awaiting admin approval.',
     });
   } catch (error: unknown) {
     next(error);
@@ -460,7 +516,7 @@ app.delete('/api/services/:id', requireAuth, writeLimiter, async (req, res, next
   }
 });
 
-// POST /api/services/search - Advanced search
+// POST /api/services/search - Advanced search (only approved services)
 app.post('/api/services/search', async (req, res, next) => {
   try {
     const validatedQuery = validateSearch(req.body);
@@ -472,14 +528,17 @@ app.post('/api/services/search', async (req, res, next) => {
       sortBy: 'rating', // Default sort
     });
 
+    // Filter to only show approved services in marketplace
+    const approvedResults = results.filter((s: any) => s.status === 'approved');
+
     // Apply pagination
     const offset = validatedQuery.offset || 0;
     const limit = validatedQuery.limit || 20;
-    const paginatedResults = results.slice(offset, offset + limit);
+    const paginatedResults = approvedResults.slice(offset, offset + limit);
 
     res.json({
       success: true,
-      count: results.length,
+      count: approvedResults.length,
       offset,
       limit,
       services: paginatedResults,
@@ -523,6 +582,204 @@ app.post('/api/services/:id/rate', writeLimiter, async (req, res, next) => {
       success: true,
       service,
       message: 'Rating submitted successfully',
+    });
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
+// ============================================================================
+// ADMIN ENDPOINTS
+// ============================================================================
+
+// GET /api/admin/pending-services - Get all pending services (requires admin)
+app.get('/api/admin/pending-services', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const services = registry.getAllServices();
+    const pendingServices = services.filter((s: any) => s.status === 'pending');
+
+    res.json({
+      success: true,
+      count: pendingServices.length,
+      services: pendingServices,
+    });
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
+// POST /api/admin/test-endpoint/:id - Test service endpoint (requires admin)
+app.post('/api/admin/test-endpoint/:id', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const service = await registry.getService(id);
+    if (!service) {
+      return res.status(404).json({ success: false, error: 'Service not found' });
+    }
+
+    // Test the endpoint
+    try {
+      logger.info(`Admin testing endpoint: ${service.endpoint}`);
+
+      const testResponse = await axios.post(
+        service.endpoint,
+        { test: true, adminTest: true },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000,
+          validateStatus: () => true // Don't throw on any status
+        }
+      );
+
+      const middlewareWorking = testResponse.status === 402;
+
+      res.json({
+        success: true,
+        test: {
+          endpoint: service.endpoint,
+          status: testResponse.status,
+          middlewareWorking,
+          response: testResponse.data,
+          message: middlewareWorking
+            ? '✓ Middleware is correctly installed (returned 402)'
+            : `⚠ Expected 402, got ${testResponse.status}`,
+        },
+      });
+    } catch (error: unknown) {
+      res.json({
+        success: false,
+        test: {
+          endpoint: service.endpoint,
+          error: getErrorMessage(error),
+          message: '✗ Endpoint test failed',
+        },
+      });
+    }
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
+// POST /api/admin/approve/:id - Approve a service (requires admin)
+app.post('/api/admin/approve/:id', requireAuth, requireAdmin, writeLimiter, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body;
+
+    const service = await registry.getService(id);
+    if (!service) {
+      return res.status(404).json({ success: false, error: 'Service not found' });
+    }
+
+    // Update service status to approved
+    await db.run(
+      `UPDATE services SET status = ?, approval_notes = ?, approved_at = ? WHERE id = ?`,
+      ['approved', notes || '', Date.now(), id]
+    );
+
+    // Get updated service
+    const updatedService = await registry.getService(id);
+
+    // Broadcast new approved service via WebSocket
+    io.emit('new-service', updatedService);
+
+    logger.info(`✓ Service approved by admin: ${service.name} (${id})`);
+
+    res.json({
+      success: true,
+      service: updatedService,
+      message: 'Service approved successfully',
+    });
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
+// POST /api/admin/reject/:id - Reject a service (requires admin)
+app.post('/api/admin/reject/:id', requireAuth, requireAdmin, writeLimiter, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body;
+
+    const service = await registry.getService(id);
+    if (!service) {
+      return res.status(404).json({ success: false, error: 'Service not found' });
+    }
+
+    if (!notes || notes.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Rejection notes required',
+        message: 'Please provide a reason for rejection',
+      });
+    }
+
+    // Update service status to rejected
+    await db.run(
+      `UPDATE services SET status = ?, approval_notes = ? WHERE id = ?`,
+      ['rejected', notes, id]
+    );
+
+    // Get updated service
+    const updatedService = await registry.getService(id);
+
+    logger.info(`✗ Service rejected by admin: ${service.name} (${id})`);
+
+    res.json({
+      success: true,
+      service: updatedService,
+      message: 'Service rejected',
+    });
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
+// GET /api/admin/health/stats - Get health monitoring stats (requires admin)
+app.get('/api/admin/health/stats', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const stats = await healthMonitor.getHealthStats();
+
+    res.json({
+      success: true,
+      stats,
+    });
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
+// POST /api/admin/health/check - Trigger manual health check (requires admin)
+app.post('/api/admin/health/check', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    logger.info('Manual health check triggered by admin');
+
+    const results = await healthMonitor.runHealthChecks();
+
+    res.json({
+      success: true,
+      message: 'Health check completed',
+      results,
+    });
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
+// GET /api/admin/health/history/:serviceId - Get health history for a service (requires admin)
+app.get('/api/admin/health/history/:serviceId', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const { serviceId } = req.params;
+    const rawLimit = parseInt(String(req.query.limit), 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 && rawLimit <= 200 ? rawLimit : 100;
+
+    const history = await healthMonitor.getHealthHistory(serviceId, limit);
+
+    res.json({
+      success: true,
+      count: history.length,
+      history,
     });
   } catch (error: unknown) {
     next(error);
@@ -594,6 +851,124 @@ app.get('/api/transactions/recent', async (req, res, next) => {
   }
 });
 
+// GET /api/services/:id/analytics - Get analytics for a specific service (requires ownership)
+app.get('/api/services/:id/analytics', requireAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Check if service exists and verify ownership
+    const service = await registry.getService(id);
+    if (!service) {
+      return res.status(404).json({ success: false, error: 'Service not found' });
+    }
+
+    // Verify ownership
+    if (!checkOwnership(service.metadata?.walletAddress || '', req)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'You do not own this service',
+      });
+    }
+
+    // Get transactions for this service
+    const transactionsQuery = `
+      SELECT * FROM transactions
+      WHERE serviceId = ? AND status = 'completed'
+      ORDER BY timestamp DESC
+    `;
+    const transactions = await db.all<Transaction>(transactionsQuery, [id]);
+
+    // Calculate analytics
+    const totalRevenue = transactions.reduce((sum, t) => {
+      const amount = parseFloat(t.amount.replace('$', ''));
+      return sum + amount;
+    }, 0);
+
+    const totalRequests = transactions.length;
+
+    // Revenue by day (last 30 days)
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const revenueByDay: Record<string, number> = {};
+
+    transactions.forEach((t) => {
+      const timestamp = new Date(t.timestamp).getTime();
+      if (timestamp >= thirtyDaysAgo) {
+        const date = new Date(t.timestamp).toISOString().split('T')[0];
+        const amount = parseFloat(t.amount.replace('$', ''));
+        revenueByDay[date] = (revenueByDay[date] || 0) + amount;
+      }
+    });
+
+    const revenueData = Object.entries(revenueByDay)
+      .map(([date, revenue]) => ({ date, revenue: parseFloat(revenue.toFixed(2)) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // Requests by hour (last 24 hours)
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const requestsByHour: Record<number, number> = {};
+
+    transactions.forEach((t) => {
+      const timestamp = new Date(t.timestamp).getTime();
+      if (timestamp >= oneDayAgo) {
+        const hour = new Date(t.timestamp).getHours();
+        requestsByHour[hour] = (requestsByHour[hour] || 0) + 1;
+      }
+    });
+
+    const requestsData = Array.from({ length: 24 }, (_, hour) => ({
+      hour: `${hour}:00`,
+      requests: requestsByHour[hour] || 0,
+    }));
+
+    // Top users (last 30 days)
+    const userSpending: Record<string, { requests: number; spent: number }> = {};
+
+    transactions.forEach((t) => {
+      const timestamp = new Date(t.timestamp).getTime();
+      if (timestamp >= thirtyDaysAgo) {
+        const buyer = t.buyer;
+        const amount = parseFloat(t.amount.replace('$', ''));
+
+        if (!userSpending[buyer]) {
+          userSpending[buyer] = { requests: 0, spent: 0 };
+        }
+
+        userSpending[buyer].requests += 1;
+        userSpending[buyer].spent += amount;
+      }
+    });
+
+    const topUsers = Object.entries(userSpending)
+      .map(([name, data]) => ({
+        name,
+        requests: data.requests,
+        spent: `$${data.spent.toFixed(2)}`,
+      }))
+      .sort((a, b) => b.requests - a.requests)
+      .slice(0, 10);
+
+    res.json({
+      success: true,
+      analytics: {
+        totalRevenue: `$${totalRevenue.toFixed(2)}`,
+        totalRequests,
+        revenueByDay: revenueData,
+        requestsByHour: requestsData,
+        topUsers,
+        recentTransactions: transactions.slice(0, 20).map((t) => ({
+          id: t.id,
+          buyer: t.buyer,
+          amount: t.amount,
+          timestamp: t.timestamp,
+        })),
+      },
+    });
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
 // GET /api/services/:id/audit - Get audit history for a service
 app.get('/api/services/:id/audit', async (req, res, next) => {
   try {
@@ -614,6 +989,196 @@ app.get('/api/services/:id/audit', async (req, res, next) => {
   } catch (error: unknown) {
     next(error);
   }
+});
+
+// ============================================================================
+// AI SERVICES (with x402 payment)
+// ============================================================================
+
+// Image Analysis Service
+app.post(
+  '/api/ai/image/analyze',
+  x402Middleware(),
+  async (req, res, next) => {
+    try {
+      const { image, analysisType, detailLevel } = req.body;
+
+      if (!image) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing required field: image',
+        });
+      }
+
+      const validTypes = ['full', 'objects', 'text', 'faces', 'description'];
+      if (analysisType && !validTypes.includes(analysisType)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid analysisType. Must be one of: ${validTypes.join(', ')}`,
+        });
+      }
+
+      const validLevels = ['basic', 'detailed'];
+      if (detailLevel && !validLevels.includes(detailLevel)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid detailLevel. Must be one of: ${validLevels.join(', ')}`,
+        });
+      }
+
+      logger.info(`Processing image analysis request (type: ${analysisType || 'full'})`);
+
+      const result = await imageAnalyzer.analyze({
+        image,
+        analysisType: analysisType as any,
+        detailLevel: detailLevel as any,
+      });
+
+      const costStats = imageAnalyzer.getCostStats();
+
+      res.json({
+        ...result,
+        pricing: {
+          charged: process.env.IMAGE_ANALYZER_PRICE || '0.02',
+          apiCost: costStats.lastRequestCost.toFixed(4),
+          profitMargin: costStats.profitMargin.toFixed(4),
+        },
+      });
+    } catch (error: unknown) {
+      next(error);
+    }
+  }
+);
+
+// Sentiment Analysis Service
+app.post(
+  '/api/ai/sentiment/analyze',
+  x402Middleware(),
+  async (req, res, next) => {
+    try {
+      const { text } = req.body;
+
+      if (!text || typeof text !== 'string' || text.trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing or invalid required field: text',
+        });
+      }
+
+      if (text.length > 10000) {
+        return res.status(400).json({
+          success: false,
+          error: 'Text too long. Maximum length is 10,000 characters',
+        });
+      }
+
+      logger.info(`Processing sentiment analysis request (${text.length} chars)`);
+
+      const result = sentimentAnalyzer.analyze(text);
+
+      res.json({
+        success: true,
+        result,
+        pricing: {
+          charged: process.env.SENTIMENT_ANALYZER_PRICE || '0.01',
+        },
+      });
+    } catch (error: unknown) {
+      next(error);
+    }
+  }
+);
+
+// Text Summarization Service
+app.post(
+  '/api/ai/text/summarize',
+  x402Middleware(),
+  async (req, res, next) => {
+    try {
+      const { text, length, style, focus, extractKeyPoints, includeTags } = req.body;
+
+      if (!text || typeof text !== 'string' || text.trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing or invalid required field: text',
+        });
+      }
+
+      if (text.length > 50000) {
+        return res.status(400).json({
+          success: false,
+          error: 'Text too long. Maximum length is 50,000 characters',
+        });
+      }
+
+      const validLengths = ['brief', 'medium', 'detailed'];
+      if (length && !validLengths.includes(length)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid length. Must be one of: ${validLengths.join(', ')}`,
+        });
+      }
+
+      const validStyles = ['bullets', 'paragraph', 'executive'];
+      if (style && !validStyles.includes(style)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid style. Must be one of: ${validStyles.join(', ')}`,
+        });
+      }
+
+      logger.info(`Processing text summarization request (${text.length} chars, ${length || 'medium'} length)`);
+
+      const result = await textSummarizer.summarize({
+        text,
+        length: length as any,
+        style: style as any,
+        focus,
+        extractKeyPoints,
+        includeTags,
+      });
+
+      const stats = textSummarizer.getStats();
+
+      res.json({
+        ...result,
+        pricing: {
+          charged: process.env.TEXT_SUMMARIZER_PRICE || '0.015',
+          apiCost: stats.averageCost.toFixed(4),
+          profitMargin: stats.profitPerRequest.toFixed(4),
+        },
+      });
+    } catch (error: unknown) {
+      next(error);
+    }
+  }
+);
+
+// AI Services Health Check
+app.get('/api/ai/health', (req, res) => {
+  res.json({
+    success: true,
+    services: {
+      imageAnalyzer: {
+        available: imageAnalyzer.isAvailable(),
+        price: process.env.IMAGE_ANALYZER_PRICE || '0.02',
+        currency: 'USDC',
+        endpoint: '/api/ai/image/analyze',
+      },
+      sentimentAnalyzer: {
+        available: true, // Lexicon-based, always available
+        price: process.env.SENTIMENT_ANALYZER_PRICE || '0.01',
+        currency: 'USDC',
+        endpoint: '/api/ai/sentiment/analyze',
+      },
+      textSummarizer: {
+        available: textSummarizer.isAvailable(),
+        price: process.env.TEXT_SUMMARIZER_PRICE || '0.015',
+        currency: 'USDC',
+        endpoint: '/api/ai/text/summarize',
+      },
+    },
+  });
 });
 
 // ============================================================================
@@ -660,17 +1225,24 @@ app.use(errorHandler);
 
 async function start() {
   await initialize();
+
+  // Start health monitoring (check every 5 minutes)
+  const healthCheckInterval = parseInt(process.env.HEALTH_CHECK_INTERVAL_MINUTES || '5', 10);
+  healthMonitor.start(healthCheckInterval);
+
   httpServer.listen(PORT, () => {
     logger.info(`\n🚀 SentientExchange API Server running on http://localhost:${PORT}`);
     logger.info(`🔌 WebSocket server running on ws://localhost:${PORT}`);
     logger.info(`🔒 Security: Helmet, CORS, Rate Limiting enabled`);
-    logger.info(`📝 Validation: Zod schemas active\n`);
+    logger.info(`📝 Validation: Zod schemas active`);
+    logger.info(`🏥 Health monitoring: Active (interval: ${healthCheckInterval}min)\n`);
   });
 }
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   void (async () => {
+    healthMonitor.stop();
     logger.info('SIGTERM received, closing server gracefully...');
     httpServer.close(() => {
       void (async () => {

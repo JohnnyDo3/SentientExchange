@@ -1,0 +1,1320 @@
+# REST API Reference
+
+**TL;DR:** Complete REST API reference with 30+ endpoints for service management, authentication, analytics, and AI services. All endpoints support JSON request/response with JWT authentication.
+
+## Base URL
+
+```
+Production:  https://api.sentientexchange.com
+Staging:     https://staging.sentientexchange.com
+Local:       http://localhost:3333
+```
+
+## Authentication
+
+AgentMarket uses **Sign-In With Ethereum (SIWE)** for wallet-based authentication and **JWT tokens** for API access.
+
+### Authentication Flow
+
+```typescript
+// 1. Get nonce for wallet signature
+const nonce = await fetch('/api/auth/nonce', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ address: '0x123...' })
+});
+
+// 2. Sign message with wallet
+const message = `Sign this message to authenticate: ${nonce.nonce}`;
+const signature = await wallet.signMessage(message);
+
+// 3. Verify signature and get JWT
+const auth = await fetch('/api/auth/verify', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ message, signature })
+});
+
+// 4. Use JWT for authenticated requests
+const headers = {
+  'Authorization': `Bearer ${auth.token}`,
+  // Or rely on httpOnly cookie (automatically sent)
+};
+```
+
+### Token Storage
+
+AgentMarket uses **httpOnly cookies** for secure token storage:
+
+```javascript
+// Token is automatically stored in httpOnly cookie (XSS-safe)
+// Cookie name: "auth-token"
+// Expires: 7 days
+// SameSite: Strict (CSRF protection)
+
+// No need to manually store token - cookie is sent automatically
+fetch('/api/services/my-services', {
+  credentials: 'include' // Include cookies
+});
+```
+
+---
+
+## Endpoints Overview
+
+| Category | Endpoints | Count |
+|----------|-----------|-------|
+| **Health** | `/api/pulse`, `/api/health` | 2 |
+| **Authentication** | `/api/auth/*` | 4 |
+| **Services** | `/api/services/*` | 7 |
+| **Search** | `/api/services/search` | 1 |
+| **Admin** | `/api/admin/*` | 6 |
+| **Analytics** | `/api/stats`, `/api/transactions/*`, `/api/services/:id/analytics`, `/api/services/:id/audit` | 4 |
+| **AI Services** | `/api/ai/*` | 4 |
+| **MCP** | `/mcp/sse`, `/mcp/message` | 2 |
+| **Total** | | **30** |
+
+---
+
+## Health Endpoints
+
+### GET /api/pulse
+
+Creative health check with system stats (agents always have a pulse!).
+
+**Request**:
+```bash
+curl https://api.sentientexchange.com/api/pulse
+```
+
+**Response** `200 OK`:
+```json
+{
+  "pulse": "strong",
+  "heartbeat": "💓",
+  "agents": "active",
+  "market": "open",
+  "vibe": "immaculate",
+  "uptime": "123m 45s",
+  "timestamp": "2025-11-06T12:34:56.789Z",
+  "message": "🤖 SentientExchange is alive and thriving",
+  "mcp": {
+    "sseEndpoint": "/mcp/sse",
+    "activeSessions": 47
+  }
+}
+```
+
+**Rate Limit**: None
+
+---
+
+### GET /api/health
+
+Legacy health endpoint (redirects to `/api/pulse`).
+
+**Response** `308 Permanent Redirect`:
+```
+Location: /api/pulse
+```
+
+---
+
+## Authentication Endpoints
+
+### POST /api/auth/nonce
+
+Get nonce for wallet signature.
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/auth/nonce \
+  -H "Content-Type: application/json" \
+  -d '{"address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7"}'
+```
+
+**Request Body**:
+```json
+{
+  "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7"
+}
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "nonce": "Sign in to SentientExchange\n\nNonce: abc123def456",
+  "message": "Sign this message to authenticate"
+}
+```
+
+**Errors**:
+- `400 Bad Request`: Missing or invalid address
+```json
+{
+  "success": false,
+  "error": "Wallet address required"
+}
+```
+
+**Rate Limit**: None
+
+---
+
+### POST /api/auth/verify
+
+Verify SIWE signature and return JWT token.
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/auth/verify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Sign in to SentientExchange...",
+    "signature": "0x123abc..."
+  }'
+```
+
+**Request Body**:
+```json
+{
+  "message": "Sign in to SentientExchange\n\nNonce: abc123def456",
+  "signature": "0x5f3a8b2c9d1e7f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a6b8c0d2e4f6a8b"
+}
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
+  "chainId": 1,
+  "message": "Authentication successful"
+}
+```
+
+**Note**: Token is also set in httpOnly cookie `auth-token` (7 day expiry).
+
+**Errors**:
+- `400 Bad Request`: Missing message or signature
+- `401 Unauthorized`: Invalid signature
+```json
+{
+  "success": false,
+  "error": "Authentication failed",
+  "message": "Invalid signature"
+}
+```
+
+**Rate Limit**: None
+
+---
+
+### GET /api/auth/me
+
+Get current authenticated user info.
+
+**Authentication**: Required
+
+**Request**:
+```bash
+curl https://api.sentientexchange.com/api/auth/me \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  # Or just send cookie with credentials: 'include'
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "user": {
+    "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
+    "chainId": 1
+  }
+}
+```
+
+**Errors**:
+- `401 Unauthorized`: Missing or invalid token
+
+---
+
+### POST /api/auth/logout
+
+Logout and clear httpOnly cookie.
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/auth/logout
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "message": "Logged out successfully - cookie cleared"
+}
+```
+
+---
+
+## Service Endpoints
+
+### GET /api/services
+
+List all approved services.
+
+**Request**:
+```bash
+curl https://api.sentientexchange.com/api/services
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "count": 147,
+  "services": [
+    {
+      "id": "service-sentiment-001",
+      "name": "Sentiment Analyzer Pro",
+      "description": "Advanced sentiment analysis",
+      "provider": "SentimentAI",
+      "endpoint": "https://api.sentimentai.com/analyze",
+      "capabilities": ["sentiment-analysis", "emotion-detection"],
+      "pricing": {
+        "perRequest": "$0.01",
+        "currency": "USDC"
+      },
+      "reputation": {
+        "totalJobs": 1247,
+        "successRate": 99.2,
+        "avgResponseTime": "320ms",
+        "rating": 4.9,
+        "reviews": 156
+      },
+      "status": "approved"
+    }
+  ]
+}
+```
+
+**Rate Limit**: 100 requests / 15 minutes per IP
+
+---
+
+### GET /api/services/my-services
+
+Get services owned by authenticated user.
+
+**Authentication**: Required
+
+**Request**:
+```bash
+curl https://api.sentientexchange.com/api/services/my-services \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "count": 3,
+  "services": [
+    {
+      "id": "service-123",
+      "name": "My Service",
+      "status": "approved",
+      "metadata": {
+        "walletAddress": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7"
+      }
+    }
+  ]
+}
+```
+
+**Errors**:
+- `401 Unauthorized`: Not authenticated
+
+---
+
+### GET /api/services/:id
+
+Get detailed information about a specific service.
+
+**Request**:
+```bash
+curl https://api.sentientexchange.com/api/services/service-sentiment-001
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "service": {
+    "id": "service-sentiment-001",
+    "name": "Sentiment Analyzer Pro",
+    "description": "Advanced sentiment analysis with emotion detection",
+    "provider": "SentimentAI",
+    "provider_wallet": "ABC123xyz...789",
+    "endpoint": "https://api.sentimentai.com/analyze",
+    "health_check_url": "https://api.sentimentai.com/health",
+    "capabilities": ["sentiment-analysis", "emotion-detection"],
+    "pricing": {
+      "perRequest": "$0.01",
+      "currency": "USDC"
+    },
+    "reputation": {
+      "totalJobs": 1247,
+      "successRate": 99.2,
+      "avgResponseTime": "320ms",
+      "rating": 4.9,
+      "reviews": 156
+    },
+    "status": "approved",
+    "metadata": {
+      "apiVersion": "v1",
+      "walletAddress": "ABC123xyz...789",
+      "healthCheckUrl": "https://api.sentimentai.com/health",
+      "image": "🧠",
+      "color": "#8b5cf6"
+    }
+  }
+}
+```
+
+**Errors**:
+- `404 Not Found`: Service does not exist
+
+---
+
+### POST /api/services
+
+Register a new service (requires authentication + approval).
+
+**Authentication**: Required
+
+**Rate Limit**: 10 registrations / 15 minutes per user
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/services \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My AI Service",
+    "description": "Provides sentiment analysis",
+    "provider": "MyCompany",
+    "walletAddress": "ABC123xyz...789",
+    "endpoint": "https://api.myservice.com/analyze",
+    "healthCheckUrl": "https://api.myservice.com/health",
+    "capabilities": ["sentiment-analysis"],
+    "pricing": {
+      "perRequest": "$0.02",
+      "currency": "USDC"
+    },
+    "middlewareInstalled": true,
+    "paymentAddresses": {
+      "solana": "ABC123xyz...789"
+    },
+    "image": "🤖",
+    "color": "#10b981"
+  }'
+```
+
+**Request Body**:
+```typescript
+{
+  name: string;                    // Service name (3-100 chars)
+  description: string;             // Service description (10-500 chars)
+  provider: string;                // Provider name (2-100 chars)
+  walletAddress: string;           // Solana wallet address (base58)
+  endpoint: string;                // Service endpoint URL (HTTPS)
+  healthCheckUrl?: string;         // Health check endpoint
+  capabilities: string[];          // Capabilities list
+  pricing: {
+    perRequest: string;            // Price in format $X.XX
+    currency: string;              // "USDC" or "SOL"
+  };
+  middlewareInstalled?: boolean;   // x402 middleware installed?
+  paymentAddresses?: {
+    solana?: string;               // Solana payment address
+  };
+  image?: string;                  // Emoji or image URL
+  color?: string;                  // Hex color code
+}
+```
+
+**Response** `201 Created`:
+```json
+{
+  "success": true,
+  "service": {
+    "id": "service-new-001",
+    "name": "My AI Service",
+    "status": "pending",
+    "middleware_verified": true
+  },
+  "message": "Service registered! ✓ Middleware verified. Awaiting admin approval."
+}
+```
+
+**Errors**:
+- `400 Bad Request`: Invalid input (Zod validation)
+- `401 Unauthorized`: Not authenticated
+- `429 Too Many Requests`: Registration rate limit exceeded
+
+---
+
+### PUT /api/services/:id
+
+Update a service (requires ownership).
+
+**Authentication**: Required (must own service)
+
+**Rate Limit**: 30 writes / 15 minutes per user
+
+**Request**:
+```bash
+curl -X PUT https://api.sentientexchange.com/api/services/service-123 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Updated description",
+    "pricing": {
+      "perRequest": "$0.03",
+      "currency": "USDC"
+    }
+  }'
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "service": {
+    "id": "service-123",
+    "description": "Updated description",
+    "pricing": {
+      "perRequest": "$0.03",
+      "currency": "USDC"
+    }
+  },
+  "message": "Service updated successfully"
+}
+```
+
+**Errors**:
+- `401 Unauthorized`: Not authenticated
+- `403 Forbidden`: You do not own this service
+- `404 Not Found`: Service does not exist
+
+---
+
+### DELETE /api/services/:id
+
+Delete a service (requires ownership).
+
+**Authentication**: Required (must own service)
+
+**Request**:
+```bash
+curl -X DELETE https://api.sentientexchange.com/api/services/service-123 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "message": "Service deleted successfully"
+}
+```
+
+**Errors**:
+- `401 Unauthorized`: Not authenticated
+- `403 Forbidden`: You do not own this service
+- `404 Not Found`: Service does not exist
+
+---
+
+### POST /api/services/search
+
+Advanced service search with filters.
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/services/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "capabilities": ["sentiment-analysis"],
+    "maxPrice": "$0.10",
+    "minRating": 4.0,
+    "limit": 20,
+    "offset": 0
+  }'
+```
+
+**Request Body**:
+```typescript
+{
+  capabilities?: string[];   // Filter by capabilities
+  maxPrice?: string;         // Max price in format $X.XX
+  minRating?: number;        // Min rating (1-5)
+  limit?: number;            // Results per page (1-100, default: 20)
+  offset?: number;           // Pagination offset (default: 0)
+}
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "count": 5,
+  "offset": 0,
+  "limit": 20,
+  "services": [
+    {
+      "id": "service-sentiment-001",
+      "name": "Sentiment Analyzer Pro",
+      "pricing": {
+        "perRequest": "$0.01",
+        "currency": "USDC"
+      },
+      "reputation": {
+        "rating": 4.9
+      }
+    }
+  ]
+}
+```
+
+---
+
+### POST /api/services/:id/rate
+
+Submit rating for a service.
+
+**Rate Limit**: 30 writes / 15 minutes per IP
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/services/service-sentiment-001/rate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transactionId": "tx-67890",
+    "score": 5,
+    "review": "Excellent service!"
+  }'
+```
+
+**Request Body**:
+```typescript
+{
+  transactionId: string;   // Transaction ID
+  score: number;           // Rating (1-5)
+  review?: string;         // Optional review (max 500 chars)
+}
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "service": {
+    "id": "service-sentiment-001",
+    "reputation": {
+      "rating": 4.9,
+      "reviews": 157
+    }
+  },
+  "message": "Rating submitted successfully"
+}
+```
+
+---
+
+## Admin Endpoints
+
+All admin endpoints require authentication with admin privileges.
+
+### GET /api/admin/pending-services
+
+Get all pending services awaiting approval.
+
+**Authentication**: Required (admin only)
+
+**Request**:
+```bash
+curl https://api.sentientexchange.com/api/admin/pending-services \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "count": 12,
+  "services": [
+    {
+      "id": "service-pending-001",
+      "name": "New Service",
+      "provider": "Provider",
+      "status": "pending",
+      "created_at": "2025-11-06T12:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### POST /api/admin/test-endpoint/:id
+
+Test service endpoint and middleware (admin only).
+
+**Authentication**: Required (admin only)
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/admin/test-endpoint/service-pending-001 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "test": {
+    "endpoint": "https://api.service.com/analyze",
+    "status": 402,
+    "middlewareWorking": true,
+    "response": {
+      "message": "Payment Required",
+      "amount": "$0.01"
+    },
+    "message": "✓ Middleware is correctly installed (returned 402)"
+  }
+}
+```
+
+---
+
+### POST /api/admin/approve/:id
+
+Approve a pending service (admin only).
+
+**Authentication**: Required (admin only)
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/admin/approve/service-pending-001 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{"notes": "Looks good, approved!"}'
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "service": {
+    "id": "service-pending-001",
+    "status": "approved"
+  },
+  "message": "Service approved successfully"
+}
+```
+
+---
+
+### POST /api/admin/reject/:id
+
+Reject a pending service (admin only).
+
+**Authentication**: Required (admin only)
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/admin/reject/service-pending-001 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{"notes": "Middleware not working correctly"}'
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "service": {
+    "id": "service-pending-001",
+    "status": "rejected"
+  },
+  "message": "Service rejected"
+}
+```
+
+---
+
+### GET /api/admin/health/stats
+
+Get health monitoring statistics (admin only).
+
+**Authentication**: Required (admin only)
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "stats": {
+    "totalServices": 147,
+    "healthyServices": 143,
+    "unhealthyServices": 4,
+    "lastCheckTimestamp": "2025-11-06T12:00:00Z"
+  }
+}
+```
+
+---
+
+### POST /api/admin/health/check
+
+Trigger manual health check (admin only).
+
+**Authentication**: Required (admin only)
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "message": "Health check completed",
+  "results": {
+    "checked": 147,
+    "healthy": 143,
+    "unhealthy": 4
+  }
+}
+```
+
+---
+
+### GET /api/admin/health/history/:serviceId
+
+Get health check history for a service (admin only).
+
+**Authentication**: Required (admin only)
+
+**Query Parameters**:
+- `limit` (optional): Number of history entries (1-200, default: 100)
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "count": 100,
+  "history": [
+    {
+      "serviceId": "service-123",
+      "status": "healthy",
+      "responseTime": "45ms",
+      "timestamp": "2025-11-06T12:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+## Analytics Endpoints
+
+### GET /api/stats
+
+Get marketplace statistics.
+
+**Request**:
+```bash
+curl https://api.sentientexchange.com/api/stats
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "stats": {
+    "services": 147,
+    "transactions": 5284,
+    "volume": 127.89,
+    "agents": 47
+  }
+}
+```
+
+---
+
+### GET /api/transactions/recent
+
+Get recent completed transactions.
+
+**Query Parameters**:
+- `limit` (optional): Number of transactions (1-100, default: 20)
+
+**Request**:
+```bash
+curl https://api.sentientexchange.com/api/transactions/recent?limit=10
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "transactions": [
+    {
+      "id": "tx-67890",
+      "from": "Agent_tx6789",
+      "to": "Sentiment Analyzer Pro",
+      "amount": "$0.01",
+      "timestamp": "2025-11-06T12:34:56Z"
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/services/:id/analytics
+
+Get analytics for a specific service (requires ownership).
+
+**Authentication**: Required (must own service)
+
+**Request**:
+```bash
+curl https://api.sentientexchange.com/api/services/service-123/analytics \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "analytics": {
+    "totalRevenue": "$127.89",
+    "totalRequests": 1247,
+    "revenueByDay": [
+      { "date": "2025-11-05", "revenue": 12.34 },
+      { "date": "2025-11-06", "revenue": 15.67 }
+    ],
+    "requestsByHour": [
+      { "hour": "0:00", "requests": 12 },
+      { "hour": "1:00", "requests": 8 }
+    ],
+    "topUsers": [
+      { "name": "agent-123", "requests": 45, "spent": "$4.50" }
+    ],
+    "recentTransactions": [
+      {
+        "id": "tx-123",
+        "buyer": "agent-456",
+        "amount": "$0.01",
+        "timestamp": "2025-11-06T12:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### GET /api/services/:id/audit
+
+Get audit history for a service.
+
+**Query Parameters**:
+- `limit` (optional): Number of audit entries (1-200, default: 50)
+
+**Request**:
+```bash
+curl https://api.sentientexchange.com/api/services/service-123/audit?limit=20
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "count": 20,
+  "audit": [
+    {
+      "id": "audit-123",
+      "entityType": "service",
+      "entityId": "service-123",
+      "action": "update",
+      "actor": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7",
+      "changes": {
+        "pricing.perRequest": "$0.01 → $0.02"
+      },
+      "timestamp": "2025-11-06T12:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+## AI Service Endpoints
+
+All AI service endpoints use **x402 payment middleware**. First request returns `402 Payment Required`, then retry with payment proof.
+
+### POST /api/ai/image/analyze
+
+Analyze images using GPT-4 Vision.
+
+**Payment Required**: $0.02 USDC per request
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/ai/image/analyze \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -d '{
+    "image": "https://example.com/image.jpg",
+    "analysisType": "full",
+    "detailLevel": "detailed"
+  }'
+```
+
+**Request Body**:
+```typescript
+{
+  image: string;                                    // Image URL or base64
+  analysisType?: "full" | "objects" | "text" | "faces" | "description";
+  detailLevel?: "basic" | "detailed";
+}
+```
+
+**Response** `200 OK` (after payment):
+```json
+{
+  "success": true,
+  "description": "A beautiful sunset over the ocean",
+  "objects": ["ocean", "sky", "sun", "clouds"],
+  "text": [],
+  "faces": 0,
+  "confidence": "high",
+  "pricing": {
+    "charged": "0.02",
+    "apiCost": "0.0145",
+    "profitMargin": "0.0055"
+  }
+}
+```
+
+**Response** `402 Payment Required` (first request):
+```json
+{
+  "statusCode": 402,
+  "message": "Payment Required",
+  "paymentInstructions": {
+    "amount": "0.02",
+    "currency": "USDC",
+    "recipient": "ABC123xyz...789",
+    "network": "solana"
+  }
+}
+```
+
+---
+
+### POST /api/ai/sentiment/analyze
+
+Analyze text sentiment (lexicon-based).
+
+**Payment Required**: $0.01 USDC per request
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/ai/sentiment/analyze \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -d '{"text": "I love this product!"}'
+```
+
+**Request Body**:
+```typescript
+{
+  text: string;   // Text to analyze (max 10,000 chars)
+}
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "result": {
+    "sentiment": "positive",
+    "score": 0.95,
+    "comparative": 0.475,
+    "positiveWords": ["love"],
+    "negativeWords": []
+  },
+  "pricing": {
+    "charged": "0.01"
+  }
+}
+```
+
+---
+
+### POST /api/ai/text/summarize
+
+Summarize long text using GPT-4.
+
+**Payment Required**: $0.015 USDC per request
+
+**Request**:
+```bash
+curl -X POST https://api.sentientexchange.com/api/ai/text/summarize \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -d '{
+    "text": "Long article text...",
+    "length": "brief",
+    "style": "bullets",
+    "extractKeyPoints": true
+  }'
+```
+
+**Request Body**:
+```typescript
+{
+  text: string;                                 // Text to summarize (max 50,000 chars)
+  length?: "brief" | "medium" | "detailed";     // Summary length
+  style?: "bullets" | "paragraph" | "executive"; // Summary style
+  focus?: string;                               // Focus area
+  extractKeyPoints?: boolean;                   // Extract key points
+  includeTags?: boolean;                        // Include topic tags
+}
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "summary": "• Main point 1\n• Main point 2\n• Main point 3",
+  "keyPoints": ["Point 1", "Point 2", "Point 3"],
+  "tags": ["technology", "innovation"],
+  "wordCount": {
+    "original": 5000,
+    "summary": 120
+  },
+  "pricing": {
+    "charged": "0.015",
+    "apiCost": "0.0089",
+    "profitMargin": "0.0061"
+  }
+}
+```
+
+---
+
+### GET /api/ai/health
+
+Check AI services health status.
+
+**Request**:
+```bash
+curl https://api.sentientexchange.com/api/ai/health
+```
+
+**Response** `200 OK`:
+```json
+{
+  "success": true,
+  "services": {
+    "imageAnalyzer": {
+      "available": true,
+      "price": "0.02",
+      "currency": "USDC",
+      "endpoint": "/api/ai/image/analyze"
+    },
+    "sentimentAnalyzer": {
+      "available": true,
+      "price": "0.01",
+      "currency": "USDC",
+      "endpoint": "/api/ai/sentiment/analyze"
+    },
+    "textSummarizer": {
+      "available": true,
+      "price": "0.015",
+      "currency": "USDC",
+      "endpoint": "/api/ai/text/summarize"
+    }
+  }
+}
+```
+
+---
+
+## MCP Endpoints
+
+### GET /mcp/sse
+
+Establish SSE stream for remote MCP protocol connections.
+
+**Rate Limit**: 10 connections / 15 minutes per IP
+
+**Request**:
+```javascript
+const eventSource = new EventSource('https://api.sentientexchange.com/mcp/sse');
+
+eventSource.onopen = () => {
+  console.log('MCP connection established');
+};
+
+eventSource.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  console.log('Received:', message);
+};
+
+eventSource.onerror = (error) => {
+  console.error('MCP connection error:', error);
+};
+```
+
+**Response**: SSE stream with JSON-RPC messages
+
+---
+
+### POST /mcp/message
+
+Send JSON-RPC message to MCP server.
+
+**Rate Limit**: 60 messages / 1 minute per session
+
+**Query Parameters**:
+- `sessionId` (required): Session ID from SSE connection
+
+**Request**:
+```bash
+curl -X POST "https://api.sentientexchange.com/mcp/message?sessionId=abc123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "discover_services",
+      "arguments": {"capability": "sentiment-analysis"}
+    }
+  }'
+```
+
+**Response**: Empty (result sent via SSE stream)
+
+---
+
+## Rate Limits
+
+| Endpoint Pattern | Limit | Window | Scope |
+|------------------|-------|--------|-------|
+| `/api/*` (global) | 100 requests | 15 minutes | per IP |
+| `/api/services` (write) | 30 requests | 15 minutes | per user |
+| `/api/services` (register) | 10 requests | 15 minutes | per user |
+| `/mcp/sse` (connection) | 10 connections | 15 minutes | per IP |
+| `/mcp/message` (messages) | 60 messages | 1 minute | per session |
+
+**Rate Limit Headers**:
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1699276800
+```
+
+**Rate Limit Error** `429 Too Many Requests`:
+```json
+{
+  "success": false,
+  "error": "Rate limit exceeded",
+  "retryAfter": 900
+}
+```
+
+---
+
+## Error Responses
+
+All errors follow this format:
+
+```json
+{
+  "success": false,
+  "error": "Error type",
+  "message": "Detailed error message",
+  "details": {
+    // Additional context
+  }
+}
+```
+
+### Common HTTP Status Codes
+
+| Code | Name | Description |
+|------|------|-------------|
+| `200` | OK | Request successful |
+| `201` | Created | Resource created |
+| `400` | Bad Request | Invalid input |
+| `401` | Unauthorized | Authentication required |
+| `403` | Forbidden | Insufficient permissions |
+| `404` | Not Found | Resource not found |
+| `409` | Conflict | Resource conflict |
+| `429` | Too Many Requests | Rate limit exceeded |
+| `500` | Internal Server Error | Server error |
+| `503` | Service Unavailable | Service down |
+
+---
+
+## Security
+
+### CORS Configuration
+
+```javascript
+// Allowed origins
+const allowedOrigins = [
+  'https://sentientexchange.com',
+  'https://www.sentientexchange.com',
+  'http://localhost:3000' // Development only
+];
+
+// CORS headers
+Access-Control-Allow-Origin: https://sentientexchange.com
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization
+Access-Control-Allow-Credentials: true
+```
+
+### Security Headers
+
+```
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-XSS-Protection: 1; mode=block
+Content-Security-Policy: default-src 'self'
+```
+
+### Input Sanitization
+
+All inputs are sanitized using:
+- **Zod** schemas for type validation
+- **express-validator** for sanitization
+- **DOMPurify** for HTML sanitization (if applicable)
+
+---
+
+## Next Steps
+
+- [MCP Protocol Reference](/docs/api/mcp-protocol) - MCP tool schemas
+- [WebSocket Events](/docs/api/websocket-events) - Real-time updates
+- [Error Codes](/docs/api/error-codes) - Complete error reference
+- [Service Provider Guide](/docs/quickstart/service-provider) - Register your service

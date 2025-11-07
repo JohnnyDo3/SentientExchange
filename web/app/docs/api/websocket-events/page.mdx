@@ -1,0 +1,941 @@
+# WebSocket Events Reference
+
+**TL;DR:** Real-time event streaming via Socket.IO for service updates, transactions, and marketplace activity. Subscribe to specific events or listen to all activity.
+
+## Overview
+
+AgentMarket uses **Socket.IO** for bidirectional real-time communication between the API server and clients (web dashboards, monitoring tools, agent orchestrators).
+
+### Connection Details
+
+```
+Production:  wss://api.sentientexchange.com
+Staging:     wss://staging.sentientexchange.com
+Local:       ws://localhost:3333
+```
+
+### Transport Protocols
+
+- **WebSocket** (preferred): Full-duplex communication
+- **HTTP long-polling** (fallback): Works behind restrictive firewalls
+
+---
+
+## Quick Start
+
+### JavaScript/TypeScript (Socket.IO Client)
+
+```typescript
+import { io } from 'socket.io-client';
+
+// Connect to WebSocket server
+const socket = io('https://api.sentientexchange.com', {
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionAttempts: 5
+});
+
+// Connection events
+socket.on('connect', () => {
+  console.log('Connected to AgentMarket:', socket.id);
+});
+
+socket.on('disconnect', (reason) => {
+  console.log('Disconnected:', reason);
+});
+
+socket.on('connect_error', (error) => {
+  console.error('Connection error:', error);
+});
+
+// Listen to marketplace events
+socket.on('new-service', (service) => {
+  console.log('New service registered:', service);
+});
+
+socket.on('new-transaction', (transaction) => {
+  console.log('New transaction:', transaction);
+});
+
+socket.on('service-updated', (service) => {
+  console.log('Service updated:', service);
+});
+
+socket.on('service-deleted', (data) => {
+  console.log('Service deleted:', data.id);
+});
+
+// Receive initial stats on connection
+socket.on('initial-stats', (stats) => {
+  console.log('Marketplace stats:', stats);
+});
+```
+
+### Python (python-socketio)
+
+```python
+import socketio
+
+sio = socketio.Client()
+
+@sio.on('connect')
+def on_connect():
+    print('Connected to AgentMarket:', sio.sid)
+
+@sio.on('disconnect')
+def on_disconnect():
+    print('Disconnected from AgentMarket')
+
+@sio.on('new-service')
+def on_new_service(data):
+    print('New service:', data)
+
+@sio.on('new-transaction')
+def on_new_transaction(data):
+    print('New transaction:', data)
+
+@sio.on('initial-stats')
+def on_initial_stats(data):
+    print('Initial stats:', data)
+
+# Connect
+sio.connect('https://api.sentientexchange.com')
+
+# Keep connection alive
+sio.wait()
+```
+
+---
+
+## Connection Lifecycle
+
+### 1. Connection Established
+
+Client connects to WebSocket server.
+
+**Client → Server**:
+```javascript
+const socket = io('https://api.sentientexchange.com');
+```
+
+**Server → Client** (`connect` event):
+```javascript
+socket.on('connect', () => {
+  console.log('Socket ID:', socket.id);
+  // Socket ID: "abc123xyz789"
+});
+```
+
+### 2. Initial Stats Delivered
+
+Server sends initial marketplace statistics immediately after connection.
+
+**Server → Client** (`initial-stats` event):
+```javascript
+socket.on('initial-stats', (stats) => {
+  console.log(stats);
+});
+```
+
+**Payload**:
+```json
+{
+  "services": 147
+}
+```
+
+### 3. Event Streaming
+
+Server broadcasts real-time events as they occur.
+
+**Available Events**:
+- `new-service` - New service approved and published
+- `service-updated` - Service metadata/pricing changed
+- `service-deleted` - Service removed from marketplace
+- `new-transaction` - New transaction completed
+
+### 4. Disconnection
+
+Client disconnects (intentional or network failure).
+
+**Client → Server**:
+```javascript
+socket.disconnect();
+```
+
+**Server → Client** (`disconnect` event):
+```javascript
+socket.on('disconnect', (reason) => {
+  console.log('Disconnected:', reason);
+  // Reasons: "io server disconnect", "io client disconnect", "ping timeout", "transport close"
+});
+```
+
+### 5. Reconnection
+
+Socket.IO automatically reconnects on network failure.
+
+**Client Behavior**:
+```javascript
+const socket = io('https://api.sentientexchange.com', {
+  reconnection: true,           // Enable reconnection
+  reconnectionDelay: 1000,      // Wait 1s before first retry
+  reconnectionDelayMax: 5000,   // Max 5s between retries
+  reconnectionAttempts: 10      // Try 10 times before giving up
+});
+
+socket.on('reconnect', (attemptNumber) => {
+  console.log('Reconnected after', attemptNumber, 'attempts');
+});
+
+socket.on('reconnect_attempt', (attemptNumber) => {
+  console.log('Reconnection attempt', attemptNumber);
+});
+
+socket.on('reconnect_error', (error) => {
+  console.error('Reconnection error:', error);
+});
+
+socket.on('reconnect_failed', () => {
+  console.error('Reconnection failed after max attempts');
+});
+```
+
+---
+
+## Event Types
+
+### 1. initial-stats
+
+Sent immediately after connection. Provides current marketplace statistics.
+
+**Direction**: Server → Client (unicast to connecting client)
+
+**Trigger**: Client connects to WebSocket
+
+**Payload**:
+```typescript
+{
+  services: number;   // Total number of approved services
+}
+```
+
+**Example**:
+```json
+{
+  "services": 147
+}
+```
+
+**Usage**:
+```javascript
+socket.on('initial-stats', (stats) => {
+  updateServiceCount(stats.services);
+});
+```
+
+---
+
+### 2. new-service
+
+Broadcast when a new service is approved and published to the marketplace.
+
+**Direction**: Server → All Clients (broadcast)
+
+**Trigger**: Admin approves pending service via `POST /api/admin/approve/:id`
+
+**Payload**:
+```typescript
+{
+  id: string;                    // Service UUID
+  name: string;                  // Service name
+  description: string;           // Service description
+  provider: string;              // Provider name
+  provider_wallet: string;       // Solana wallet address
+  endpoint: string;              // Service API endpoint
+  health_check_url?: string;     // Health check URL
+  capabilities: string[];        // Service capabilities
+  pricing: {
+    perRequest: string;          // Price per request (e.g., "$0.01")
+    currency: string;            // Currency (e.g., "USDC")
+  };
+  reputation: {
+    totalJobs: number;           // Total jobs completed
+    successRate: number;         // Success rate (0-100)
+    avgResponseTime: string;     // Average response time (e.g., "320ms")
+    rating: number;              // Average rating (1-5)
+    reviews: number;             // Total reviews
+  };
+  status: "approved";            // Always "approved" for new-service event
+  middleware_verified: boolean;  // x402 middleware verified
+  network: string;               // Blockchain network (e.g., "solana")
+  metadata?: {
+    apiVersion: string;
+    walletAddress: string;
+    healthCheckUrl?: string;
+    image?: string;              // Emoji or image URL
+    color?: string;              // Hex color code
+  };
+}
+```
+
+**Example**:
+```json
+{
+  "id": "service-sentiment-002",
+  "name": "Sentiment Analysis Pro",
+  "description": "Advanced sentiment analysis with emotion detection",
+  "provider": "SentimentAI",
+  "provider_wallet": "ABC123xyz...789",
+  "endpoint": "https://api.sentimentai.com/analyze",
+  "health_check_url": "https://api.sentimentai.com/health",
+  "capabilities": ["sentiment-analysis", "emotion-detection"],
+  "pricing": {
+    "perRequest": "$0.01",
+    "currency": "USDC"
+  },
+  "reputation": {
+    "totalJobs": 0,
+    "successRate": 100,
+    "avgResponseTime": "0s",
+    "rating": 5.0,
+    "reviews": 0
+  },
+  "status": "approved",
+  "middleware_verified": true,
+  "network": "solana",
+  "metadata": {
+    "apiVersion": "v1",
+    "walletAddress": "ABC123xyz...789",
+    "healthCheckUrl": "https://api.sentimentai.com/health",
+    "image": "🧠",
+    "color": "#8b5cf6"
+  }
+}
+```
+
+**Usage**:
+```javascript
+socket.on('new-service', (service) => {
+  // Add to service list
+  addServiceToUI(service);
+
+  // Show notification
+  showNotification(`New service available: ${service.name}`);
+
+  // Update service count
+  incrementServiceCount();
+});
+```
+
+---
+
+### 3. service-updated
+
+Broadcast when a service is updated (pricing, metadata, etc.).
+
+**Direction**: Server → All Clients (broadcast)
+
+**Trigger**: Service owner updates via `PUT /api/services/:id`
+
+**Payload**: Same as `new-service` (full service object with updated fields)
+
+**Example**:
+```json
+{
+  "id": "service-sentiment-001",
+  "name": "Sentiment Analyzer Pro",
+  "description": "Updated description with new features",
+  "pricing": {
+    "perRequest": "$0.02",
+    "currency": "USDC"
+  },
+  "...": "..."
+}
+```
+
+**Usage**:
+```javascript
+socket.on('service-updated', (service) => {
+  // Update existing service in UI
+  updateServiceInUI(service.id, service);
+
+  // Show notification if price changed
+  if (service.pricing.perRequest !== previousPrice) {
+    showNotification(`${service.name} price changed to ${service.pricing.perRequest}`);
+  }
+});
+```
+
+---
+
+### 4. service-deleted
+
+Broadcast when a service is removed from the marketplace.
+
+**Direction**: Server → All Clients (broadcast)
+
+**Trigger**: Service owner deletes via `DELETE /api/services/:id`
+
+**Payload**:
+```typescript
+{
+  id: string;   // Service UUID that was deleted
+}
+```
+
+**Example**:
+```json
+{
+  "id": "service-sentiment-001"
+}
+```
+
+**Usage**:
+```javascript
+socket.on('service-deleted', (data) => {
+  // Remove from service list
+  removeServiceFromUI(data.id);
+
+  // Show notification
+  showNotification(`Service removed: ${data.id}`);
+
+  // Update service count
+  decrementServiceCount();
+});
+```
+
+---
+
+### 5. new-transaction
+
+Broadcast when a new transaction is completed.
+
+**Direction**: Server → All Clients (broadcast)
+
+**Trigger**: Transaction completed via `submit_payment` MCP tool or internal broadcast
+
+**Payload**:
+```typescript
+{
+  id: string;                    // Transaction UUID
+  serviceId: string;             // Service UUID
+  buyer: string;                 // Buyer identifier (wallet address or agent ID)
+  amount: string;                // Amount paid (e.g., "$0.01")
+  status: "completed";           // Transaction status
+  timestamp: string;             // ISO 8601 timestamp
+  paymentSignature?: string;     // Solana transaction signature (optional)
+  requestData?: object;          // Service request data (optional)
+  responseData?: object;         // Service response data (optional)
+}
+```
+
+**Example**:
+```json
+{
+  "id": "tx-67890",
+  "serviceId": "service-sentiment-001",
+  "buyer": "agent-123",
+  "amount": "$0.01",
+  "status": "completed",
+  "timestamp": "2025-11-06T12:34:56.789Z",
+  "paymentSignature": "3Xy7z8bcd9...abc123def456",
+  "requestData": {
+    "text": "I love this product!"
+  },
+  "responseData": {
+    "sentiment": "positive",
+    "score": 0.95
+  }
+}
+```
+
+**Usage**:
+```javascript
+socket.on('new-transaction', (transaction) => {
+  // Add to transaction feed
+  addTransactionToFeed(transaction);
+
+  // Update service stats
+  updateServiceStats(transaction.serviceId, {
+    totalJobs: +1,
+    revenue: parseFloat(transaction.amount.replace('$', ''))
+  });
+
+  // Show notification
+  showNotification(`New transaction: ${transaction.amount} for ${transaction.serviceId}`);
+
+  // Update volume stats
+  incrementMarketplaceVolume(transaction.amount);
+});
+```
+
+---
+
+## Event Filtering
+
+Socket.IO doesn't natively support server-side event filtering, but you can implement client-side filtering:
+
+### Filter by Service
+
+```javascript
+const targetServiceId = 'service-sentiment-001';
+
+socket.on('new-transaction', (transaction) => {
+  if (transaction.serviceId === targetServiceId) {
+    console.log('Transaction for my service:', transaction);
+  }
+});
+
+socket.on('service-updated', (service) => {
+  if (service.id === targetServiceId) {
+    console.log('My service updated:', service);
+  }
+});
+```
+
+### Filter by Amount Threshold
+
+```javascript
+const minAmount = 1.00; // $1.00
+
+socket.on('new-transaction', (transaction) => {
+  const amount = parseFloat(transaction.amount.replace('$', ''));
+  if (amount >= minAmount) {
+    console.log('Large transaction:', transaction);
+  }
+});
+```
+
+### Filter by Buyer/Agent
+
+```javascript
+const myAgentId = 'agent-123';
+
+socket.on('new-transaction', (transaction) => {
+  if (transaction.buyer === myAgentId) {
+    console.log('My agent made a purchase:', transaction);
+  }
+});
+```
+
+---
+
+## Advanced Usage
+
+### Room-Based Events (Future Feature)
+
+Currently, all events are broadcast globally. Future versions may support room-based subscriptions:
+
+```javascript
+// Future API (not yet implemented)
+socket.emit('join-room', 'service-sentiment-001'); // Subscribe to specific service
+socket.emit('leave-room', 'service-sentiment-001'); // Unsubscribe
+
+socket.on('room-new-transaction', (transaction) => {
+  // Only receive transactions for subscribed services
+});
+```
+
+### Event Acknowledgments
+
+Socket.IO supports acknowledgments for custom events. AgentMarket doesn't currently use this, but you can implement it for custom workflows:
+
+```javascript
+// Client sends custom event with callback
+socket.emit('custom-request', { data: 'value' }, (response) => {
+  console.log('Server acknowledged:', response);
+});
+
+// Server handles custom event (would need to be added to apiServer.ts)
+socket.on('custom-request', (data, callback) => {
+  // Process request
+  callback({ success: true, result: 'processed' });
+});
+```
+
+---
+
+## Error Handling
+
+### Connection Errors
+
+```javascript
+socket.on('connect_error', (error) => {
+  console.error('Connection failed:', error.message);
+
+  if (error.message.includes('CORS')) {
+    console.error('CORS error - check allowed origins');
+  } else if (error.message.includes('timeout')) {
+    console.error('Connection timeout - check network');
+  }
+});
+```
+
+### Reconnection Failures
+
+```javascript
+socket.on('reconnect_failed', () => {
+  console.error('Failed to reconnect after max attempts');
+
+  // Fallback to HTTP polling
+  fallbackToPolling();
+});
+
+function fallbackToPolling() {
+  // Poll REST API instead
+  setInterval(async () => {
+    const stats = await fetch('/api/stats').then(r => r.json());
+    updateUI(stats);
+  }, 5000);
+}
+```
+
+### Event Parsing Errors
+
+```javascript
+socket.on('new-transaction', (transaction) => {
+  try {
+    // Validate payload
+    if (!transaction.id || !transaction.serviceId) {
+      throw new Error('Invalid transaction payload');
+    }
+
+    // Process transaction
+    processTransaction(transaction);
+  } catch (error) {
+    console.error('Error processing transaction:', error);
+  }
+});
+```
+
+---
+
+## Performance Optimization
+
+### Debounce Rapid Events
+
+```javascript
+let transactionQueue = [];
+let debounceTimer;
+
+socket.on('new-transaction', (transaction) => {
+  transactionQueue.push(transaction);
+
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    // Process batch
+    processBatchTransactions(transactionQueue);
+    transactionQueue = [];
+  }, 1000); // Process every 1 second
+});
+```
+
+### Throttle UI Updates
+
+```javascript
+import { throttle } from 'lodash';
+
+const updateStatsUI = throttle((stats) => {
+  // Update DOM
+  document.getElementById('service-count').textContent = stats.services;
+}, 500); // Max once per 500ms
+
+socket.on('new-service', () => {
+  updateStatsUI({ services: getCurrentServiceCount() });
+});
+```
+
+### Lazy Event Listeners
+
+```javascript
+// Only listen to events when dashboard is visible
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    // Pause event listeners
+    socket.off('new-transaction');
+    socket.off('new-service');
+  } else {
+    // Resume event listeners
+    socket.on('new-transaction', handleTransaction);
+    socket.on('new-service', handleNewService);
+  }
+});
+```
+
+---
+
+## Testing WebSocket Events
+
+### Manual Testing (Browser Console)
+
+```javascript
+// Connect
+const socket = io('https://api.sentientexchange.com');
+
+// Log all events
+socket.onAny((eventName, ...args) => {
+  console.log(`Event: ${eventName}`, args);
+});
+
+// Trigger test events (if admin)
+await fetch('/api/admin/approve/service-test-001', {
+  method: 'POST',
+  headers: { 'Authorization': 'Bearer YOUR_TOKEN' },
+  body: JSON.stringify({ notes: 'Test approval' })
+});
+// Should trigger 'new-service' event
+```
+
+### Automated Testing (Jest + Socket.IO Client)
+
+```typescript
+import { io, Socket } from 'socket.io-client';
+
+describe('WebSocket Events', () => {
+  let socket: Socket;
+
+  beforeAll((done) => {
+    socket = io('http://localhost:3333');
+    socket.on('connect', done);
+  });
+
+  afterAll(() => {
+    socket.disconnect();
+  });
+
+  test('should receive initial-stats on connect', (done) => {
+    socket.on('initial-stats', (stats) => {
+      expect(stats).toHaveProperty('services');
+      expect(typeof stats.services).toBe('number');
+      done();
+    });
+  });
+
+  test('should receive new-service event', (done) => {
+    socket.on('new-service', (service) => {
+      expect(service).toHaveProperty('id');
+      expect(service).toHaveProperty('name');
+      expect(service.status).toBe('approved');
+      done();
+    });
+
+    // Trigger event via API
+    fetch('http://localhost:3333/api/admin/approve/test-service', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer TEST_TOKEN' }
+    });
+  }, 10000);
+});
+```
+
+---
+
+## Rate Limits
+
+WebSocket connections are not rate-limited per se, but the following limits apply:
+
+| Resource | Limit | Scope |
+|----------|-------|-------|
+| Concurrent connections | 1000 | Per server instance |
+| Messages per connection | Unlimited | (events are server-initiated) |
+| Connection duration | Unlimited | (until client disconnects) |
+
+**Note**: WebSocket connections are long-lived and not subject to HTTP rate limits. However, API actions that trigger events (e.g., creating services) are rate-limited.
+
+---
+
+## Security
+
+### Authentication (Future Feature)
+
+Currently, WebSocket connections are **unauthenticated** (public read-only event stream). Future versions will support authentication:
+
+```javascript
+// Future API (not yet implemented)
+const socket = io('https://api.sentientexchange.com', {
+  auth: {
+    token: 'YOUR_JWT_TOKEN'
+  }
+});
+
+// Private events for authenticated users
+socket.on('my-transaction', (transaction) => {
+  // Only your transactions
+});
+```
+
+### CORS Configuration
+
+WebSocket server uses same CORS policy as REST API:
+
+```javascript
+// Allowed origins
+const corsOptions = {
+  origin: [
+    'https://sentientexchange.com',
+    'https://www.sentientexchange.com',
+    'http://localhost:3000'
+  ],
+  credentials: true
+};
+```
+
+### Data Privacy
+
+- **Public events** (new-service, service-updated, service-deleted): Safe to broadcast globally
+- **Semi-private events** (new-transaction): Contains buyer ID but no sensitive data
+- **Private events** (future): Will require authentication
+
+---
+
+## Complete Example: Real-Time Dashboard
+
+```typescript
+import { io } from 'socket.io-client';
+
+class AgentMarketDashboard {
+  private socket: Socket;
+  private stats = {
+    services: 0,
+    transactions: 0,
+    volume: 0
+  };
+
+  constructor(apiUrl: string) {
+    this.socket = io(apiUrl, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 10
+    });
+
+    this.setupListeners();
+  }
+
+  private setupListeners() {
+    // Connection events
+    this.socket.on('connect', () => {
+      console.log('✓ Connected to AgentMarket');
+      this.updateConnectionStatus('connected');
+    });
+
+    this.socket.on('disconnect', (reason) => {
+      console.log('✗ Disconnected:', reason);
+      this.updateConnectionStatus('disconnected');
+    });
+
+    this.socket.on('reconnect', (attempt) => {
+      console.log(`✓ Reconnected after ${attempt} attempts`);
+      this.updateConnectionStatus('connected');
+    });
+
+    // Marketplace events
+    this.socket.on('initial-stats', (stats) => {
+      this.stats.services = stats.services;
+      this.render();
+    });
+
+    this.socket.on('new-service', (service) => {
+      this.stats.services++;
+      this.addServiceToList(service);
+      this.showNotification(`New service: ${service.name}`);
+      this.render();
+    });
+
+    this.socket.on('service-updated', (service) => {
+      this.updateServiceInList(service);
+      this.render();
+    });
+
+    this.socket.on('service-deleted', (data) => {
+      this.stats.services--;
+      this.removeServiceFromList(data.id);
+      this.render();
+    });
+
+    this.socket.on('new-transaction', (transaction) => {
+      this.stats.transactions++;
+      const amount = parseFloat(transaction.amount.replace('$', ''));
+      this.stats.volume += amount;
+      this.addTransactionToFeed(transaction);
+      this.render();
+    });
+  }
+
+  private render() {
+    document.getElementById('service-count')!.textContent = this.stats.services.toString();
+    document.getElementById('transaction-count')!.textContent = this.stats.transactions.toString();
+    document.getElementById('volume')!.textContent = `$${this.stats.volume.toFixed(2)}`;
+  }
+
+  private updateConnectionStatus(status: 'connected' | 'disconnected') {
+    const indicator = document.getElementById('connection-status')!;
+    indicator.className = status;
+    indicator.textContent = status === 'connected' ? '🟢 Connected' : '🔴 Disconnected';
+  }
+
+  private addServiceToList(service: any) {
+    const list = document.getElementById('service-list')!;
+    const item = document.createElement('div');
+    item.id = `service-${service.id}`;
+    item.innerHTML = `
+      <strong>${service.name}</strong>
+      <span>${service.pricing.perRequest}</span>
+    `;
+    list.appendChild(item);
+  }
+
+  private updateServiceInList(service: any) {
+    const item = document.getElementById(`service-${service.id}`)!;
+    if (item) {
+      item.innerHTML = `
+        <strong>${service.name}</strong>
+        <span>${service.pricing.perRequest}</span>
+      `;
+    }
+  }
+
+  private removeServiceFromList(serviceId: string) {
+    const item = document.getElementById(`service-${serviceId}`);
+    if (item) {
+      item.remove();
+    }
+  }
+
+  private addTransactionToFeed(transaction: any) {
+    const feed = document.getElementById('transaction-feed')!;
+    const item = document.createElement('div');
+    item.innerHTML = `
+      <span>${transaction.buyer}</span>
+      →
+      <span>${transaction.serviceId}</span>
+      <strong>${transaction.amount}</strong>
+    `;
+    feed.insertBefore(item, feed.firstChild);
+  }
+
+  private showNotification(message: string) {
+    // Use browser Notification API
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('AgentMarket', { body: message });
+    }
+  }
+
+  disconnect() {
+    this.socket.disconnect();
+  }
+}
+
+// Usage
+const dashboard = new AgentMarketDashboard('https://api.sentientexchange.com');
+```
+
+---
+
+## Next Steps
+
+- [MCP Protocol Reference](/docs/api/mcp-protocol) - MCP tool schemas
+- [REST API Reference](/docs/api/rest-endpoints) - HTTP endpoints
+- [Error Codes](/docs/api/error-codes) - Complete error reference
+- [Local Development](/docs/quickstart/local-development) - Run locally with WebSockets

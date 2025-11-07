@@ -294,10 +294,10 @@ export default function ServiceRegistrationForm({
       {/* Price */}
       <div>
         <label className="block text-sm font-medium text-gray-300 mb-2">
-          Price (USDC) <span className="text-red-400">*</span>
+          Price per Request <span className="text-red-400">*</span>
         </label>
         <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-semibold">$</span>
           <input
             type="number"
             step="0.001"
@@ -308,7 +308,9 @@ export default function ServiceRegistrationForm({
             className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple focus:border-transparent transition-all"
           />
         </div>
-        <p className="text-gray-500 text-xs mt-1">Price per request in USDC</p>
+        <p className="text-gray-500 text-xs mt-1 flex items-center gap-1">
+          <span className="text-green font-semibold">USDC</span> price per request on Solana network
+        </p>
         {errors.price && (
           <p className="text-red-400 text-sm mt-1 flex items-center gap-1">
             <AlertCircle className="w-4 h-4" />
@@ -429,6 +431,124 @@ export default function ServiceRegistrationForm({
         )}
       </div>
 
+      {/* Middleware Installation */}
+      <div className="border-2 border-purple/30 rounded-lg p-6 bg-purple/5">
+        <div className="flex items-start gap-3 mb-4">
+          <Sparkles className="w-5 h-5 text-purple mt-0.5 flex-shrink-0" />
+          <div>
+            <h3 className="text-lg font-semibold text-white mb-2">
+              Step 1: Install x402 Middleware
+            </h3>
+            <p className="text-sm text-gray-400 mb-3">
+              Add our zero-config middleware to secure your service with automatic payment verification.
+              <span className="text-purple block mt-1">✨ No configuration needed!</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Installation Command */}
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-2">
+              1. Install the package:
+            </label>
+            <div className="flex gap-2">
+              <code className="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm font-mono text-green">
+                npm install @sentientexchange/x402-middleware
+              </code>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText('npm install @sentientexchange/x402-middleware');
+                  soundManager.playClick();
+                }}
+                className="px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm transition-all"
+                title="Copy to clipboard"
+              >
+                📋
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-2">
+              2. Add to your Express endpoint:
+            </label>
+            <div className="relative">
+              <pre className="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-xs font-mono text-white overflow-x-auto">
+{`import { x402Middleware } from '@sentientexchange/x402-middleware';
+
+app.post('/your-endpoint', x402Middleware(), (req, res) => {
+  // Your service logic here
+  res.json({ result: 'Done!' });
+});`}
+              </pre>
+              <button
+                type="button"
+                onClick={() => {
+                  const code = `import { x402Middleware } from '@sentientexchange/x402-middleware';\n\napp.post('/your-endpoint', x402Middleware(), (req, res) => {\n  // Your service logic here\n  res.json({ result: 'Done!' });\n});`;
+                  navigator.clipboard.writeText(code);
+                  soundManager.playClick();
+                }}
+                className="absolute top-2 right-2 px-2 py-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-xs transition-all"
+              >
+                📋 Copy
+              </button>
+            </div>
+          </div>
+
+          {/* Checkbox Confirmation */}
+          <label className="flex items-start gap-3 mt-4 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={!!(formData as any).middlewareInstalled}
+              onChange={(e) => updateField('middlewareInstalled' as any, e.target.checked)}
+              className="mt-1 w-4 h-4 rounded border-gray-700 bg-gray-800 text-purple focus:ring-2 focus:ring-purple focus:ring-offset-0 cursor-pointer"
+            />
+            <span className="text-sm text-gray-300 group-hover:text-white transition-colors">
+              ✓ I've added the middleware to my service
+              <span className="text-red-400">*</span>
+            </span>
+          </label>
+
+          {errors.middlewareInstalled && (
+            <p className="text-red-400 text-sm flex items-center gap-1">
+              <AlertCircle className="w-4 h-4" />
+              {errors.middlewareInstalled}
+            </p>
+          )}
+        </div>
+
+        {/* Help Link */}
+        <div className="mt-4 pt-4 border-t border-gray-700">
+          <a
+            href="https://sentientexchange.com/docs/middleware"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-purple hover:text-purple/80 transition-colors inline-flex items-center gap-1"
+          >
+            📚 View full installation guide →
+          </a>
+        </div>
+      </div>
+
+      {/* Health Check URL (Optional) */}
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-2">
+          Health Check URL <span className="text-gray-500">(optional)</span>
+        </label>
+        <input
+          type="url"
+          value={(formData as any).healthCheckUrl || ''}
+          onChange={(e) => updateField('healthCheckUrl' as any, e.target.value)}
+          placeholder="https://api.yourservice.com/health"
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple focus:border-transparent transition-all"
+        />
+        <p className="text-gray-500 text-xs mt-1">
+          We'll ping this endpoint every 5 minutes to monitor your service health
+        </p>
+      </div>
+
       {/* Icon/Image (Optional) */}
       <div>
         <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -467,24 +587,27 @@ export default function ServiceRegistrationForm({
         </div>
       </div>
 
-      {/* Wallet Address */}
+      {/* Wallet Address - Solana */}
       <div>
         <label className="block text-sm font-medium text-gray-300 mb-2">
-          Your Wallet Address <span className="text-red-400">*</span>
+          Your Solana Wallet Address <span className="text-red-400">*</span>
         </label>
         <input
           type="text"
           value={formData.walletAddress}
           onChange={(e) => updateField('walletAddress', e.target.value)}
           onBlur={(e) => {
-            if (e.target.value && !validateWalletAddress(e.target.value)) {
-              setErrors({ ...errors, walletAddress: 'Invalid Ethereum wallet address' });
+            if (e.target.value && !validateSolanaAddress(e.target.value)) {
+              setErrors({ ...errors, walletAddress: 'Invalid Solana wallet address' });
             }
           }}
-          placeholder="0x742d35Cc6634C0532925a3b844Bc9e7595bEb5e5"
+          placeholder="DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK"
           className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple focus:border-transparent transition-all font-mono text-sm"
         />
-        <p className="text-gray-500 text-xs mt-1">Primary EVM wallet address</p>
+        <p className="text-gray-500 text-xs mt-1 flex items-center gap-1">
+          <span>💵</span>
+          Solana wallet address where you'll receive <span className="text-green font-semibold">USDC</span> payments
+        </p>
         {errors.walletAddress && (
           <p className="text-red-400 text-sm mt-1 flex items-center gap-1">
             <AlertCircle className="w-4 h-4" />

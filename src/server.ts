@@ -24,9 +24,8 @@ import { getErrorMessage } from './types/errors.js';
 // Import all tool functions and their types
 import { discoverServices, type DiscoverServicesArgs } from './tools/discover.js';
 import { getServiceDetails, type GetServiceDetailsArgs } from './tools/details.js';
-import { purchaseService, type PurchaseServiceArgs } from './tools/purchase.js';
+import { purchaseService, submitPayment, type PurchaseServiceArgs, type SubmitPaymentArgs } from './tools/purchase.js';
 import { executePayment, type ExecutePaymentArgs } from './tools/execute-payment.js';
-import { submitPayment, type SubmitPaymentArgs } from './tools/submit-payment.js';
 import { rateService, type RateServiceArgs } from './tools/rate.js';
 import { listAllServices, type ListAllServicesArgs } from './tools/list.js';
 import { getTransaction, type GetTransactionArgs } from './tools/transaction.js';
@@ -530,9 +529,11 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
           case 'submit_payment':
             return await submitPayment(
               this.registry,
-              this.solanaVerifier,
               this.db,
-              (args as unknown as SubmitPaymentArgs) || {}
+              this.solanaVerifier,
+              (args as unknown as SubmitPaymentArgs) || {},
+              this.spendingLimitManager,
+              userId
             );
 
           case 'rate_service':

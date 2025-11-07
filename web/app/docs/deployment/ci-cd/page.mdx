@@ -1,0 +1,1211 @@
+# CI/CD Pipeline Guide
+
+**TL;DR:** Enterprise-grade continuous integration and deployment with GitHub Actions, Railway, quality gates, and automated testing.
+
+## Overview
+
+AgentMarket uses a comprehensive CI/CD pipeline to ensure:
+
+- **Code quality** - ESLint, TypeScript, and test coverage enforcement
+- **Security** - Automated vulnerability scanning and secret detection
+- **Automated deployments** - Push to deploy (staging automatic, production with approval)
+- **Zero downtime** - Health checks and smoke tests before marking deployments live
+- **Rollback safety** - Easy revert to previous working versions
+
+The pipeline consists of three GitHub Actions workflows:
+
+1. **CI (`ci.yml`)** - Runs on every push/PR to validate code quality
+2. **Deploy Staging (`deploy-staging.yml`)** - Auto-deploys develop branch after CI passes
+3. **Deploy Production (`deploy-production.yml`)** - Deploys master branch with manual approval
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    Development Workflow                       │
+└──────────────────────────────────────────────────────────────┘
+
+Developer Push
+    ↓
+┌────────────────────┐
+│   GitHub: Push     │
+│   to develop       │
+└─────────┬──────────┘
+          │
+          ▼
+┌────────────────────────────────────────────────┐
+│  CI Workflow (ci.yml)                          │
+│  ✓ ESLint (max-warnings=0)                     │
+│  ✓ TypeScript compilation                      │
+│  ✓ Tests (80%+ coverage required)              │
+│  ✓ Security scan (npm audit, Snyk)             │
+│  ✓ Build artifacts                             │
+└─────────┬──────────────────────────────────────┘
+          │ All checks pass
+          ▼
+┌────────────────────────────────────────────────┐
+│  Deploy Staging (deploy-staging.yml)           │
+│  → Railway Staging Environment                 │
+│  → Run smoke tests                             │
+│  → Validate health endpoints                   │
+└────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────┐
+│                   Production Workflow                         │
+└──────────────────────────────────────────────────────────────┘
+
+Pull Request: develop → master
+    ↓
+┌────────────────────┐
+│   CI Workflow      │
+│   ✓ All checks     │
+└─────────┬──────────┘
+          │ Merge
+          ▼
+┌────────────────────────────────────────────────┐
+│  Deploy Production (deploy-production.yml)     │
+│                                                │
+│  ⚠️  MANUAL APPROVAL REQUIRED                  │
+│  (GitHub Environment Protection)               │
+└─────────┬──────────────────────────────────────┘
+          │ Approved
+          ▼
+┌────────────────────────────────────────────────┐
+│  Deploy to Railway Production                  │
+│  → Run comprehensive smoke tests               │
+│  → Health checks                               │
+│  → Create GitHub deployment record             │
+│  → Notify team                                 │
+└────────────────────────────────────────────────┘
+```
+
+## GitHub Actions Workflows
+
+### 1. Continuous Integration (`ci.yml`)
+
+**Trigger**: Every push or pull request to `master` or `develop` branches
+
+**Purpose**: Validate code quality, run tests, and build artifacts
+
+**Jobs**:
+
+#### Lint Job
+
+Runs ESLint with strict rules:
+
+```yaml
+lint:
+  runs-on: ubuntu-latest
+  timeout-minutes: 10
+  steps:
+    - uses: actions/checkout@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+    - run: npm ci
+    - run: npm run lint
+```
+
+**Quality gate**: Zero warnings tolerated (`--max-warnings=0`)
+
+---
+
+#### Type Check Job
+
+Validates TypeScript compilation:
+
+```yaml
+type-check:
+  runs-on: ubuntu-latest
+  timeout-minutes: 10
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+    - run: npm ci
+    - run: npm run build
+```
+
+**Quality gate**: Must compile without errors
+
+---
+
+#### Test Job
+
+Runs Jest tests with coverage:
+
+```yaml
+test:
+  runs-on: ubuntu-latest
+  timeout-minutes: 15
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+    - run: npm ci
+    - run: npm test -- --coverage --maxWorkers=2
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage/lcov.info
+```
+
+**Quality gate**: 80%+ test coverage required
+
+**Coverage upload**: Results sent to [Codecov](https://codecov.io/) for tracking
+
+---
+
+#### Security Scan Job
+
+Checks for vulnerabilities:
+
+```yaml
+security-scan:
+  runs-on: ubuntu-latest
+  timeout-minutes: 10
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+    - run: npm ci
+    - name: Run npm audit
+      run: npm audit --audit-level=high
+      continue-on-error: true
+    - name: Run Snyk security scan
+      uses: snyk/actions/node@master
+      continue-on-error: true
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: --severity-threshold=high
+```
+
+**Quality gate**: No high/critical vulnerabilities
+
+**Tools**:
+- **npm audit** - Checks dependencies
+- **Snyk** - Advanced vulnerability scanning
+
+---
+
+#### Build Job
+
+Creates production build:
+
+```yaml
+build:
+  runs-on: ubuntu-latest
+  timeout-minutes: 10
+  needs: [lint, type-check, test]
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+    - run: npm ci
+    - run: npm run build
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: dist/
+        retention-days: 7
+```
+
+**Depends on**: All previous jobs must pass
+
+**Artifacts**: Build output uploaded for 7 days (can be used in deployments)
+
+---
+
+#### CI Status Job
+
+Final gate that checks all jobs:
+
+```yaml
+status:
+  runs-on: ubuntu-latest
+  needs: [lint, type-check, test, security-scan, build]
+  if: always()
+  steps:
+    - name: Check CI status
+      run: |
+        if [ "${{ needs.lint.result }}" != "success" ] || \
+           [ "${{ needs.type-check.result }}" != "success" ] || \
+           [ "${{ needs.test.result }}" != "success" ] || \
+           [ "${{ needs.build.result }}" != "success" ]; then
+          echo "CI failed - all checks must pass"
+          exit 1
+        fi
+        echo "CI passed - all checks successful"
+```
+
+**Quality gate**: All jobs must succeed
+
+<Callout type="info">
+**Branch protection**: Configure GitHub to require CI status before merging PRs.
+</Callout>
+
+---
+
+### 2. Staging Deployment (`deploy-staging.yml`)
+
+**Trigger**: Automatic after CI passes on `develop` branch
+
+**Purpose**: Deploy to Railway staging environment for testing
+
+**Workflow**:
+
+```yaml
+name: Deploy to Staging (Railway)
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    # Only deploy if CI succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.app/install.sh | sh
+          echo "$HOME/.railway/bin" >> $GITHUB_PATH
+
+      - name: Deploy to Railway Staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+        run: |
+          railway up --service=agentMarket-mcp || true
+          echo "Deployment triggered"
+
+      - name: Wait for deployment
+        run: sleep 30
+
+      - name: Run smoke tests
+        if: ${{ secrets.RAILWAY_STAGING_URL != '' }}
+        run: |
+          chmod +x scripts/smoke-test.sh
+          bash scripts/smoke-test.sh "${{ secrets.RAILWAY_STAGING_URL }}"
+        continue-on-error: true
+```
+
+**Key features**:
+- **Automatic deployment** - No approval needed
+- **Smoke tests** - Validates deployment health
+- **Fail-fast** - Stops if CI didn't pass
+
+<Callout type="tip">
+Use staging to test new features before production. It's a safe environment with devnet blockchain.
+</Callout>
+
+---
+
+### 3. Production Deployment (`deploy-production.yml`)
+
+**Trigger**: Push to `master` branch (manual approval required)
+
+**Purpose**: Deploy to Railway production with safeguards
+
+**Workflow**:
+
+```yaml
+name: Deploy to Production (Railway)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Requires manual approval in GitHub Settings
+    environment:
+      name: production
+      url: ${{ secrets.RAILWAY_PRODUCTION_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pre-deployment checks
+        run: |
+          echo "🚀 Starting production deployment"
+          echo "Branch: ${{ github.ref }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "⚠️  This is a PRODUCTION deployment"
+
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.app/install.sh | sh
+          echo "$HOME/.railway/bin" >> $GITHUB_PATH
+
+      - name: Deploy to Railway Production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        run: |
+          echo "Deploying to Railway Production..."
+          railway up --service=agentMarket-mcp || true
+
+      - name: Wait for deployment
+        run: sleep 60
+
+      - name: Run smoke tests
+        if: ${{ secrets.RAILWAY_PRODUCTION_URL != '' }}
+        run: |
+          chmod +x scripts/smoke-test.sh
+          bash scripts/smoke-test.sh "${{ secrets.RAILWAY_PRODUCTION_URL }}"
+
+      - name: Create deployment record
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'production',
+              description: 'Production deployment via Railway'
+            });
+
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: deployment.data.id,
+              state: 'success',
+              environment_url: '${{ secrets.RAILWAY_PRODUCTION_URL }}',
+              description: 'Deployment successful - smoke tests passed'
+            });
+
+      - name: Rollback instructions (on failure)
+        if: failure()
+        run: |
+          echo "═══════════════════════════════════════"
+          echo "ROLLBACK INSTRUCTIONS"
+          echo "═══════════════════════════════════════"
+          echo "To rollback:"
+          echo "1. Go to Railway dashboard"
+          echo "2. Navigate to agentMarket-mcp service"
+          echo "3. Click 'Deployments' → Find last working deployment"
+          echo "4. Click 'Redeploy'"
+          echo "Or via CLI: railway rollback"
+```
+
+**Key features**:
+- **Manual approval required** - Prevents accidental production deploys
+- **Comprehensive smoke tests** - 5+ health checks
+- **Deployment record** - Tracked in GitHub for audit trail
+- **Rollback instructions** - Displayed on failure
+
+<Callout type="danger">
+**Production deployments require approval!** Configure GitHub Environment Protection to add reviewers.
+</Callout>
+
+---
+
+## Quality Gates
+
+AgentMarket enforces strict quality gates before code reaches production:
+
+### Pre-commit Hooks (Husky)
+
+**Runs on**: `git commit`
+
+**Checks**:
+- ESLint auto-fix on staged files
+- Prettier formatting
+- TypeScript compilation
+
+**Configuration** (`.husky/pre-commit`):
+
+```bash
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Run ESLint on staged files
+npx lint-staged
+
+# Run TypeScript check
+npm run build
+```
+
+**Effect**: Commit fails if checks don't pass
+
+---
+
+### Continuous Integration (GitHub Actions)
+
+**Runs on**: Every push/PR
+
+**Quality gates**:
+
+| Check | Requirement | Blocks Merge? |
+|-------|-------------|---------------|
+| ESLint | 0 warnings | ✅ Yes |
+| TypeScript | Must compile | ✅ Yes |
+| Tests | 80%+ coverage | ✅ Yes |
+| Security | No high/critical vulns | ⚠️ Warning only |
+| Build | Must succeed | ✅ Yes |
+
+**Configuration**: Set in GitHub → Settings → Branches → Branch protection rules
+
+---
+
+### Branch Protection
+
+**Configured on**: `master` and `develop` branches
+
+**Requirements**:
+- ✅ Require pull request before merging
+- ✅ Require 1+ approving reviews
+- ✅ Require status checks to pass (CI workflow)
+- ✅ Require branches to be up to date
+- ❌ Allow force pushes: **Disabled**
+- ❌ Allow deletions: **Disabled**
+
+**Setup**:
+1. Go to **Settings** → **Branches**
+2. Add rule for `master` and `develop`
+3. Enable all protection settings
+4. Save
+
+<Callout type="warning">
+Never bypass branch protection! It exists to prevent broken code from reaching production.
+</Callout>
+
+---
+
+### Deployment Gates
+
+**Staging**: Automatic (no approval)
+
+**Production**: Manual approval required
+
+**Setup approval workflow**:
+1. Go to **Settings** → **Environments**
+2. Create environment: `production`
+3. Enable **Required reviewers**
+4. Add yourself or team members (1+ required)
+5. Optional: Add **Wait timer** (e.g., 30 minutes)
+6. Optional: Restrict to `master` branch only
+
+**Approval process**:
+1. Push to `master` triggers workflow
+2. GitHub pauses at production environment
+3. Reviewer gets notification
+4. Reviewer approves/rejects deployment
+5. If approved, deployment proceeds
+6. If rejected, workflow fails
+
+---
+
+## Setup Guide
+
+### Prerequisites
+
+1. **GitHub Repository** - AgentMarket repo
+2. **Railway Account** - For deployments
+3. **Codecov Account** (optional) - For coverage tracking
+4. **Snyk Account** (optional) - For security scanning
+
+### Step 1: Configure GitHub Secrets
+
+Add secrets in **Settings** → **Secrets and variables** → **Actions**:
+
+**Railway Tokens**:
+```
+RAILWAY_TOKEN_STAGING       # From Railway dashboard (staging project)
+RAILWAY_TOKEN_PRODUCTION    # From Railway dashboard (production project)
+```
+
+**Railway URLs** (for smoke tests):
+```
+RAILWAY_STAGING_URL         # https://staging.up.railway.app
+RAILWAY_PRODUCTION_URL      # https://production.up.railway.app
+```
+
+**Code Quality & Security**:
+```
+CODECOV_TOKEN              # From codecov.io (for coverage tracking)
+SNYK_TOKEN                 # From snyk.io (for security scanning)
+```
+
+**How to get Railway tokens**:
+1. Go to [Railway Dashboard](https://railway.app/dashboard)
+2. Click on project settings
+3. Go to **Tokens**
+4. Create new token
+5. Copy to GitHub secrets
+
+---
+
+### Step 2: Set Up Railway Projects
+
+**Create two Railway projects**:
+
+1. **AgentMarket Staging**:
+   - Connected to `develop` branch
+   - Environment: staging
+   - Network: `devnet`
+   - Database: Staging PostgreSQL
+
+2. **AgentMarket Production**:
+   - Connected to `master` branch
+   - Environment: production
+   - Network: `mainnet-beta`
+   - Database: Production PostgreSQL
+
+**Environment variables** (set in Railway dashboard):
+
+See [Environment Variables Guide](/docs/deployment/environment-variables) for complete reference.
+
+---
+
+### Step 3: Configure Branch Protection
+
+**For `master` branch**:
+
+1. Go to **Settings** → **Branches**
+2. Click **Add rule**
+3. Branch name pattern: `master`
+4. Enable:
+   - ✅ Require pull request before merging
+   - ✅ Require approvals (1+)
+   - ✅ Require status checks to pass before merging
+     - Select: `CI Status` from ci.yml
+   - ✅ Require branches to be up to date before merging
+   - ✅ Do not allow bypassing the above settings
+5. Save
+
+**For `develop` branch**:
+
+Same as above, but you can relax approval requirements if desired.
+
+---
+
+### Step 4: Set Up GitHub Environments
+
+**Create production environment**:
+
+1. Go to **Settings** → **Environments**
+2. Click **New environment**: `production`
+3. Configure:
+   - **Environment protection rules**:
+     - ✅ Required reviewers: Add yourself or team (1+ required)
+     - ⏱️ Wait timer: Optional (e.g., 30 minutes before deployment)
+   - **Deployment branches**:
+     - Select: **Selected branches**
+     - Add pattern: `master`
+4. Save
+
+**Create staging environment** (optional protection):
+
+1. Create environment: `staging`
+2. No protection rules needed (auto-deploy)
+3. Deployment branches: `develop`
+
+---
+
+### Step 5: Enable Workflows
+
+Workflows are located in `.github/workflows/`:
+
+- `ci.yml` - Continuous Integration
+- `deploy-staging.yml` - Staging Deployment
+- `deploy-production.yml` - Production Deployment
+
+**Enable workflows**:
+1. Go to **Actions** tab in GitHub
+2. Enable workflows (if disabled)
+3. Review workflow files
+4. Commit any changes
+
+**First run**:
+```bash
+# Trigger CI workflow
+git checkout develop
+git commit --allow-empty -m "test: trigger CI workflow"
+git push origin develop
+
+# Watch workflow in GitHub Actions tab
+```
+
+---
+
+### Step 6: Test the Pipeline
+
+**Test staging deployment**:
+
+```bash
+# 1. Create feature branch
+git checkout develop
+git checkout -b feature/test-ci-cd
+
+# 2. Make a change
+echo "# Test CI/CD" >> README.md
+git add README.md
+git commit -m "test: CI/CD pipeline"
+
+# 3. Push and create PR
+git push origin feature/test-ci-cd
+# Create PR: feature/test-ci-cd → develop
+
+# 4. Watch CI run in GitHub Actions
+# All jobs should pass: lint, type-check, test, security-scan, build
+
+# 5. Merge PR (if CI passes)
+# 6. Watch staging deployment trigger automatically
+```
+
+**Test production deployment**:
+
+```bash
+# 1. Create PR: develop → master
+# 2. CI runs again on PR
+# 3. Get PR approval
+# 4. Merge PR
+# 5. Production deployment triggers
+# 6. Approve deployment in GitHub
+# 7. Watch deployment complete
+# 8. Verify smoke tests pass
+```
+
+---
+
+## Monitoring and Observability
+
+### GitHub Actions Dashboard
+
+**View workflow runs**:
+1. Go to **Actions** tab
+2. Select workflow (CI, Deploy Staging, Deploy Production)
+3. View recent runs
+4. Click run to see job details
+
+**Monitor metrics**:
+- Success/failure rates
+- Average run duration
+- Resource usage
+
+---
+
+### Codecov Integration
+
+**Setup**:
+1. Sign up at [codecov.io](https://codecov.io/)
+2. Connect GitHub repository
+3. Copy Codecov token to GitHub secrets: `CODECOV_TOKEN`
+4. Coverage automatically uploads on every CI run
+
+**Features**:
+- Coverage trends over time
+- Line-by-line coverage visualization
+- PR comments with coverage diff
+- Coverage badges for README
+
+**Add badge to README**:
+
+```markdown
+[![codecov](https://codecov.io/gh/yourusername/agentmarket-mcp/branch/master/graph/badge.svg)](https://codecov.io/gh/yourusername/agentmarket-mcp)
+```
+
+---
+
+### Snyk Security Scanning
+
+**Setup**:
+1. Sign up at [snyk.io](https://snyk.io/)
+2. Connect GitHub repository
+3. Copy Snyk token to GitHub secrets: `SNYK_TOKEN`
+4. Scans run on every CI workflow
+
+**Features**:
+- Dependency vulnerability scanning
+- Fix PRs for known vulnerabilities
+- License compliance checking
+- Container scanning (if using Docker)
+
+---
+
+### Railway Deployment Logs
+
+**View deployment logs**:
+1. Go to [Railway Dashboard](https://railway.app/dashboard)
+2. Select project (staging or production)
+3. Click on service
+4. Go to **Deployments** tab
+5. Click on deployment to view logs
+
+**Real-time logs**:
+1. Click **Logs** tab
+2. Filter by:
+   - Deployment
+   - Time range
+   - Log level
+
+---
+
+## Deployment Process
+
+### Development Workflow
+
+```bash
+# 1. Create feature branch from develop
+git checkout develop
+git pull origin develop
+git checkout -b feature/your-feature
+
+# 2. Make changes
+# ... edit code ...
+
+# 3. Commit (pre-commit hooks run)
+git add .
+git commit -m "feat: add new feature"
+# ESLint, Prettier, TypeScript checks run automatically
+
+# 4. Push to GitHub
+git push origin feature/your-feature
+
+# 5. Create Pull Request
+# Title: "feat: Add new feature"
+# Base: develop
+# Compare: feature/your-feature
+
+# 6. CI runs automatically
+# Wait for all jobs to pass (lint, type-check, test, security-scan, build)
+
+# 7. Request review
+# At least 1 approval required
+
+# 8. Merge PR
+# Delete feature branch
+
+# 9. Staging deployment triggers automatically
+# Watch in GitHub Actions → Deploy to Staging (Railway)
+
+# 10. Test on staging
+# https://staging.up.railway.app
+
+# 11. If staging looks good, create PR: develop → master
+```
+
+---
+
+### Production Release Workflow
+
+```bash
+# 1. Ensure develop branch is stable
+# All features tested on staging
+
+# 2. Create Pull Request: develop → master
+# Title: "Release v1.2.0"
+# Description: List of changes, features, bug fixes
+
+# 3. CI runs on PR
+# All quality gates must pass
+
+# 4. Request review from team
+# At least 1 approval required (configure in branch protection)
+
+# 5. Merge PR to master
+
+# 6. Production deployment triggers
+# GitHub pauses at approval step
+
+# 7. Reviewer approves deployment
+# Go to Actions → Deploy to Production (Railway) → Review deployments
+
+# 8. Deployment proceeds
+# Railway builds and deploys
+# Smoke tests run automatically
+
+# 9. Verify production
+# https://production.up.railway.app/api/pulse
+
+# 10. Create GitHub release (optional)
+# Tag: v1.2.0
+# Title: "Release v1.2.0"
+# Description: Changelog
+```
+
+---
+
+### Hotfix Workflow (Emergency Production Fix)
+
+```bash
+# 1. Create hotfix branch from master
+git checkout master
+git pull origin master
+git checkout -b hotfix/critical-bug-fix
+
+# 2. Fix the bug
+# ... edit code ...
+
+# 3. Commit and push
+git add .
+git commit -m "fix: critical bug in payment validation"
+git push origin hotfix/critical-bug-fix
+
+# 4. Create PR: hotfix/critical-bug-fix → master
+# Mark as urgent
+
+# 5. CI runs (expedited review)
+# Get immediate approval
+
+# 6. Merge to master
+# Production deployment triggers
+
+# 7. Approve deployment immediately
+# Monitor closely
+
+# 8. Verify fix in production
+
+# 9. Backport to develop
+git checkout develop
+git pull origin develop
+git merge master
+git push origin develop
+
+# 10. Create post-mortem (optional)
+# Document what happened and how to prevent
+```
+
+---
+
+## Rollback Procedures
+
+### Railway Dashboard Rollback
+
+**Quick rollback (1 click)**:
+
+1. Go to [Railway Dashboard](https://railway.app/dashboard)
+2. Select production project
+3. Click on service
+4. Go to **Deployments** tab
+5. Find the last working deployment
+6. Click **Redeploy**
+7. Confirm
+
+**Time to rollback**: ~2 minutes
+
+---
+
+### Railway CLI Rollback
+
+```bash
+# Install Railway CLI
+npm install -g @railway/cli
+
+# Login
+railway login
+
+# Link to production project
+railway link
+
+# View deployments
+railway status
+
+# Rollback to previous deployment
+railway rollback
+
+# Or rollback to specific deployment ID
+railway rollback <deployment-id>
+```
+
+---
+
+### GitHub Revert
+
+**For major issues requiring code revert**:
+
+```bash
+# 1. Identify problematic commit
+git log --oneline
+
+# 2. Revert the commit
+git revert <commit-hash>
+
+# 3. Push to master
+git push origin master
+
+# 4. Production deployment triggers automatically
+# Approve deployment
+
+# 5. Verify revert worked
+curl https://production.up.railway.app/api/pulse
+```
+
+---
+
+### Database Rollback
+
+**If database migration fails**:
+
+```bash
+# 1. Download latest backup from Railway
+# Railway → PostgreSQL service → Backups → Download
+
+# 2. Stop the service
+railway down
+
+# 3. Restore database
+railway run psql $DATABASE_URL < backup.sql
+
+# 4. Restart service
+railway up
+
+# 5. Verify database integrity
+railway run psql $DATABASE_URL -c "SELECT COUNT(*) FROM services;"
+```
+
+<Callout type="danger">
+**Database rollbacks are risky!** Always test migrations on staging first.
+</Callout>
+
+---
+
+## Troubleshooting
+
+### CI Workflow Failing
+
+**Problem**: Lint job fails
+
+**Solution**:
+```bash
+# Run locally to debug
+npm run lint
+
+# Auto-fix issues
+npm run lint -- --fix
+
+# Commit fixes
+git add .
+git commit -m "fix: ESLint errors"
+git push
+```
+
+---
+
+**Problem**: Tests fail in CI but pass locally
+
+**Solution**:
+```bash
+# Check Node.js version matches CI (20.x)
+node --version
+
+# Clear cache and reinstall
+rm -rf node_modules package-lock.json
+npm install
+
+# Run tests with same settings as CI
+npm test -- --coverage --maxWorkers=2
+
+# If still passing, check environment variables
+# CI may have different env vars than local
+```
+
+---
+
+**Problem**: Build times out
+
+**Solution**:
+```yaml
+# Increase timeout in workflow file
+timeout-minutes: 20  # Increase from 10
+```
+
+---
+
+### Staging Deployment Failing
+
+**Problem**: Railway deployment fails
+
+**Solution**:
+1. Check Railway logs for errors
+2. Verify `RAILWAY_TOKEN_STAGING` secret is correct
+3. Ensure Railway project exists
+4. Check Railway service name matches workflow: `agentMarket-mcp`
+
+```bash
+# Test Railway token locally
+export RAILWAY_TOKEN=$RAILWAY_TOKEN_STAGING
+railway status
+```
+
+---
+
+**Problem**: Smoke tests fail
+
+**Solution**:
+```bash
+# Run smoke tests locally
+bash scripts/smoke-test.sh https://staging.up.railway.app
+
+# Check specific health endpoint
+curl https://staging.up.railway.app/api/pulse
+
+# View Railway logs for errors
+# Railway dashboard → Logs tab
+```
+
+---
+
+### Production Deployment Issues
+
+**Problem**: Approval not working
+
+**Solution**:
+1. Verify environment protection is configured
+2. Check reviewers are added
+3. Ensure reviewer has notifications enabled
+4. Try manual trigger: **Actions** → **Deploy to Production** → **Run workflow**
+
+---
+
+**Problem**: Smoke tests fail in production
+
+**Solution**:
+1. **DO NOT PANIC** - Rollback immediately
+2. Check logs for specific failure
+3. Verify environment variables are set correctly
+4. Test production URL manually:
+   ```bash
+   curl https://production.up.railway.app/api/pulse
+   curl https://production.up.railway.app/api/stats
+   ```
+5. If needed, rollback via Railway dashboard
+
+---
+
+## Best Practices
+
+### 1. Small, Frequent Commits
+
+✅ **Good**:
+```bash
+git commit -m "feat: add wallet validation"
+git commit -m "test: add wallet validation tests"
+git commit -m "docs: update wallet configuration guide"
+```
+
+❌ **Bad**:
+```bash
+git commit -m "update code"  # Vague, too large
+```
+
+---
+
+### 2. Meaningful Commit Messages
+
+Use [Conventional Commits](https://www.conventionalcommits.org/):
+
+- `feat:` New feature
+- `fix:` Bug fix
+- `docs:` Documentation changes
+- `test:` Test changes
+- `refactor:` Code refactoring
+- `chore:` Maintenance tasks
+
+**Examples**:
+```bash
+feat: add sentiment analysis service
+fix: correct payment validation logic
+docs: update Railway deployment guide
+test: add integration tests for service registry
+refactor: simplify database query logic
+chore: update dependencies
+```
+
+---
+
+### 3. Test Before Pushing
+
+```bash
+# Run full test suite locally
+npm run lint
+npm run build
+npm test
+
+# If all pass, then push
+git push
+```
+
+---
+
+### 4. Review Your Own PRs First
+
+Before requesting review:
+1. Review your own code changes on GitHub
+2. Check for debugging console.logs
+3. Verify tests are comprehensive
+4. Update documentation if needed
+5. Check CI status
+
+---
+
+### 5. Monitor Deployments
+
+**Don't merge and walk away!**
+
+1. Watch staging deployment logs
+2. Test staging environment manually
+3. Check for errors in Railway logs
+4. Run smoke tests locally
+5. Only then create production PR
+
+---
+
+### 6. Rotate Secrets Regularly
+
+**Schedule**:
+- `JWT_SECRET`: Every 90 days
+- `RAILWAY_TOKEN`: Every 180 days
+- `ANTHROPIC_API_KEY`: On compromise only
+
+**Procedure**:
+1. Generate new secret
+2. Add to GitHub secrets with `_NEW` suffix
+3. Update Railway environment variables
+4. Test deployments
+5. Remove old secret after 24 hours
+
+---
+
+## Next Steps
+
+Now that you understand the CI/CD pipeline:
+
+- [Railway Deployment](/docs/deployment/railway) - Configure Railway projects
+- [Environment Variables](/docs/deployment/environment-variables) - Manage secrets
+- [Docker Deployment](/docs/deployment/docker) - Alternative deployment method
+- [Security Best Practices](/docs/concepts/security-model) - Harden production
+
+## Related Documentation
+
+- [Local Development](/docs/quickstart/local-development) - Set up pre-commit hooks
+- [Testing Strategy](/docs/guides/testing) - Write comprehensive tests
+- [Monitoring Guide](/docs/guides/monitoring) - Track production health
+- [Rollback Procedures](/docs/guides/rollback) - Recover from failures

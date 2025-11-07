@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, ShoppingCart, BarChart3, Zap, User, Menu, X } from 'lucide-react';
+import { Home, ShoppingCart, BarChart3, Zap, User, FileText, Menu, X } from 'lucide-react';
 import { soundManager } from '@/lib/sound';
 import UnifiedConnectButton from '@/components/wallet/UnifiedConnectButton';
 
@@ -26,6 +26,7 @@ export default function Header() {
     { href: '/marketplace', label: 'Marketplace', icon: ShoppingCart },
     { href: '/swarm', label: 'Agent Swarm', icon: Zap },
     { href: '/dashboard', label: 'Dashboard', icon: BarChart3 },
+    { href: '/docs', label: 'Docs', icon: FileText },
     { href: '/providers/my-services', label: 'My Services', icon: User }
   ];
 

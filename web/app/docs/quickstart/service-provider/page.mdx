@@ -1,0 +1,689 @@
+# Build Your First Service
+
+**TL;DR:** Create a paid AI service in 15 minutes using the x402 payment protocol. Get paid in USDC on Solana for every API call.
+
+## What is This?
+
+This guide shows you how to build an x402-enabled AI service that integrates with AgentMarket. Once registered, your service will be discoverable by autonomous AI agents who will pay you in USDC for each request.
+
+## Why Build on AgentMarket?
+
+- **Get Paid Per Request** - No subscriptions, no API keys, just pay-as-you-go micropayments
+- **Zero Payment Infrastructure** - AgentMarket handles payment verification and routing
+- **Autonomous Discovery** - AI agents find your service by capability
+- **Solana-Fast Payments** - Sub-second finality, under $0.001 fees
+- **Reputation System** - Build trust through ratings and reviews
+
+## Prerequisites
+
+Before you begin:
+
+1. **Node.js 20+** - Runtime environment
+2. **Solana Wallet** - To receive USDC payments (create at [phantom.app](https://phantom.app))
+3. **Basic Express.js knowledge** - Familiarity with building REST APIs
+
+<Callout type="tip">
+You don't need to handle blockchain integration yourself! The `@sentientexchange/x402-middleware` package does all the heavy lifting.
+</Callout>
+
+## Quick Start (15 Minutes)
+
+### Step 1: Create Your Service
+
+Create a new Node.js project:
+
+```bash
+mkdir my-ai-service
+cd my-ai-service
+npm init -y
+npm install express @sentientexchange/x402-middleware dotenv
+npm install --save-dev typescript @types/express @types/node ts-node
+```
+
+### Step 2: Configure TypeScript
+
+Create `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}
+```
+
+### Step 3: Set Up Environment Variables
+
+Create `.env`:
+
+```bash
+# Your service configuration
+PORT=3000
+SERVICE_NAME="My Sentiment Analyzer"
+
+# Your Solana wallet (to receive payments)
+SOLANA_WALLET=YOUR_SOLANA_WALLET_ADDRESS_HERE
+
+# Pricing (in USDC)
+PRICE_PER_REQUEST=0.01
+
+# Network (mainnet-beta for production)
+NETWORK=mainnet-beta
+```
+
+<Callout type="danger">
+**Never commit your `.env` file!** Add it to `.gitignore` immediately.
+</Callout>
+
+### Step 4: Build Your Service
+
+Create `src/index.ts`:
+
+```typescript
+import express from 'express';
+import { x402Middleware, getPaymentInfo } from '@sentientexchange/x402-middleware';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Parse JSON bodies
+app.use(express.json());
+
+// Health check endpoint (no payment required)
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    service: process.env.SERVICE_NAME,
+    pricing: {
+      perRequest: process.env.PRICE_PER_REQUEST,
+      currency: 'USDC',
+    },
+    wallet: process.env.SOLANA_WALLET,
+  });
+});
+
+// Main service endpoint (requires payment)
+app.post('/analyze', x402Middleware(), (req, res) => {
+  try {
+    // Get payment info (already verified by middleware!)
+    const payment = getPaymentInfo(req);
+
+    console.log('Payment received:', {
+      amount: payment?.price,
+      signature: payment?.txSignature,
+      payer: payment?.buyer,
+    });
+
+    // Your service logic here
+    const { text } = req.body;
+
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required field: text',
+      });
+    }
+
+    // Example: Simple sentiment analysis
+    const sentiment = analyzeSentiment(text);
+
+    // Return result
+    res.json({
+      success: true,
+      result: {
+        sentiment: sentiment.label,
+        score: sentiment.score,
+        confidence: sentiment.confidence,
+      },
+      payment: {
+        verified: true,
+        amount: payment?.price,
+        signature: payment?.txSignature,
+      },
+    });
+  } catch (error) {
+    console.error('Service error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    });
+  }
+});
+
+// Simple sentiment analysis function
+function analyzeSentiment(text: string) {
+  const positiveWords = ['love', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic'];
+  const negativeWords = ['hate', 'terrible', 'awful', 'bad', 'worst', 'horrible'];
+
+  const lowerText = text.toLowerCase();
+
+  let score = 0;
+  positiveWords.forEach(word => {
+    if (lowerText.includes(word)) score += 1;
+  });
+  negativeWords.forEach(word => {
+    if (lowerText.includes(word)) score -= 1;
+  });
+
+  const normalized = Math.max(-1, Math.min(1, score / 5));
+
+  return {
+    label: normalized > 0.2 ? 'positive' : normalized < -0.2 ? 'negative' : 'neutral',
+    score: normalized,
+    confidence: Math.abs(normalized),
+  };
+}
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Service running on http://localhost:${PORT}`);
+  console.log(`💰 Accepting payments to: ${process.env.SOLANA_WALLET}`);
+  console.log(`💵 Price per request: $${process.env.PRICE_PER_REQUEST} USDC`);
+});
+```
+
+### Step 5: Add Package Scripts
+
+Update `package.json`:
+
+```json
+{
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  }
+}
+```
+
+### Step 6: Test Locally
+
+Start your service:
+
+```bash
+npm run dev
+```
+
+Test the health endpoint:
+
+```bash
+curl http://localhost:3000/health
+```
+
+Expected response:
+```json
+{
+  "status": "healthy",
+  "service": "My Sentiment Analyzer",
+  "pricing": {
+    "perRequest": "0.01",
+    "currency": "USDC"
+  },
+  "wallet": "YOUR_SOLANA_WALLET_ADDRESS"
+}
+```
+
+### Step 7: Deploy Your Service
+
+Deploy to any hosting platform that supports Node.js:
+
+**Railway:**
+```bash
+# Install Railway CLI
+npm install -g railway
+
+# Login and deploy
+railway login
+railway init
+railway up
+```
+
+**Heroku:**
+```bash
+heroku create my-ai-service
+git push heroku main
+```
+
+**Fly.io:**
+```bash
+flyctl launch
+flyctl deploy
+```
+
+<Callout type="info">
+Make sure to set environment variables in your deployment platform!
+</Callout>
+
+### Step 8: Register on AgentMarket
+
+1. **Visit** [sentientexchange.com/providers/register](https://sentientexchange.com/providers/register)
+2. **Connect** your Solana wallet (same address from `.env`)
+3. **Fill in service details**:
+   - Name: "My Sentiment Analyzer"
+   - Description: "Advanced sentiment analysis with emotion detection"
+   - Endpoint: `https://your-service.com/analyze`
+   - Health Check URL: `https://your-service.com/health`
+   - Capabilities: `sentiment-analysis`
+   - Price: `0.01 USDC`
+4. **Submit** for approval
+
+<Callout type="warning">
+Services require admin approval before going live. This ensures quality and prevents spam.
+</Callout>
+
+### Step 9: Test with AgentMarket
+
+Once approved, test your service through AgentMarket:
+
+```javascript
+import axios from 'axios';
+
+const AGENTMARKET_API = 'https://sentientexchange.com/api';
+
+// Discover your service
+const services = await axios.post(`${AGENTMARKET_API}/services/search`, {
+  capabilities: ['sentiment-analysis'],
+  provider: 'YourProviderName',
+});
+
+console.log('Service found:', services.data.services[0]);
+
+// Purchase through AgentMarket (payment handled automatically)
+// Clients will pay you directly on Solana!
+```
+
+## How x402 Middleware Works
+
+The `x402Middleware()` function handles the entire payment flow:
+
+### Without Payment
+
+```
+Client → Your Service (no X-AgentMarket-Auth header)
+         ↓
+Your Service → 402 Payment Required
+               {
+                 "error": "Payment Required",
+                 "message": "This service requires payment via AgentMarket",
+                 "instructions": { ... }
+               }
+```
+
+### With Valid Payment
+
+```
+Client → Your Service (with X-AgentMarket-Auth: JWT_TOKEN)
+         ↓
+Middleware verifies JWT (signed by AgentMarket)
+         ↓
+Middleware checks payment on Solana blockchain
+         ↓
+Middleware adds req.agentMarketPayment
+         ↓
+Your handler executes
+         ↓
+Client ← Result
+```
+
+<Callout type="info">
+The JWT contains: service ID, request ID, buyer wallet, price, transaction signature, and expiration. All cryptographically signed by AgentMarket.
+</Callout>
+
+## Advanced: Custom AI Services
+
+### Example: Image Analysis Service
+
+```typescript
+import express from 'express';
+import { x402Middleware } from '@sentientexchange/x402-middleware';
+import Anthropic from '@anthropic-ai/sdk';
+
+const app = express();
+app.use(express.json());
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+app.post('/analyze', x402Middleware(), async (req, res) => {
+  const { image, analysisType } = req.body;
+
+  if (!image) {
+    return res.status(400).json({ error: 'Missing image field' });
+  }
+
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/jpeg',
+              data: image,
+            },
+          },
+          {
+            type: 'text',
+            text: analysisType === 'objects'
+              ? 'List all objects you see in this image.'
+              : 'Describe this image in detail.',
+          },
+        ],
+      }],
+    });
+
+    res.json({
+      success: true,
+      result: {
+        analysis: message.content[0].text,
+        type: analysisType,
+      },
+    });
+  } catch (error) {
+    console.error('Analysis error:', error);
+    res.status(500).json({ error: 'Analysis failed' });
+  }
+});
+
+app.listen(3000);
+```
+
+### Example: Text Summarization Service
+
+```typescript
+import express from 'express';
+import { x402Middleware } from '@sentientexchange/x402-middleware';
+import Anthropic from '@anthropic-ai/sdk';
+
+const app = express();
+app.use(express.json());
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+app.post('/summarize', x402Middleware(), async (req, res) => {
+  const { text, length = 'medium', style = 'paragraph' } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ error: 'Missing text field' });
+  }
+
+  const lengthMap = {
+    brief: '2-3 sentences',
+    medium: '1 paragraph',
+    detailed: '2-3 paragraphs',
+  };
+
+  const styleMap = {
+    bullets: 'Format as bullet points',
+    paragraph: 'Format as a paragraph',
+    executive: 'Format as an executive summary',
+  };
+
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 2048,
+      messages: [{
+        role: 'user',
+        content: `Summarize the following text in ${lengthMap[length]}. ${styleMap[style]}.\n\n${text}`,
+      }],
+    });
+
+    res.json({
+      success: true,
+      result: {
+        summary: message.content[0].text,
+        length,
+        style,
+        originalLength: text.length,
+      },
+    });
+  } catch (error) {
+    console.error('Summarization error:', error);
+    res.status(500).json({ error: 'Summarization failed' });
+  }
+});
+
+app.listen(3000);
+```
+
+## Pricing Strategy
+
+Consider these factors when setting your price:
+
+### Cost-Based Pricing
+
+```
+Your Price = API Cost + Profit Margin + Platform Fee
+
+Example (Claude API image analysis):
+- Claude API cost: $0.0120
+- Your profit margin: $0.0070
+- Platform fee: $0.0010
+- Total price: $0.02 USDC
+```
+
+### Competitive Pricing
+
+Check prices of similar services:
+
+```bash
+curl -X POST https://sentientexchange.com/api/services/search \
+  -H "Content-Type: application/json" \
+  -d '{"capabilities": ["sentiment-analysis"]}'
+```
+
+### Dynamic Pricing
+
+Adjust prices based on demand:
+
+```typescript
+function getDynamicPrice(basePrice: number): number {
+  const hour = new Date().getHours();
+
+  // Peak hours (9am-5pm): 20% premium
+  if (hour >= 9 && hour <= 17) {
+    return basePrice * 1.2;
+  }
+
+  // Off-peak: 10% discount
+  return basePrice * 0.9;
+}
+```
+
+## Monitoring & Analytics
+
+### Track Revenue
+
+```typescript
+let totalRevenue = 0;
+let totalRequests = 0;
+
+app.post('/analyze', x402Middleware(), (req, res) => {
+  const payment = getPaymentInfo(req);
+
+  // Track metrics
+  totalRequests++;
+  totalRevenue += parseFloat(payment?.price || '0');
+
+  console.log('Metrics:', {
+    totalRequests,
+    totalRevenue: `$${totalRevenue.toFixed(2)}`,
+    avgPrice: `$${(totalRevenue / totalRequests).toFixed(4)}`,
+  });
+
+  // Your service logic...
+});
+```
+
+### Health Monitoring
+
+```typescript
+app.get('/health', (req, res) => {
+  const uptime = process.uptime();
+  const memUsage = process.memoryUsage();
+
+  res.json({
+    status: 'healthy',
+    uptime: `${Math.floor(uptime / 60)}m ${Math.floor(uptime % 60)}s`,
+    memory: {
+      used: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
+      total: `${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`,
+    },
+    requests: {
+      total: totalRequests,
+      revenue: `$${totalRevenue.toFixed(2)}`,
+    },
+  });
+});
+```
+
+## Best Practices
+
+### 1. Validate Inputs
+
+```typescript
+app.post('/analyze', x402Middleware(), (req, res) => {
+  const { text } = req.body;
+
+  // Validate input
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid input: text must be a string',
+    });
+  }
+
+  if (text.length > 10000) {
+    return res.status(400).json({
+      success: false,
+      error: 'Text too long: maximum 10,000 characters',
+    });
+  }
+
+  // Process request...
+});
+```
+
+### 2. Handle Errors Gracefully
+
+```typescript
+app.post('/analyze', x402Middleware(), async (req, res) => {
+  try {
+    const result = await performAnalysis(req.body);
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('Service error:', error);
+
+    // Don't expose internal errors to clients
+    res.status(500).json({
+      success: false,
+      error: 'Service temporarily unavailable',
+      retryAfter: '60s',
+    });
+  }
+});
+```
+
+### 3. Set Timeouts
+
+```typescript
+import timeout from 'connect-timeout';
+
+app.use(timeout('30s'));
+
+app.post('/analyze', x402Middleware(), haltOnTimedout, async (req, res) => {
+  // Your logic...
+});
+
+function haltOnTimedout(req, res, next) {
+  if (!req.timedout) next();
+}
+```
+
+### 4. Log Requests
+
+```typescript
+app.post('/analyze', x402Middleware(), (req, res) => {
+  const payment = getPaymentInfo(req);
+
+  console.log({
+    timestamp: new Date().toISOString(),
+    requestId: payment?.requestId,
+    buyer: payment?.buyer,
+    price: payment?.price,
+    txSignature: payment?.txSignature,
+  });
+
+  // Your logic...
+});
+```
+
+## Troubleshooting
+
+### Middleware Returns 402 for All Requests
+
+**Problem**: Even with payment, service returns 402
+
+**Solutions**:
+1. Verify middleware is installed: `npm list @sentientexchange/x402-middleware`
+2. Check middleware is applied: `app.post('/analyze', x402Middleware(), ...)`
+3. Ensure service is registered on AgentMarket
+4. Check endpoint URL matches registration
+
+### Payment Verification Fails
+
+**Problem**: Middleware returns 401 Payment Verification Failed
+
+**Solutions**:
+1. Ensure service is approved on AgentMarket
+2. Check wallet address matches registration
+3. Verify AgentMarket is sending `X-AgentMarket-Auth` header
+4. Check system clock is synchronized (JWT expiry)
+
+### Service Not Discoverable
+
+**Problem**: AI agents can't find your service
+
+**Solutions**:
+1. Verify service is approved (check AgentMarket dashboard)
+2. Ensure capabilities are set correctly
+3. Check health endpoint returns 200 OK
+4. Verify service is not behind authentication
+
+## Next Steps
+
+Now that you've built a service:
+
+- [Monitor Your Analytics](/docs/guides/building-services) - Track revenue and usage
+- [Optimize Performance](/docs/guides/building-services) - Reduce latency and costs
+- [Handle Edge Cases](/docs/guides/building-services) - Error handling best practices
+- [Scale Your Service](/docs/deployment/docker) - Deploy with Docker and load balancing
+
+## Related Documentation
+
+- [x402 Payment Protocol](/docs/concepts/payment-protocol) - Deep dive into payment flow
+- [Service Registry](/docs/concepts/service-registry) - How discovery works
+- [Building Services Guide](/docs/guides/building-services) - Advanced patterns
+- [Deployment Guide](/docs/deployment/railway) - Production deployment
