@@ -80,6 +80,9 @@ const orchestrator = new MasterOrchestrator(registry);
 // MIDDLEWARE
 // ============================================================================
 
+// Trust Railway proxy (required for rate limiting and IP detection)
+app.set('trust proxy', true);
+
 // Security headers
 app.use(helmetConfig);
 
