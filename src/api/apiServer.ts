@@ -153,6 +153,40 @@ async function initialize() {
   } else {
     logger.info(`✓ Database already seeded with ${serviceCount} services`);
   }
+
+  // One-time fix: Auto-approve the 3 specific seeded services (for migration from SQLite to Postgres)
+  const seededServiceNames = [
+    'Sentiment Analyzer',
+    'Image Analyzer',
+    'Text Summarizer',
+  ];
+  const pendingSeededServices = registry
+    .getAllServices()
+    .filter(
+      (s: any) => s.status === 'pending' && seededServiceNames.includes(s.name)
+    );
+
+  if (pendingSeededServices.length > 0) {
+    logger.info(
+      `🔧 Found ${pendingSeededServices.length} pending seeded services - auto-approving...`
+    );
+    try {
+      for (const service of pendingSeededServices) {
+        await db.run(
+          `UPDATE services SET status = ?, approved_at = ? WHERE id = ?`,
+          ['approved', Date.now(), service.id]
+        );
+        logger.info(`  ✓ Approved: ${service.name}`);
+      }
+      // Reload registry to update cache
+      await registry.initialize();
+      logger.info(
+        `✅ Auto-approved ${pendingSeededServices.length} seeded services`
+      );
+    } catch (error: unknown) {
+      logger.error('❌ Failed to auto-approve services:', error);
+    }
+  }
 }
 
 // ============================================================================
@@ -225,11 +259,15 @@ app.post('/api/auth/nonce', (req, res, next) => {
       });
     }
 
-    // Validate address format (basic check)
-    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+    // Validate address format (support both Ethereum and Solana)
+    const isEthereumAddress = /^0x[a-fA-F0-9]{40}$/.test(address);
+    const isSolanaAddress = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+
+    if (!isEthereumAddress && !isSolanaAddress) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid Ethereum address format',
+        error:
+          'Invalid wallet address format (expected Ethereum or Solana address)',
       });
     }
 
