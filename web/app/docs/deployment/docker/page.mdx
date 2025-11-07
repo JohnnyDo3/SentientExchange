@@ -1,0 +1,902 @@
+# Docker Deployment Guide
+
+**TL;DR:** Deploy AgentMarket with Docker for maximum control, self-hosting, and multi-service orchestration.
+
+## What is Docker?
+
+[Docker](https://www.docker.com/) is a containerization platform that packages applications with all dependencies into portable containers:
+
+- **Consistent environments** - Works the same on dev, staging, and production
+- **Isolation** - Each service runs in its own container
+- **Reproducibility** - Builds are deterministic and versioned
+- **Scalability** - Easy horizontal scaling with orchestrators
+- **Self-hosting** - Full control over infrastructure
+
+AgentMarket provides production-ready Docker configurations with multi-stage builds, health checks, security best practices, and docker-compose orchestration.
+
+## Why Docker?
+
+- **Self-hosted deployments** - Run on your own infrastructure (AWS, DigitalOcean, Hetzner)
+- **Reproducible builds** - Same Docker image runs everywhere
+- **Multi-service architecture** - MCP server + AI services + database in one stack
+- **Easy rollbacks** - Tagged Docker images enable instant version switching
+- **Resource control** - Precise CPU/memory limits per container
+- **Security isolation** - Each service runs as non-root user in isolated environment
+
+## Prerequisites
+
+Before deploying with Docker, you need:
+
+1. **Docker Engine 24+** - [Install Docker](https://docs.docker.com/get-docker/)
+2. **Docker Compose v2** - Included with Docker Desktop
+3. **AgentMarket Repository** - Cloned locally
+4. **2GB+ RAM** - For running all services
+5. **Anthropic API Key** (optional) - For AI services
+
+<Callout type="info">
+Docker Desktop includes Docker Engine, Docker Compose, and a GUI. It's the easiest way to get started on macOS and Windows.
+</Callout>
+
+## Quick Start (15 Minutes)
+
+### Step 1: Clone and Configure
+
+```bash
+# Clone repository
+git clone https://github.com/yourusername/agentmarket-mcp.git
+cd agentmarket-mcp
+
+# Create environment file
+cp .env.example .env
+```
+
+### Step 2: Configure Environment Variables
+
+Edit `.env` with your configuration:
+
+```bash
+# Network Configuration
+NETWORK=devnet
+# Use devnet for testing, mainnet-beta for production
+
+# Database (Docker uses SQLite by default)
+DATABASE_PATH=/app/data/agentmarket.db
+
+# Server Configuration
+NODE_ENV=production
+LOG_LEVEL=info
+
+# Payment Configuration
+PAYMENT_MODE=hybrid
+FACILITATOR_URL=https://facilitator.payai.network
+
+# Security
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+
+# Wallet Configuration
+RECIPIENT_WALLET_ADDRESS=your_solana_wallet_address_here
+ADMIN_WALLETS=your_solana_wallet_address_here
+
+# AI Services (optional)
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# AI Service Pricing
+IMAGE_ANALYZER_PRICE=0.02
+SENTIMENT_ANALYZER_PRICE=0.01
+TEXT_SUMMARIZER_PRICE=0.015
+
+# AI Service Wallets
+IMAGE_ANALYZER_WALLET=your_wallet_address
+SENTIMENT_ANALYZER_WALLET=your_wallet_address
+TEXT_SUMMARIZER_WALLET=your_wallet_address
+```
+
+### Step 3: Build Docker Images
+
+```bash
+# Build MCP server image
+docker build -f docker/mcp-server.Dockerfile -t agentmarket-mcp:latest .
+
+# Or build all services with docker-compose
+docker-compose -f docker/docker-compose.yml build
+```
+
+Expected output:
+```
+[+] Building 45.2s (14/14) FINISHED
+ => [builder 1/5] FROM node:20-alpine
+ => [builder 2/5] WORKDIR /app
+ => [builder 3/5] COPY package*.json ./
+ => [builder 4/5] RUN npm ci
+ => [builder 5/5] RUN npm run build
+ => [runtime 1/5] FROM node:20-alpine
+ => [runtime 2/5] COPY --from=builder /app/dist ./dist
+ => exporting to image
+ => => naming to agentmarket-mcp:latest
+```
+
+### Step 4: Start Services
+
+**Option A: MCP Server Only**
+
+```bash
+docker run -d \
+  --name agentmarket-mcp \
+  --env-file .env \
+  -v $(pwd)/data:/app/data \
+  -p 8081:8081 \
+  agentmarket-mcp:latest
+```
+
+**Option B: Full Stack (MCP + AI Services)**
+
+```bash
+# Start all services with docker-compose
+docker-compose -f docker/docker-compose.yml up -d
+
+# View logs
+docker-compose -f docker/docker-compose.yml logs -f
+```
+
+This starts:
+- **agentmarket-mcp** - MCP server (internal)
+- **image-analyzer** - Image analysis service (port 3001)
+- **sentiment-analyzer** - Sentiment analysis service (port 3002)
+- **text-summarizer** - Text summarization service (port 3003)
+
+### Step 5: Verify Deployment
+
+```bash
+# Check container status
+docker ps
+
+# Expected output:
+CONTAINER ID   IMAGE                    STATUS          PORTS
+a1b2c3d4e5f6   agentmarket-mcp:latest   Up 2 minutes    0.0.0.0:8081->8081/tcp
+b2c3d4e5f6g7   image-analyzer:latest    Up 2 minutes    0.0.0.0:3001->3000/tcp
+c3d4e5f6g7h8   sentiment-analyzer:latest Up 2 minutes   0.0.0.0:3002->3000/tcp
+d4e5f6g7h8i9   text-summarizer:latest   Up 2 minutes    0.0.0.0:3003->3000/tcp
+
+# Test API health
+curl http://localhost:8081/api/pulse
+
+# Test AI service
+curl http://localhost:3002/health
+```
+
+<Callout type="success">
+If all containers are running and health checks pass, your Docker deployment is successful!
+</Callout>
+
+## Dockerfile Structure
+
+### Multi-Stage Build
+
+AgentMarket uses a **multi-stage Dockerfile** to optimize image size and security:
+
+```dockerfile
+# Stage 1: Builder - Install dependencies and compile TypeScript
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY tsconfig.json ./
+
+# Install ALL dependencies (including devDependencies)
+RUN npm ci
+
+# Copy source code
+COPY src ./src
+
+# Build TypeScript to JavaScript
+RUN npm run build
+
+# Stage 2: Runtime - Minimal production image
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Copy package files
+COPY package*.json ./
+
+# Install ONLY production dependencies
+RUN npm ci --only=production && \
+    npm cache clean --force
+
+# Copy built application from builder stage
+COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+
+# Create data directory for SQLite
+RUN mkdir -p /app/data && \
+    chown -R nodejs:nodejs /app/data
+
+# Switch to non-root user
+USER nodejs
+
+# Expose port (for API server)
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "console.log('healthy')" || exit 1
+
+# Environment variables
+ENV NODE_ENV=production \
+    DATABASE_PATH=/app/data/agentmarket.db
+
+# Run the MCP server
+CMD ["node", "dist/index.js"]
+```
+
+**Why multi-stage builds?**
+
+- **Smaller images**: Final image is ~150MB vs ~800MB
+- **Faster deployments**: Less data to transfer
+- **Security**: No dev tools in production image
+- **Clean builds**: Each stage is cached independently
+
+### Security Best Practices
+
+AgentMarket's Dockerfile follows Docker security best practices:
+
+1. **Non-root user**: Runs as `nodejs` user (UID 1001)
+2. **Minimal base image**: Alpine Linux (~5MB)
+3. **No dev dependencies**: Production image only has runtime deps
+4. **File permissions**: Proper ownership with `chown`
+5. **Health checks**: Automatic restart if unhealthy
+6. **No secrets in image**: Secrets passed via environment variables
+
+### Health Checks
+
+Docker health checks monitor container health:
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "console.log('healthy')" || exit 1
+```
+
+- **Interval**: Check every 30 seconds
+- **Timeout**: Fail if check takes >3 seconds
+- **Start period**: Wait 5 seconds before first check
+- **Retries**: Mark unhealthy after 3 consecutive failures
+
+**Custom health check:**
+
+For API server, you can use:
+
+```dockerfile
+HEALTHCHECK CMD curl -f http://localhost:8081/api/pulse || exit 1
+```
+
+## Docker Compose Setup
+
+### Complete docker-compose.yml
+
+```yaml
+version: '3.8'
+
+services:
+  # AgentMarket MCP Server
+  mcp-server:
+    build:
+      context: ..
+      dockerfile: docker/mcp-server.Dockerfile
+    container_name: agentmarket-mcp
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_PATH=/app/data/agentmarket.db
+      - NETWORK=${NETWORK:-devnet}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - API_PORT=8081
+      - PAYMENT_MODE=${PAYMENT_MODE:-hybrid}
+      - JWT_SECRET=${JWT_SECRET}
+      - RECIPIENT_WALLET_ADDRESS=${RECIPIENT_WALLET_ADDRESS}
+      - ADMIN_WALLETS=${ADMIN_WALLETS}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - mcp-data:/app/data
+    ports:
+      - "8081:8081"
+    networks:
+      - agentmarket-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('healthy')"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Example Service: Image Analyzer
+  image-analyzer:
+    build:
+      context: ..
+      dockerfile: examples/sample-services/image-analyzer/Dockerfile
+    container_name: image-analyzer
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=image-analyzer
+      - PORT=3000
+      - WALLET_ADDRESS=${IMAGE_ANALYZER_WALLET}
+      - PRICE_USDC=${IMAGE_ANALYZER_PRICE:-0.02}
+      - NETWORK=${NETWORK:-devnet}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    networks:
+      - agentmarket-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Example Service: Sentiment Analyzer
+  sentiment-analyzer:
+    build:
+      context: ..
+      dockerfile: examples/sample-services/sentiment-analyzer/Dockerfile
+    container_name: sentiment-analyzer
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=sentiment-analyzer
+      - PORT=3000
+      - WALLET_ADDRESS=${SENTIMENT_ANALYZER_WALLET}
+      - PRICE_USDC=${SENTIMENT_ANALYZER_PRICE:-0.01}
+      - NETWORK=${NETWORK:-devnet}
+    networks:
+      - agentmarket-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Example Service: Text Summarizer
+  text-summarizer:
+    build:
+      context: ..
+      dockerfile: examples/sample-services/text-summarizer/Dockerfile
+    container_name: text-summarizer
+    restart: unless-stopped
+    ports:
+      - "3003:3000"
+    environment:
+      - NODE_ENV=production
+      - SERVICE_NAME=text-summarizer
+      - PORT=3000
+      - WALLET_ADDRESS=${TEXT_SUMMARIZER_WALLET}
+      - PRICE_USDC=${TEXT_SUMMARIZER_PRICE:-0.015}
+      - NETWORK=${NETWORK:-devnet}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    networks:
+      - agentmarket-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  mcp-data:
+    driver: local
+
+networks:
+  agentmarket-network:
+    driver: bridge
+```
+
+### Key Features
+
+**Service orchestration:**
+- All services on shared network
+- Automatic service discovery by name
+- Restart policies for resilience
+
+**Volume management:**
+- Persistent data in `mcp-data` volume
+- SQLite database survives container restarts
+
+**Health checks:**
+- Automatic container restart if unhealthy
+- `/health` endpoints for HTTP services
+
+**Environment variables:**
+- Loaded from `.env` file
+- Secrets never in docker-compose.yml
+
+## Production Best Practices
+
+### 1. Use Tagged Images
+
+Instead of `:latest`, use version tags:
+
+```bash
+# Build with version tag
+docker build -f docker/mcp-server.Dockerfile -t agentmarket-mcp:1.0.0 .
+
+# Tag for latest
+docker tag agentmarket-mcp:1.0.0 agentmarket-mcp:latest
+
+# Push to registry
+docker push your-registry.com/agentmarket-mcp:1.0.0
+docker push your-registry.com/agentmarket-mcp:latest
+```
+
+**Why?**
+- Easy rollbacks (redeploy specific version)
+- Reproducible deployments
+- Clear versioning
+
+### 2. Resource Limits
+
+Prevent containers from consuming all resources:
+
+```yaml
+services:
+  mcp-server:
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+```
+
+**Recommended limits:**
+- **MCP Server**: 2 CPUs, 2GB RAM
+- **AI Services**: 1 CPU, 1GB RAM each
+
+### 3. Logging Configuration
+
+Configure log rotation to prevent disk fill:
+
+```yaml
+services:
+  mcp-server:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+This keeps:
+- Max 10MB per log file
+- Max 3 log files
+- Total ~30MB logs per container
+
+### 4. Security Hardening
+
+**Read-only root filesystem:**
+
+```yaml
+services:
+  mcp-server:
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - mcp-data:/app/data  # Only /app/data is writable
+```
+
+**Drop unnecessary capabilities:**
+
+```yaml
+services:
+  mcp-server:
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE  # Only if binding to port <1024
+```
+
+**Run as non-root (already in Dockerfile):**
+
+```dockerfile
+USER nodejs  # UID 1001
+```
+
+### 5. Multi-Service Orchestration
+
+**Start services in order:**
+
+```yaml
+services:
+  mcp-server:
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:15
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+```
+
+**Shared secrets:**
+
+```yaml
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+
+services:
+  mcp-server:
+    secrets:
+      - jwt_secret
+```
+
+### 6. PostgreSQL with Docker
+
+For production, use PostgreSQL instead of SQLite:
+
+```yaml
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: agentmarket-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agentmarket
+      POSTGRES_USER: agentmarket
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "agentmarket"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mcp-server:
+    environment:
+      - DATABASE_URL=postgresql://agentmarket:${POSTGRES_PASSWORD}@postgres:5432/agentmarket
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+```
+
+**Update `.env`:**
+
+```bash
+# Remove DATABASE_PATH, add DATABASE_URL
+DATABASE_URL=postgresql://agentmarket:your-password@postgres:5432/agentmarket
+POSTGRES_PASSWORD=your-secure-postgres-password
+```
+
+## Deployment Workflows
+
+### Development Workflow
+
+```bash
+# 1. Make code changes
+vim src/server.ts
+
+# 2. Rebuild image
+docker-compose build mcp-server
+
+# 3. Restart container
+docker-compose up -d mcp-server
+
+# 4. View logs
+docker-compose logs -f mcp-server
+```
+
+### Production Deployment
+
+```bash
+# 1. Build production image
+docker build -f docker/mcp-server.Dockerfile \
+  -t registry.example.com/agentmarket-mcp:1.2.0 .
+
+# 2. Push to registry
+docker push registry.example.com/agentmarket-mcp:1.2.0
+
+# 3. Pull on production server
+ssh prod-server
+docker pull registry.example.com/agentmarket-mcp:1.2.0
+
+# 4. Update docker-compose.yml
+vim docker-compose.yml
+# Change image: registry.example.com/agentmarket-mcp:1.2.0
+
+# 5. Deploy
+docker-compose up -d
+
+# 6. Verify
+docker-compose ps
+curl http://localhost:8081/api/pulse
+```
+
+### Rolling Updates (Zero Downtime)
+
+```bash
+# 1. Start new version
+docker-compose up -d --no-deps --scale mcp-server=2 mcp-server
+
+# 2. Wait for health check
+sleep 30
+
+# 3. Stop old version
+docker-compose stop mcp-server
+docker-compose rm -f mcp-server
+
+# 4. Scale back to 1
+docker-compose up -d --scale mcp-server=1
+```
+
+## Monitoring and Debugging
+
+### View Logs
+
+```bash
+# All services
+docker-compose logs -f
+
+# Specific service
+docker-compose logs -f mcp-server
+
+# Last 100 lines
+docker-compose logs --tail=100 mcp-server
+
+# Since timestamp
+docker-compose logs --since 2025-11-06T12:00:00
+```
+
+### Container Metrics
+
+```bash
+# Real-time stats
+docker stats
+
+# Output:
+CONTAINER ID   NAME               CPU %   MEM USAGE / LIMIT   MEM %
+a1b2c3d4e5f6   agentmarket-mcp    5.2%    256MB / 2GB        12.8%
+b2c3d4e5f6g7   image-analyzer     2.1%    128MB / 1GB        12.5%
+
+# Detailed inspect
+docker inspect agentmarket-mcp
+```
+
+### Execute Commands in Container
+
+```bash
+# Open shell in running container
+docker exec -it agentmarket-mcp sh
+
+# Run command
+docker exec agentmarket-mcp node -e "console.log(process.env.NODE_ENV)"
+
+# Check logs inside container
+docker exec agentmarket-mcp cat /app/logs/server.log
+```
+
+### Health Check Status
+
+```bash
+# Check container health
+docker ps --format "table {{.Names}}\t{{.Status}}"
+
+# Output:
+NAMES               STATUS
+agentmarket-mcp     Up 2 hours (healthy)
+image-analyzer      Up 2 hours (healthy)
+sentiment-analyzer  Up 2 hours (healthy)
+
+# Detailed health check logs
+docker inspect agentmarket-mcp | grep -A 20 Health
+```
+
+## Troubleshooting
+
+### Container Won't Start
+
+**Problem**: Container exits immediately after starting
+
+**Solution**:
+```bash
+# Check logs for errors
+docker-compose logs mcp-server
+
+# Common issues:
+# 1. Missing environment variables
+docker-compose config  # Validate compose file
+
+# 2. Port already in use
+sudo lsof -i :8081  # Find process using port
+docker-compose down  # Stop all containers
+
+# 3. Permission errors
+docker exec agentmarket-mcp ls -la /app/data  # Check ownership
+
+# 4. Build errors
+docker-compose build --no-cache mcp-server  # Rebuild without cache
+```
+
+### Health Check Failing
+
+**Problem**: Container marked as unhealthy
+
+**Solution**:
+```bash
+# Test health check manually
+docker exec agentmarket-mcp curl -f http://localhost:8081/api/pulse
+
+# Or use health check command
+docker exec agentmarket-mcp sh -c "node -e \"console.log('healthy')\""
+
+# Check health logs
+docker inspect agentmarket-mcp | jq '.[0].State.Health'
+
+# Adjust health check parameters if needed
+# In docker-compose.yml:
+healthcheck:
+  interval: 60s  # Check less frequently
+  timeout: 10s   # Allow more time
+  retries: 5     # More retries before marking unhealthy
+```
+
+### Volume Permission Issues
+
+**Problem**: `EACCES: permission denied`
+
+**Solution**:
+```bash
+# Fix volume permissions
+docker-compose down
+docker volume rm agentmarket_mcp-data
+docker-compose up -d
+
+# Or fix inside container
+docker exec -u root agentmarket-mcp chown -R nodejs:nodejs /app/data
+```
+
+### Database Connection Failed
+
+**Problem**: `Error: connect ECONNREFUSED postgresql://...`
+
+**Solution**:
+```bash
+# 1. Check PostgreSQL container is running
+docker-compose ps postgres
+
+# 2. Test database connection
+docker exec agentmarket-mcp node -e "
+  const { Client } = require('pg');
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  client.connect().then(() => console.log('Connected!')).catch(console.error);
+"
+
+# 3. Verify DATABASE_URL is correct
+docker exec agentmarket-mcp printenv DATABASE_URL
+
+# 4. Ensure postgres is healthy before mcp-server starts
+# In docker-compose.yml:
+depends_on:
+  postgres:
+    condition: service_healthy
+```
+
+### Image Build Fails
+
+**Problem**: `ERROR [builder 4/5] RUN npm ci` fails
+
+**Solution**:
+```bash
+# Clear Docker build cache
+docker builder prune -a
+
+# Rebuild with no cache
+docker-compose build --no-cache
+
+# Check Node.js version
+docker run --rm node:20-alpine node --version  # Should be 20.x
+
+# Verify package-lock.json exists
+ls -la package-lock.json
+
+# If missing, generate it
+npm install
+git add package-lock.json
+git commit -m "Add package-lock.json"
+```
+
+## Advanced Topics
+
+### Docker Swarm Deployment
+
+For multi-node clustering:
+
+```bash
+# Initialize swarm
+docker swarm init
+
+# Deploy stack
+docker stack deploy -c docker-compose.yml agentmarket
+
+# Scale services
+docker service scale agentmarket_mcp-server=3
+
+# Update service
+docker service update --image agentmarket-mcp:1.2.0 agentmarket_mcp-server
+```
+
+### Kubernetes Deployment
+
+Convert docker-compose to Kubernetes:
+
+```bash
+# Install kompose
+curl -L https://github.com/kubernetes/kompose/releases/download/v1.31.0/kompose-linux-amd64 -o kompose
+chmod +x kompose
+
+# Convert to Kubernetes manifests
+kompose convert -f docker/docker-compose.yml
+
+# Deploy to Kubernetes
+kubectl apply -f .
+```
+
+### CI/CD Integration
+
+**GitHub Actions example:**
+
+```yaml
+name: Docker Build and Push
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -f docker/mcp-server.Dockerfile \
+            -t ${{ secrets.DOCKER_REGISTRY }}/agentmarket-mcp:${{ github.sha }} \
+            -t ${{ secrets.DOCKER_REGISTRY }}/agentmarket-mcp:latest .
+
+      - name: Push to registry
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+          docker push ${{ secrets.DOCKER_REGISTRY }}/agentmarket-mcp:${{ github.sha }}
+          docker push ${{ secrets.DOCKER_REGISTRY }}/agentmarket-mcp:latest
+```
+
+## Next Steps
+
+Now that you understand Docker deployment:
+
+- [Railway Deployment](/docs/deployment/railway) - Managed PaaS alternative
+- [CI/CD Pipeline](/docs/deployment/ci-cd) - Automate deployments
+- [Environment Variables](/docs/deployment/environment-variables) - Complete configuration reference
+- [Security Best Practices](/docs/concepts/security-model) - Harden production deployments
+
+## Related Documentation
+
+- [Local Development](/docs/quickstart/local-development) - Development setup with Docker
+- [Database Adapters](/docs/architecture/database-adapters) - SQLite vs PostgreSQL
+- [Security Model](/docs/concepts/security-model) - Production security best practices

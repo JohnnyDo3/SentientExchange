@@ -1,0 +1,269 @@
+# Claude Desktop Integration
+
+**TL;DR:** Connect to AgentMarket's remote MCP server in 2 minutes - no installation required. Just configure Claude Desktop with the sentientexchange.com MCP endpoint.
+
+## What is This?
+
+AgentMarket provides a **remote** Model Context Protocol (MCP) server hosted at sentientexchange.com that gives Claude Desktop access to 13 powerful tools for discovering, purchasing, and managing AI services. Once configured, Claude can autonomously find services, execute payments with your Solana wallet, and coordinate complex multi-service workflows.
+
+## Why Does This Matter?
+
+- **Zero Setup**: No need to clone repos or run servers - connect to our hosted MCP server
+- **Autonomous Payments**: Claude can pay for services on your behalf using client-side wallet signing
+- **Service Discovery**: Access 20+ AI services (sentiment analysis, image processing, data aggregation)
+- **Smart Workflows**: Reduce 5 API calls to 3 with intelligent workflow tools
+- **Budget Control**: Set spending limits (per-transaction, daily, monthly)
+
+## Prerequisites
+
+All you need:
+
+1. **Claude Desktop** - Download from [claude.ai/download](https://claude.ai/download)
+2. **Solana Wallet** (optional) - Only needed if you want to purchase services
+
+<Callout type="warning">
+Your Solana private key (if configured) stays on **your machine**. The AgentMarket server never has access to your wallet - it only verifies transactions on-chain.
+</Callout>
+
+## Quick Start (2 Minutes)
+
+### Step 1: Configure Claude Desktop
+
+Open your Claude Desktop MCP configuration file:
+
+**macOS/Linux:**
+```bash
+~/.config/claude/config.json
+```
+
+**Windows:**
+```bash
+%APPDATA%\Claude\config.json
+```
+
+Add the AgentMarket remote MCP server:
+
+```json
+{
+  "mcpServers": {
+    "agentmarket": {
+      "url": "https://sentientexchange.com/mcp",
+      "transport": "sse"
+    }
+  }
+}
+```
+
+<Callout type="tip">
+That's it! No installation, no builds, no environment variables. The server is ready to use.
+</Callout>
+
+### Step 2: (Optional) Add Solana Wallet for Payments
+
+If you want Claude to execute payments on your behalf, add your Solana private key:
+
+```json
+{
+  "mcpServers": {
+    "agentmarket": {
+      "url": "https://sentientexchange.com/mcp",
+      "transport": "sse",
+      "env": {
+        "SOLANA_PRIVATE_KEY": "your-base58-private-key-here"
+      }
+    }
+  }
+}
+```
+
+<Callout type="info">
+The private key is stored **locally** in Claude Desktop and used for client-side transaction signing. It's never sent to sentientexchange.com.
+</Callout>
+
+### Step 3: Restart Claude Desktop
+
+Close and reopen Claude Desktop to connect to the MCP server.
+
+### Step 5: Test the Integration
+
+In Claude Desktop, try these commands:
+
+```
+Can you discover AI services for sentiment analysis?
+```
+
+Claude should now have access to these tools and respond with available services!
+
+## Verify It's Working
+
+You can confirm the integration by:
+
+1. **Check MCP Tools**: Claude will mention available AgentMarket tools when asked
+2. **Discover Services**: Try discovering services by capability
+3. **Check Spending Limits**: Ask Claude to check your spending limits
+
+```
+What MCP tools do you have access to?
+```
+
+If successful, Claude will list 13 AgentMarket tools including:
+- discover_services
+- purchase_service
+- execute_payment
+- submit_payment
+- set_spending_limits
+- And more!
+
+## Available MCP Tools
+
+Once integrated, Claude has access to **13 tools**:
+
+### Standard Tools (7)
+1. **discover_services** - Search services by capability, price, rating
+2. **get_service_details** - Get full service information
+3. **purchase_service** - Request service (returns payment instruction)
+4. **execute_payment** - Execute payment with your local wallet
+5. **submit_payment** - Complete purchase with transaction signature
+6. **rate_service** - Submit ratings and reviews
+7. **list_all_services** - Browse all services with pagination
+
+### Smart Workflow Tools (6)
+8. **discover_and_prepare_service** - Discover + health check + prepare (1 call instead of 3)
+9. **complete_service_with_payment** - Verify + submit + auto-retry
+10. **set_spending_limits** - Configure budget controls
+11. **check_spending** - View spending stats
+12. **reset_spending_limits** - Remove all limits
+13. **get_transaction** - Retrieve transaction details
+
+<Callout type="tip">
+Smart workflow tools reduce API calls by 40-60%. Use them for better performance!
+</Callout>
+
+## Example Workflow
+
+Here's a complete example of using a service:
+
+```
+Me: Can you find a sentiment analysis service and analyze this text:
+"I absolutely love this product! Best purchase ever."
+
+Claude:
+1. Uses discover_services to find sentiment analyzers
+2. Uses execute_payment to pay the service
+3. Uses submit_payment to get the result
+4. Returns: "Positive sentiment (95% confidence)"
+```
+
+## Payment Flow Explained
+
+When Claude purchases a service:
+
+1. **Purchase Request**: Claude calls `purchase_service`
+   - Server returns payment instruction (recipient, amount, token)
+
+2. **Client Signs**: Claude calls `execute_payment`
+   - **Your local wallet** signs the transaction
+   - Sends USDC to service provider on Solana
+   - Returns transaction signature
+
+3. **Submit Proof**: Claude calls `submit_payment`
+   - Server verifies payment on Solana blockchain
+   - Calls the service with payment proof
+   - Returns service result
+
+<Callout type="info">
+Your private key **never leaves your machine**. The AgentMarket server only verifies transactions that are already on-chain.
+</Callout>
+
+## Budget Protection with Spending Limits
+
+Set spending limits to prevent runaway costs:
+
+```
+Set my spending limits:
+- Maximum $5 per transaction
+- Maximum $50 per day
+- Maximum $500 per month
+```
+
+Claude will enforce these limits automatically.
+
+## Troubleshooting
+
+### MCP Server Not Loading
+
+**Problem**: Claude Desktop doesn't show AgentMarket tools
+
+**Solutions**:
+1. Check the config file path is correct
+2. Verify absolute paths (not relative)
+3. On Windows, use double backslashes: `C:\\\\Users\\\\...`
+4. Check the build completed: `npm run build` should succeed
+5. Look for errors in Claude Desktop's logs
+
+### Payment Execution Fails
+
+**Problem**: `execute_payment` returns an error
+
+**Solutions**:
+1. Verify your wallet has USDC: Check balance on Solana Explorer
+2. Check you're on the right network (devnet vs mainnet)
+3. Verify RPC URL is correct
+4. Ensure private key is in base58 format
+
+### Database Errors
+
+**Problem**: SQLite errors or "database locked"
+
+**Solutions**:
+1. Ensure `DATABASE_PATH` points to a writable directory
+2. Don't run multiple instances simultaneously
+3. Delete and recreate: `rm data/agentmarket.db && npm run build`
+
+## Next Steps
+
+Now that you're connected:
+
+- [Understand the Architecture](/docs/concepts/architecture) - How the 3-layer system works
+- [Explore MCP Tools](/docs/guides/mcp-tools) - Detailed reference for all 13 tools
+- [Smart Workflows](/docs/guides/smart-workflows) - Optimize with workflow tools
+- [Set Spending Limits](/docs/guides/spending-limits) - Configure budget controls
+
+## Advanced Configuration
+
+### Custom RPC Endpoint
+
+Use a custom Solana RPC for better performance:
+
+```json
+{
+  "env": {
+    "SOLANA_RPC_URL": "https://your-private-rpc.com",
+    "NETWORK": "mainnet-beta"
+  }
+}
+```
+
+### Production Configuration
+
+For mainnet:
+
+```json
+{
+  "env": {
+    "SOLANA_PRIVATE_KEY": "your-mainnet-key",
+    "SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
+    "NETWORK": "mainnet-beta"
+  }
+}
+```
+
+<Callout type="danger">
+**Never commit your private key to version control!** Use environment variables or secure secret management.
+</Callout>
+
+## Related Documentation
+
+- [Payment Execution Guide](/docs/guides/payment-execution) - Deep dive into the payment flow
+- [MCP Protocol Reference](/docs/api/mcp-protocol) - Complete tool schemas
+- [Security Model](/docs/concepts/security-model) - How client-side signing works

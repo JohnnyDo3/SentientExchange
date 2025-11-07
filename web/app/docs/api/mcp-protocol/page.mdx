@@ -1,0 +1,1153 @@
+# MCP Protocol Reference
+
+**TL;DR:** Complete reference for all 13 MCP tools with JSON schemas, request/response examples, and error codes. Includes 7 standard tools + 6 smart/budget tools for service discovery and payment execution.
+
+## Overview
+
+AgentMarket implements the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) to enable AI agents to discover and purchase services with autonomous payment execution. The protocol uses JSON-RPC 2.0 for message exchange and supports both stdio (local) and SSE (remote) transports.
+
+## Protocol Basics
+
+### Transport Modes
+
+| Mode | Use Case | Connection | Configuration |
+|------|----------|------------|---------------|
+| **stdio** | Local Claude Desktop | stdin/stdout pipes | `~/.config/claude/config.json` |
+| **SSE** | Remote API clients | HTTPS + Server-Sent Events | `GET /mcp/sse` endpoint |
+
+### Message Format
+
+All MCP messages follow JSON-RPC 2.0 format:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "discover_services",
+    "arguments": {
+      "capability": "sentiment-analysis"
+    }
+  }
+}
+```
+
+## Tool Categories
+
+AgentMarket provides 13 MCP tools organized into 5 categories:
+
+| Category | Tools | Purpose |
+|----------|-------|---------|
+| **Discovery** | `discover_services`, `get_service_details`, `list_all_services`, `get_transaction` | Find services, view details, transaction history |
+| **Payment** | `purchase_service`, `execute_payment`, `submit_payment` | Complete x402 payment flow |
+| **Analytics** | `rate_service` | Submit ratings and reviews |
+| **Budget** | `set_spending_limits`, `check_spending`, `reset_spending_limits` | Configure spending controls |
+| **Smart Workflows** | `discover_and_prepare_service`, `complete_service_with_payment` | Multi-step operations (reduce API calls by 40%) |
+
+---
+
+## Discovery Tools
+
+### 1. discover_services
+
+Search for AI services by capability, price range, and rating.
+
+**Input Schema**:
+```json
+{
+  "name": "discover_services",
+  "description": "Search and discover AI services by capability, price range, or minimum rating",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "capability": {
+        "type": "string",
+        "description": "Filter by service capability (e.g., 'sentiment-analysis', 'image-analysis', 'text-summarization')",
+        "examples": ["sentiment-analysis", "image-analysis", "data-processing"]
+      },
+      "maxPrice": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Maximum price per request in format $X.XX (e.g., '$1.00', '$0.50')",
+        "examples": ["$1.00", "$0.10", "$5.00"]
+      },
+      "minRating": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 5,
+        "description": "Minimum average rating (1-5 stars)"
+      },
+      "limit": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 10,
+        "description": "Maximum number of results to return"
+      }
+    },
+    "required": []
+  }
+}
+```
+
+**Request Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "discover_services",
+    "arguments": {
+      "capability": "sentiment-analysis",
+      "maxPrice": "$0.10",
+      "minRating": 4.0,
+      "limit": 5
+    }
+  }
+}
+```
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"services\":[{\"id\":\"service-sentiment-001\",\"name\":\"Sentiment Analyzer Pro\",\"description\":\"Advanced sentiment analysis with emotion detection\",\"provider\":\"SentimentAI\",\"endpoint\":\"https://api.sentimentai.com/analyze\",\"capabilities\":[\"sentiment-analysis\",\"emotion-detection\"],\"pricing\":{\"perRequest\":\"$0.01\",\"currency\":\"USDC\"},\"reputation\":{\"totalJobs\":1247,\"successRate\":99.2,\"avgResponseTime\":\"320ms\",\"rating\":4.9,\"reviews\":156},\"status\":\"approved\"}],\"count\":1,\"message\":\"Found 1 service(s) matching your criteria\"}"
+      }
+    ]
+  }
+}
+```
+
+**Error Responses**:
+- `INVALID_INPUT` (400): Invalid price format or rating out of range
+- `DATABASE_ERROR` (500): Failed to query service registry
+
+---
+
+### 2. get_service_details
+
+Get complete information about a specific service including pricing, reputation, and API details.
+
+**Input Schema**:
+```json
+{
+  "name": "get_service_details",
+  "description": "Get complete details about a specific service",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "serviceId": {
+        "type": "string",
+        "description": "UUID of the service to retrieve",
+        "examples": ["service-sentiment-001", "550e8400-e29b-41d4-a716-446655440000"]
+      }
+    },
+    "required": ["serviceId"]
+  }
+}
+```
+
+**Request Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "get_service_details",
+    "arguments": {
+      "serviceId": "service-sentiment-001"
+    }
+  }
+}
+```
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"service\":{\"id\":\"service-sentiment-001\",\"name\":\"Sentiment Analyzer Pro\",\"description\":\"Advanced sentiment analysis with emotion detection and entity extraction\",\"provider\":\"SentimentAI\",\"provider_wallet\":\"ABC123xyz...789\",\"endpoint\":\"https://api.sentimentai.com/analyze\",\"health_check_url\":\"https://api.sentimentai.com/health\",\"capabilities\":[\"sentiment-analysis\",\"emotion-detection\",\"entity-extraction\"],\"pricing\":{\"perRequest\":\"$0.01\",\"currency\":\"USDC\"},\"reputation\":{\"totalJobs\":1247,\"successRate\":99.2,\"avgResponseTime\":\"320ms\",\"rating\":4.9,\"reviews\":156},\"status\":\"approved\",\"metadata\":{\"apiVersion\":\"v1\",\"walletAddress\":\"ABC123xyz...789\",\"healthCheckUrl\":\"https://api.sentimentai.com/health\",\"image\":\"🧠\",\"color\":\"#8b5cf6\"}}}"
+      }
+    ]
+  }
+}
+```
+
+**Error Responses**:
+- `SERVICE_NOT_FOUND` (404): Service ID does not exist
+- `DATABASE_ERROR` (500): Failed to retrieve service
+
+---
+
+### 3. list_all_services
+
+List all available services with pagination support.
+
+**Input Schema**:
+```json
+{
+  "name": "list_all_services",
+  "description": "List all available services with pagination",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 200,
+        "default": 50,
+        "description": "Maximum number of services to return"
+      }
+    },
+    "required": []
+  }
+}
+```
+
+**Request Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "list_all_services",
+    "arguments": {
+      "limit": 20
+    }
+  }
+}
+```
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"services\":[...],\"count\":20,\"total\":147,\"message\":\"Showing 20 of 147 approved services\"}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 4. get_transaction
+
+Retrieve complete details about a specific transaction.
+
+**Input Schema**:
+```json
+{
+  "name": "get_transaction",
+  "description": "Retrieve complete details about a specific transaction",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "transactionId": {
+        "type": "string",
+        "description": "UUID of the transaction to retrieve"
+      }
+    },
+    "required": ["transactionId"]
+  }
+}
+```
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"transaction\":{\"id\":\"tx-12345\",\"serviceId\":\"service-sentiment-001\",\"buyer\":\"user123\",\"amount\":\"$0.01\",\"status\":\"completed\",\"timestamp\":\"2025-11-06T12:34:56Z\",\"paymentSignature\":\"3Xy7z8...abc123\",\"requestData\":{\"text\":\"I love this product!\"},\"responseData\":{\"sentiment\":\"positive\",\"score\":0.95}}}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Payment Tools
+
+### 5. purchase_service
+
+Request service execution and receive payment instructions (if 402 response).
+
+**Input Schema**:
+```json
+{
+  "name": "purchase_service",
+  "description": "Request a service. Returns payment instructions if 402 Payment Required",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "serviceId": {
+        "type": "string",
+        "description": "UUID of the service to purchase"
+      },
+      "data": {
+        "type": "object",
+        "description": "Request data to send to the service (service-specific)"
+      },
+      "maxPayment": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Maximum acceptable payment (defaults to service price)"
+      }
+    },
+    "required": ["serviceId", "data"]
+  }
+}
+```
+
+**Request Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "tools/call",
+  "params": {
+    "name": "purchase_service",
+    "arguments": {
+      "serviceId": "service-sentiment-001",
+      "data": {
+        "text": "I love this product!"
+      },
+      "maxPayment": "$0.10"
+    }
+  }
+}
+```
+
+**Response Example (402 Payment Required)**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"status\":402,\"message\":\"Payment Required\",\"paymentInstructions\":{\"transactionId\":\"tx-67890\",\"amount\":\"1000000\",\"currency\":\"USDC\",\"recipient\":\"ABC123xyz...789\",\"token\":\"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\",\"network\":\"devnet\",\"service\":\"Sentiment Analyzer Pro\",\"price\":\"$0.01\"}}"
+      }
+    ]
+  }
+}
+```
+
+**Error Responses**:
+- `SERVICE_NOT_FOUND` (404): Service does not exist
+- `SERVICE_UNAVAILABLE` (503): Service health check failed
+- `SPENDING_LIMIT_EXCEEDED` (429): Purchase would exceed spending limits
+
+---
+
+### 6. execute_payment
+
+Execute payment locally using your configured Solana wallet (CLIENT-SIDE SIGNING).
+
+**Input Schema**:
+```json
+{
+  "name": "execute_payment",
+  "description": "Execute payment locally using your configured wallet",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "paymentInstructions": {
+        "type": "object",
+        "description": "Payment instructions from purchase_service 402 response",
+        "properties": {
+          "transactionId": {
+            "type": "string",
+            "description": "Transaction ID from payment instruction"
+          },
+          "amount": {
+            "type": "string",
+            "description": "Amount in token base units (e.g., '1000000' for 1 USDC)"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency symbol (e.g., 'USDC', 'SOL')"
+          },
+          "recipient": {
+            "type": "string",
+            "description": "Recipient wallet address (base58 public key)"
+          },
+          "token": {
+            "type": "string",
+            "description": "Token mint address for SPL tokens (omit for native SOL)"
+          },
+          "network": {
+            "type": "string",
+            "enum": ["mainnet-beta", "devnet", "testnet"],
+            "description": "Solana network"
+          }
+        },
+        "required": ["transactionId", "amount", "currency", "recipient", "network"]
+      }
+    },
+    "required": ["paymentInstructions"]
+  }
+}
+```
+
+**Request Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "execute_payment",
+    "arguments": {
+      "paymentInstructions": {
+        "transactionId": "tx-67890",
+        "amount": "1000000",
+        "currency": "USDC",
+        "recipient": "ABC123xyz...789",
+        "token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "network": "devnet"
+      }
+    }
+  }
+}
+```
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"success\":true,\"signature\":\"3Xy7z8bcd9...abc123def456\",\"transactionId\":\"tx-67890\",\"amount\":\"$0.01\",\"recipient\":\"ABC123xyz...789\",\"message\":\"Payment executed successfully on Solana devnet\"}"
+      }
+    ]
+  }
+}
+```
+
+**Important Notes**:
+- Runs CLIENT-SIDE with `SOLANA_PRIVATE_KEY` from MCP client environment
+- Never sends private keys to server
+- Requires configured Solana wallet in Claude Desktop
+
+**Error Responses**:
+- `WALLET_NOT_FOUND` (404): No SOLANA_PRIVATE_KEY in environment
+- `INSUFFICIENT_FUNDS` (402): Wallet balance too low
+- `PAYMENT_TIMEOUT` (504): Transaction failed to confirm
+
+---
+
+### 7. submit_payment
+
+Complete service purchase by submitting payment proof (transaction signature).
+
+**Input Schema**:
+```json
+{
+  "name": "submit_payment",
+  "description": "Complete service purchase after payment execution",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "transactionId": {
+        "type": "string",
+        "description": "Transaction ID from payment instruction"
+      },
+      "signature": {
+        "type": "string",
+        "description": "Solana transaction signature from execute_payment (base58-encoded)"
+      },
+      "serviceId": {
+        "type": "string",
+        "description": "Service ID from payment instruction"
+      },
+      "requestData": {
+        "type": "object",
+        "description": "Original request data for the service"
+      }
+    },
+    "required": ["transactionId", "signature", "serviceId", "requestData"]
+  }
+}
+```
+
+**Request Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {
+    "name": "submit_payment",
+    "arguments": {
+      "transactionId": "tx-67890",
+      "signature": "3Xy7z8bcd9...abc123def456",
+      "serviceId": "service-sentiment-001",
+      "requestData": {
+        "text": "I love this product!"
+      }
+    }
+  }
+}
+```
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"success\":true,\"result\":{\"sentiment\":\"positive\",\"score\":0.95,\"confidence\":\"high\"},\"payment\":{\"verified\":true,\"signature\":\"3Xy7z8bcd9...abc123def456\",\"amount\":\"$0.01\",\"timestamp\":\"2025-11-06T12:35:10Z\"},\"transaction\":{\"id\":\"tx-67890\",\"status\":\"completed\"}}"
+      }
+    ]
+  }
+}
+```
+
+**What Happens**:
+1. Server verifies signature on Solana blockchain via RPC
+2. Checks payment amount and recipient match expected values
+3. Generates JWT payment token with signature
+4. Retries service request with `X-Payment: jwt_token` header
+5. Returns service result + payment verification
+
+**Error Responses**:
+- `PAYMENT_VERIFICATION_FAILED` (402): Signature not found on-chain or invalid
+- `SERVICE_UNAVAILABLE` (503): Service endpoint down
+- `INVALID_RESPONSE` (500): Service returned unexpected data
+
+---
+
+## Analytics Tools
+
+### 8. rate_service
+
+Submit rating and optional review for a completed transaction.
+
+**Input Schema**:
+```json
+{
+  "name": "rate_service",
+  "description": "Submit a rating and optional review for a completed service transaction",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "transactionId": {
+        "type": "string",
+        "description": "UUID of the transaction to rate"
+      },
+      "score": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 5,
+        "description": "Rating score from 1 to 5"
+      },
+      "review": {
+        "type": "string",
+        "maxLength": 500,
+        "description": "Optional written review"
+      }
+    },
+    "required": ["transactionId", "score"]
+  }
+}
+```
+
+**Request Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "tools/call",
+  "params": {
+    "name": "rate_service",
+    "arguments": {
+      "transactionId": "tx-67890",
+      "score": 5,
+      "review": "Excellent accuracy and fast response time!"
+    }
+  }
+}
+```
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"success\":true,\"rating\":{\"transactionId\":\"tx-67890\",\"score\":5,\"review\":\"Excellent accuracy and fast response time!\"},\"service\":{\"id\":\"service-sentiment-001\",\"reputation\":{\"rating\":4.9,\"reviews\":157}},\"message\":\"Rating submitted successfully\"}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Budget Management Tools
+
+### 9. set_spending_limits
+
+Configure spending limits to control agent budget.
+
+**Input Schema**:
+```json
+{
+  "name": "set_spending_limits",
+  "description": "Set spending limits to control your AI agent's budget",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "perTransaction": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Maximum amount per single transaction (e.g., '$5.00')"
+      },
+      "daily": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Maximum total spending per day (e.g., '$50.00')"
+      },
+      "monthly": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Maximum total spending per month (e.g., '$500.00')"
+      },
+      "enabled": {
+        "type": "boolean",
+        "description": "Enable or disable spending limits (default: true)"
+      }
+    },
+    "required": []
+  }
+}
+```
+
+**Request Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 9,
+  "method": "tools/call",
+  "params": {
+    "name": "set_spending_limits",
+    "arguments": {
+      "perTransaction": "$5.00",
+      "daily": "$50.00",
+      "monthly": "$500.00",
+      "enabled": true
+    }
+  }
+}
+```
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 9,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"success\":true,\"limits\":{\"perTransaction\":\"$5.00\",\"daily\":\"$50.00\",\"monthly\":\"$500.00\",\"enabled\":true},\"message\":\"Spending limits updated successfully\"}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 10. check_spending
+
+View current spending statistics and remaining budget.
+
+**Input Schema**:
+```json
+{
+  "name": "check_spending",
+  "description": "Check your current spending statistics and remaining budget",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "amount": {
+        "type": "string",
+        "pattern": "^\\$\\d+(\\.\\d{1,2})?$",
+        "description": "Optional: Test if this amount would be allowed (e.g., '$10.00')"
+      }
+    },
+    "required": []
+  }
+}
+```
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"limits\":{\"perTransaction\":\"$5.00\",\"daily\":\"$50.00\",\"monthly\":\"$500.00\",\"enabled\":true},\"spending\":{\"today\":\"$12.34\",\"thisMonth\":\"$87.65\",\"transactions\":15},\"remaining\":{\"daily\":\"$37.66\",\"monthly\":\"$412.35\"},\"status\":\"within_limits\"}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 11. reset_spending_limits
+
+Remove all spending limits.
+
+**Input Schema**:
+```json
+{
+  "name": "reset_spending_limits",
+  "description": "Remove all spending limits",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  }
+}
+```
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"success\":true,\"message\":\"All spending limits removed. You can now make unlimited purchases.\"}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Smart Workflow Tools
+
+### 12. discover_and_prepare_service
+
+**Combines 3 operations into 1 call**: discover + health check + prepare payment
+
+**Input Schema**:
+```json
+{
+  "name": "discover_and_prepare_service",
+  "description": "SMART TOOL: Discover best service + health check + prepare payment in one call",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "capability": {
+        "type": "string",
+        "description": "Service capability to search for (e.g., 'sentiment-analysis', 'image-analysis')"
+      },
+      "requestData": {
+        "type": "object",
+        "description": "Data to send to the service"
+      },
+      "requirements": {
+        "type": "object",
+        "description": "Optional filtering requirements",
+        "properties": {
+          "maxPrice": {
+            "type": "string",
+            "description": "Maximum price (e.g., '$1.00')"
+          },
+          "minRating": {
+            "type": "number",
+            "description": "Minimum rating (1-5)"
+          },
+          "mustSupportBatch": {
+            "type": "boolean",
+            "description": "Must support batch processing"
+          },
+          "preferredProviders": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Preferred service providers"
+          }
+        }
+      },
+      "checkHealth": {
+        "type": "boolean",
+        "default": true,
+        "description": "Health check services before selection"
+      },
+      "maxPayment": {
+        "type": "string",
+        "description": "Maximum acceptable payment (e.g., '$1.00')"
+      },
+      "userId": {
+        "type": "string",
+        "description": "Optional user ID for spending limit checks"
+      },
+      "maxRetries": {
+        "type": "number",
+        "default": 2,
+        "description": "Max backup services to try on failure"
+      }
+    },
+    "required": ["capability", "requestData"]
+  }
+}
+```
+
+**What It Does**:
+1. Searches services matching capability + filters
+2. Health checks top candidate (GET /health endpoint)
+3. Checks spending limits
+4. Makes initial service request to get payment details
+5. Returns payment instructions + backup services
+
+**Benefit**: 3 API calls → 1 API call (67% reduction)
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"sessionId\":\"session-abc123\",\"service\":{\"id\":\"service-sentiment-001\",\"name\":\"Sentiment Analyzer Pro\",\"price\":\"$0.01\"},\"paymentInstructions\":{\"transactionId\":\"tx-67890\",\"amount\":\"1000000\",\"currency\":\"USDC\",\"recipient\":\"ABC123xyz...789\",\"network\":\"devnet\"},\"backupServices\":[\"service-sentiment-002\",\"service-sentiment-003\"],\"healthCheck\":{\"status\":\"healthy\",\"responseTime\":\"45ms\"},\"message\":\"Service ready for payment. Execute payment then call complete_service_with_payment.\"}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 13. complete_service_with_payment
+
+**Combines verify + submit + retry**: Auto-retry with backup services on failure
+
+**Input Schema**:
+```json
+{
+  "name": "complete_service_with_payment",
+  "description": "SMART TOOL: Complete service purchase with payment verification and automatic retry",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sessionId": {
+        "type": "string",
+        "description": "Session ID from discover_and_prepare_service"
+      },
+      "signature": {
+        "type": "string",
+        "description": "Transaction signature from execute_payment"
+      },
+      "retryOnFailure": {
+        "type": "boolean",
+        "default": true,
+        "description": "Retry with backup services if primary fails"
+      }
+    },
+    "required": ["sessionId", "signature"]
+  }
+}
+```
+
+**What It Does**:
+1. Verifies payment signature on-chain
+2. Submits to primary service with payment proof
+3. If primary fails, automatically retries with backup services
+4. Returns first successful result
+
+**Benefit**: Built-in retry logic + error recovery + automatic fallback
+
+**Response Example**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 13,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"success\":true,\"result\":{\"sentiment\":\"positive\",\"score\":0.95},\"service\":{\"id\":\"service-sentiment-001\",\"name\":\"Sentiment Analyzer Pro\"},\"payment\":{\"verified\":true,\"signature\":\"3Xy7z8...abc123\",\"amount\":\"$0.01\"},\"attempts\":1,\"usedBackup\":false,\"message\":\"Service completed successfully\"}"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Error Codes Reference
+
+All MCP tools return standardized error responses in this format:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32000,
+    "message": "Error type description",
+    "data": {
+      "errorCode": "ERROR_CODE",
+      "details": {}
+    }
+  }
+}
+```
+
+### Common Error Codes
+
+| Error Code | HTTP Status | Description | Solution |
+|------------|-------------|-------------|----------|
+| `INVALID_INPUT` | 400 | Invalid input parameters | Check schema requirements |
+| `MISSING_REQUIRED_FIELD` | 400 | Required field missing | Provide all required fields |
+| `SERVICE_NOT_FOUND` | 404 | Service ID does not exist | Use valid service ID from discovery |
+| `PAYMENT_VERIFICATION_FAILED` | 402 | Transaction not found on-chain | Wait for confirmation, retry |
+| `INSUFFICIENT_FUNDS` | 402 | Wallet balance too low | Add funds to wallet |
+| `SPENDING_LIMIT_EXCEEDED` | 429 | Over budget limits | Increase limits or wait |
+| `SERVICE_UNAVAILABLE` | 503 | Service health check failed | Try backup service |
+| `SERVICE_TIMEOUT` | 504 | Service request timed out | Retry or use different service |
+| `WALLET_NOT_FOUND` | 404 | No SOLANA_PRIVATE_KEY configured | Add wallet to MCP client |
+| `DATABASE_ERROR` | 500 | Internal database error | Contact support |
+
+### Error Response Examples
+
+**Invalid Input**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32000,
+    "message": "Invalid input",
+    "data": {
+      "errorCode": "INVALID_INPUT",
+      "details": {
+        "field": "maxPrice",
+        "reason": "Must be in format $X.XX"
+      }
+    }
+  }
+}
+```
+
+**Service Not Found**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "error": {
+    "code": -32000,
+    "message": "Service not found",
+    "data": {
+      "errorCode": "SERVICE_NOT_FOUND",
+      "details": {
+        "serviceId": "invalid-id-123"
+      }
+    }
+  }
+}
+```
+
+**Spending Limit Exceeded**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "error": {
+    "code": -32000,
+    "message": "Spending limit exceeded",
+    "data": {
+      "errorCode": "SPENDING_LIMIT_EXCEEDED",
+      "details": {
+        "limit": "$5.00",
+        "requested": "$10.00",
+        "type": "perTransaction"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Complete Workflow Examples
+
+### Standard Workflow (5 calls)
+
+```typescript
+// 1. Discover services
+const discovery = await mcp.call("discover_services", {
+  capability: "sentiment-analysis",
+  maxPrice: "$0.10",
+  minRating: 4.0
+});
+
+// 2. Get service details
+const details = await mcp.call("get_service_details", {
+  serviceId: discovery.services[0].id
+});
+
+// 3. Purchase service (get payment instructions)
+const purchase = await mcp.call("purchase_service", {
+  serviceId: details.service.id,
+  data: { text: "I love this product!" }
+});
+
+// 4. Execute payment (client-side)
+const payment = await mcp.call("execute_payment", {
+  paymentInstructions: purchase.paymentInstructions
+});
+
+// 5. Submit payment proof and get result
+const result = await mcp.call("submit_payment", {
+  transactionId: purchase.paymentInstructions.transactionId,
+  signature: payment.signature,
+  serviceId: details.service.id,
+  requestData: { text: "I love this product!" }
+});
+
+console.log(result.result); // { sentiment: "positive", score: 0.95 }
+```
+
+### Smart Workflow (3 calls)
+
+```typescript
+// 1. Discover + health check + prepare (1 call instead of 3)
+const prepared = await mcp.call("discover_and_prepare_service", {
+  capability: "sentiment-analysis",
+  requestData: { text: "I love this product!" },
+  requirements: {
+    maxPrice: "$0.10",
+    minRating: 4.0
+  }
+});
+
+// 2. Execute payment (client-side)
+const payment = await mcp.call("execute_payment", {
+  paymentInstructions: prepared.paymentInstructions
+});
+
+// 3. Complete with auto-retry (1 call instead of 1)
+const result = await mcp.call("complete_service_with_payment", {
+  sessionId: prepared.sessionId,
+  signature: payment.signature,
+  retryOnFailure: true // Auto-retry with backups if primary fails
+});
+
+console.log(result.result); // { sentiment: "positive", score: 0.95 }
+```
+
+**Benefit**: 5 calls → 3 calls (40% reduction) + built-in retry logic
+
+---
+
+## Implementation Details
+
+### Client Configuration
+
+**stdio (Local Claude Desktop)**:
+```json
+{
+  "mcpServers": {
+    "agentmarket": {
+      "command": "node",
+      "args": ["C:/path/to/agentMarket-mcp/dist/index.js"],
+      "env": {
+        "DATABASE_PATH": "./data/agentmarket.db",
+        "SOLANA_PRIVATE_KEY": "your-base58-private-key",
+        "NETWORK": "devnet"
+      }
+    }
+  }
+}
+```
+
+**SSE (Remote API)**:
+```typescript
+// Connect to SSE endpoint
+const eventSource = new EventSource('https://api.sentientexchange.com/mcp/sse');
+
+// Send message to server
+await fetch('https://api.sentientexchange.com/mcp/message?sessionId=xyz', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: { name: 'discover_services', arguments: {} }
+  })
+});
+
+// Receive response via SSE
+eventSource.onmessage = (event) => {
+  const response = JSON.parse(event.data);
+  console.log(response);
+};
+```
+
+---
+
+## Rate Limits
+
+| Transport | Endpoint | Limit | Window |
+|-----------|----------|-------|--------|
+| SSE | `/mcp/sse` (connection) | 10 connections | 15 minutes per IP |
+| SSE | `/mcp/message` (messages) | 60 messages | 1 minute per session |
+| stdio | (local) | Unlimited | N/A |
+
+---
+
+## Next Steps
+
+- [REST API Reference](/docs/api/rest-endpoints) - HTTP endpoints
+- [WebSocket Events](/docs/api/websocket-events) - Real-time updates
+- [Error Codes](/docs/api/error-codes) - Complete error reference
+- [MCP Tools Guide](/docs/guides/mcp-tools) - Practical examples

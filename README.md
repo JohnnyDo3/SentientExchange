@@ -177,7 +177,11 @@ Open http://localhost:3000 to see:
 
 ## MCP Tools
 
-AgentMarket provides 7 MCP tools for AI agents:
+AgentMarket provides **13 MCP tools** for AI agents (7 standard + 3 budget + 2 smart + 1 analytics):
+
+For complete documentation, see **[sentientexchange.com/docs/guides/mcp-tools](https://sentientexchange.com/docs/guides/mcp-tools)**
+
+### Core Tools
 
 ### 1. `discover_services`
 Search services by capability, price, or rating.
@@ -411,6 +415,19 @@ See **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)** for complete deployment instr
 
 ## Documentation
 
+### 📚 **Enterprise Documentation Portal**
+
+**Visit [sentientexchange.com/docs](https://sentientexchange.com/docs)** for comprehensive documentation:
+
+- **[Quick Start](https://sentientexchange.com/docs/quickstart/claude-desktop)** - Get started in 5 minutes
+- **[Concepts](https://sentientexchange.com/docs/concepts/introduction)** - Understand the architecture
+- **[Guides](https://sentientexchange.com/docs/guides/mcp-tools)** - Implementation guides
+- **[API Reference](https://sentientexchange.com/docs/api/mcp-protocol)** - Complete API documentation
+- **[Architecture](https://sentientexchange.com/docs/architecture/master-orchestrator)** - Deep technical dives
+- **[Deployment](https://sentientexchange.com/docs/deployment/railway)** - Production deployment
+
+### Legacy Markdown Docs
+
 | Document | Description |
 |----------|-------------|
 | **[API.md](./docs/API.md)** | Complete API reference (MCP tools + REST API) |
@@ -482,7 +499,8 @@ MIT License - see [LICENSE](./LICENSE)
 ## Links
 
 - **Live Demo:** [www.sentientexchange.com](https://www.sentientexchange.com)
-- **Documentation:** [docs/](./docs/)
+- **📚 Documentation Portal:** [sentientexchange.com/docs](https://sentientexchange.com/docs)
+- **Legacy Docs:** [docs/](./docs/)
 - **MCP Protocol:** [modelcontextprotocol.io](https://modelcontextprotocol.io/)
 - **x402 Protocol:** [github.com/coinbase/x402](https://github.com/coinbase/x402)
 - **Solana:** [solana.com](https://solana.com)

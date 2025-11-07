@@ -1,0 +1,767 @@
+# Database Architecture
+
+**TL;DR:** AgentMarket uses a unified database layer with automatic SQLite/PostgreSQL detection. SQLite for local development, PostgreSQL for Railway production. No code changes needed - just set DATABASE_URL environment variable.
+
+## Overview
+
+AgentMarket's database architecture supports two environments seamlessly:
+
+| Environment | Database | Use Case |
+|-------------|----------|----------|
+| **Local Development** | SQLite | Fast, file-based, zero configuration |
+| **Production (Railway)** | PostgreSQL | Scalable, managed, connection pooling |
+
+The `Database` class **auto-detects** which adapter to use based on the connection string.
+
+## Auto-Detection Logic
+
+**Reference**: `src/registry/database.ts` (Lines 17-31)
+
+```typescript
+export class Database {
+  private adapter: DatabaseAdapter;
+
+  constructor(dbPathOrUrl: string) {
+    // Auto-detect database type from connection string
+    if (dbPathOrUrl.startsWith('postgres://') || dbPathOrUrl.startsWith('postgresql://')) {
+      // Use PostgreSQL for Railway production
+      this.adapter = new PostgresAdapter(dbPathOrUrl);
+      logger.info('🐘 Using PostgreSQL database (production)');
+    } else {
+      // Use SQLite for local development
+      this.adapter = new SQLiteAdapter(dbPathOrUrl);
+      logger.info('💾 Using SQLite database (local development)');
+    }
+  }
+}
+```
+
+**Configuration**:
+
+```bash
+# Local Development (SQLite)
+DATABASE_PATH=./data/agentmarket.db
+
+# Production (PostgreSQL)
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+```
+
+The code is identical - only the environment variable changes!
+
+## Database Schema
+
+### Tables
+
+AgentMarket uses **5 main tables**:
+
+#### 1. services
+
+Stores AI service listings registered on the marketplace.
+
+```sql
+CREATE TABLE services (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  endpoint TEXT NOT NULL UNIQUE,
+  capabilities TEXT NOT NULL,          -- JSON array
+  pricing TEXT NOT NULL,               -- JSON object
+  provider TEXT NOT NULL,
+  provider_wallet TEXT NOT NULL,       -- Solana address for payments
+  reputation TEXT,                     -- JSON object
+  status TEXT DEFAULT 'pending',       -- pending | approved | rejected
+  health_status TEXT DEFAULT 'unknown', -- healthy | unhealthy | unknown
+  last_health_check TEXT,
+  network TEXT NOT NULL DEFAULT 'solana-devnet',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TEXT,                     -- Soft delete
+  created_by TEXT,
+  updated_by TEXT
+);
+
+-- Indexes
+CREATE INDEX idx_services_capabilities ON services(capabilities);
+CREATE INDEX idx_services_status ON services(status);
+CREATE INDEX idx_services_provider ON services(provider);
+CREATE INDEX idx_services_network ON services(network);
+```
+
+**Example Row**:
+
+```json
+{
+  "id": "service-sentiment-001",
+  "name": "Sentiment Analyzer Pro",
+  "description": "Advanced sentiment analysis with emotion detection",
+  "endpoint": "https://sentientexchange.com/api/ai/sentiment/analyze",
+  "capabilities": "[\"sentiment-analysis\",\"emotion-detection\"]",
+  "pricing": "{\"perRequest\":\"0.01\",\"currency\":\"USDC\"}",
+  "provider": "SentientExchange",
+  "provider_wallet": "ABC123...XYZ789",
+  "reputation": "{\"totalJobs\":1250,\"successRate\":99.8,\"rating\":4.9}",
+  "status": "approved",
+  "health_status": "healthy",
+  "last_health_check": "2025-11-06T12:00:00Z",
+  "network": "solana-devnet",
+  "created_at": "2025-11-01T10:00:00Z",
+  "updated_at": "2025-11-06T12:00:00Z"
+}
+```
+
+#### 2. transactions
+
+Records all service purchases and payments.
+
+```sql
+CREATE TABLE transactions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,               -- Buyer's wallet address
+  service_id TEXT NOT NULL,
+  price TEXT NOT NULL,                 -- Format: "$0.01"
+  status TEXT NOT NULL,                -- pending | completed | failed
+  solana_signature TEXT,               -- Transaction signature (unique)
+  request_data TEXT,                   -- JSON: service input
+  response_data TEXT,                  -- JSON: service output
+  error TEXT,
+  network TEXT NOT NULL DEFAULT 'solana-devnet',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  completed_at TEXT,
+  FOREIGN KEY (service_id) REFERENCES services(id)
+);
+
+-- Indexes
+CREATE INDEX idx_transactions_user ON transactions(user_id);
+CREATE INDEX idx_transactions_service ON transactions(service_id);
+CREATE INDEX idx_transactions_signature ON transactions(solana_signature);
+CREATE INDEX idx_transactions_status ON transactions(status);
+CREATE INDEX idx_transactions_created ON transactions(created_at);
+```
+
+**Example Row**:
+
+```json
+{
+  "id": "tx-1699876543-abc123",
+  "user_id": "user-wallet-address",
+  "service_id": "service-sentiment-001",
+  "price": "$0.01",
+  "status": "completed",
+  "solana_signature": "3Xy7z8K5...abc123def",
+  "request_data": "{\"text\":\"I love this product!\"}",
+  "response_data": "{\"sentiment\":\"positive\",\"score\":0.95}",
+  "network": "solana-devnet",
+  "created_at": "2025-11-06T12:00:00Z",
+  "completed_at": "2025-11-06T12:00:03Z"
+}
+```
+
+#### 3. ratings
+
+User reviews for completed service transactions.
+
+```sql
+CREATE TABLE ratings (
+  id TEXT PRIMARY KEY,
+  service_id TEXT NOT NULL,
+  transaction_id TEXT,
+  user_id TEXT NOT NULL,
+  score INTEGER NOT NULL CHECK (score >= 1 AND score <= 5),
+  review TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (service_id) REFERENCES services(id),
+  FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+);
+
+-- Indexes
+CREATE INDEX idx_ratings_service ON ratings(service_id);
+CREATE INDEX idx_ratings_user ON ratings(user_id);
+CREATE INDEX idx_ratings_transaction ON ratings(transaction_id);
+```
+
+**Example Row**:
+
+```json
+{
+  "id": "rating-abc123",
+  "service_id": "service-sentiment-001",
+  "transaction_id": "tx-1699876543-abc123",
+  "user_id": "user-wallet-address",
+  "score": 5,
+  "review": "Excellent accuracy and fast response!",
+  "created_at": "2025-11-06T12:05:00Z"
+}
+```
+
+#### 4. spending_limits
+
+Per-user budget controls.
+
+```sql
+CREATE TABLE spending_limits (
+  user_id TEXT PRIMARY KEY,
+  per_transaction TEXT NOT NULL,       -- Format: "$5.00"
+  daily TEXT NOT NULL,                 -- Format: "$50.00"
+  monthly TEXT NOT NULL,               -- Format: "$500.00"
+  enabled INTEGER NOT NULL DEFAULT 1,  -- 1 = enabled, 0 = disabled
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Example Row**:
+
+```json
+{
+  "user_id": "user-wallet-address",
+  "per_transaction": "$5.00",
+  "daily": "$50.00",
+  "monthly": "$500.00",
+  "enabled": 1,
+  "created_at": "2025-11-01T10:00:00Z",
+  "updated_at": "2025-11-06T12:00:00Z"
+}
+```
+
+#### 5. audit_logs
+
+Comprehensive audit trail for compliance and debugging.
+
+```sql
+CREATE TABLE audit_logs (
+  id TEXT PRIMARY KEY,
+  entity_type TEXT NOT NULL,           -- "service" | "transaction" | "rating"
+  entity_id TEXT NOT NULL,
+  action TEXT NOT NULL,                -- CREATE | UPDATE | DELETE | READ
+  changes TEXT,                        -- JSON: before/after
+  performed_by TEXT,                   -- User wallet or "system"
+  ip_address TEXT,
+  user_agent TEXT,
+  timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes
+CREATE INDEX idx_audit_entity ON audit_logs(entity_type, entity_id);
+CREATE INDEX idx_audit_action ON audit_logs(action);
+CREATE INDEX idx_audit_timestamp ON audit_logs(timestamp);
+```
+
+**Example Row**:
+
+```json
+{
+  "id": "audit-1699876543-xyz789",
+  "entity_type": "service",
+  "entity_id": "service-sentiment-001",
+  "action": "UPDATE",
+  "changes": "{\"before\":{\"status\":\"pending\"},\"after\":{\"status\":\"approved\"}}",
+  "performed_by": "admin-wallet-address",
+  "ip_address": "192.168.1.1",
+  "user_agent": "Mozilla/5.0...",
+  "timestamp": "2025-11-06T12:00:00Z"
+}
+```
+
+### metadata table
+
+Stores schema version and other system metadata.
+
+```sql
+CREATE TABLE metadata (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO metadata (key, value) VALUES ('schema_version', '1');
+```
+
+## Database Adapters
+
+### SQLite Adapter
+
+**Reference**: `src/registry/adapters/SQLiteAdapter.ts`
+
+```typescript
+import sqlite3 from 'sqlite3';
+import { promisify } from 'util';
+
+export class SQLiteAdapter implements DatabaseAdapter {
+  private db: sqlite3.Database;
+
+  constructor(dbPath: string) {
+    this.db = new sqlite3.Database(dbPath);
+  }
+
+  async initialize(): Promise<void> {
+    // Create tables
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS services (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        ...
+      )
+    `);
+
+    // Create indexes
+    await this.run('CREATE INDEX IF NOT EXISTS idx_services_capabilities ON services(capabilities)');
+
+    // More initialization...
+  }
+
+  async run(query: string, params?: unknown[]): Promise<void> {
+    const runPromise = promisify(this.db.run.bind(this.db));
+    await runPromise(query, params || []);
+  }
+
+  async get<T>(query: string, params?: unknown[]): Promise<T | undefined> {
+    const getPromise = promisify(this.db.get.bind(this.db));
+    return await getPromise(query, params || []) as T | undefined;
+  }
+
+  async all<T>(query: string, params?: unknown[]): Promise<T[]> {
+    const allPromise = promisify(this.db.all.bind(this.db));
+    return await allPromise(query, params || []) as T[];
+  }
+
+  async close(): Promise<void> {
+    const closePromise = promisify(this.db.close.bind(this.db));
+    await closePromise();
+  }
+
+  getType(): 'sqlite' {
+    return 'sqlite';
+  }
+}
+```
+
+**Benefits**:
+- **Zero setup**: No server installation required
+- **Fast**: Direct file access
+- **Portable**: Single `.db` file
+- **Perfect for development**
+
+### PostgreSQL Adapter
+
+**Reference**: `src/registry/adapters/PostgresAdapter.ts`
+
+```typescript
+import pg from 'pg';
+
+export class PostgresAdapter implements DatabaseAdapter {
+  private pool: pg.Pool;
+
+  constructor(connectionUrl: string) {
+    this.pool = new pg.Pool({
+      connectionString: connectionUrl,
+      ssl: { rejectUnauthorized: false },  // Railway requires SSL
+      max: 20,                              // Connection pool size
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000
+    });
+  }
+
+  async initialize(): Promise<void> {
+    const client = await this.pool.connect();
+
+    try {
+      // Create tables (Postgres syntax)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS services (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          ...
+        )
+      `);
+
+      // Create indexes
+      await client.query('CREATE INDEX IF NOT EXISTS idx_services_capabilities ON services(capabilities)');
+
+    } finally {
+      client.release();
+    }
+  }
+
+  async run(query: string, params?: unknown[]): Promise<void> {
+    await this.pool.query(query, params);
+  }
+
+  async get<T>(query: string, params?: unknown[]): Promise<T | undefined> {
+    const result = await this.pool.query(query, params);
+    return result.rows[0] as T | undefined;
+  }
+
+  async all<T>(query: string, params?: unknown[]): Promise<T[]> {
+    const result = await this.pool.query(query, params);
+    return result.rows as T[];
+  }
+
+  async close(): Promise<void> {
+    await this.pool.end();
+  }
+
+  getType(): 'postgres' {
+    return 'postgres';
+  }
+}
+```
+
+**Benefits**:
+- **Scalable**: Handles high concurrent connections
+- **Connection pooling**: Reuses connections efficiently
+- **ACID compliant**: Strong consistency guarantees
+- **Railway managed**: Automatic backups, monitoring
+
+## Query Examples
+
+### Insert Service
+
+```typescript
+await db.run(
+  `INSERT INTO services (id, name, description, endpoint, capabilities, pricing, provider, provider_wallet, network, status)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  [
+    'service-sentiment-001',
+    'Sentiment Analyzer Pro',
+    'Advanced sentiment analysis',
+    'https://service.com/analyze',
+    JSON.stringify(['sentiment-analysis']),
+    JSON.stringify({ perRequest: '0.01', currency: 'USDC' }),
+    'SentientExchange',
+    'ABC123...XYZ789',
+    'solana-devnet',
+    'approved'
+  ]
+);
+```
+
+### Get Service by ID
+
+```typescript
+const service = await db.get<Service>(
+  'SELECT * FROM services WHERE id = ?',
+  ['service-sentiment-001']
+);
+```
+
+### Search Services
+
+```typescript
+const services = await db.all<Service>(
+  `SELECT * FROM services
+   WHERE status = ?
+   AND capabilities LIKE ?
+   ORDER BY created_at DESC
+   LIMIT ?`,
+  ['approved', '%sentiment-analysis%', 10]
+);
+```
+
+### Record Transaction
+
+```typescript
+await db.run(
+  `INSERT INTO transactions (id, user_id, service_id, price, status, solana_signature, request_data, network)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  [
+    'tx-1699876543-abc123',
+    'user-wallet',
+    'service-sentiment-001',
+    '$0.01',
+    'completed',
+    '3Xy7z8K5...abc123def',
+    JSON.stringify({ text: 'I love this!' }),
+    'solana-devnet'
+  ]
+);
+```
+
+### Calculate Spending Stats
+
+```typescript
+// Daily spending (last 24 hours)
+const dailyStats = await db.get<{ total: string }>(
+  `SELECT SUM(CAST(REPLACE(REPLACE(price, '$', ''), ',', '') AS DECIMAL(10,2))) as total
+   FROM transactions
+   WHERE user_id = ?
+   AND created_at >= datetime('now', '-1 day')
+   AND status = 'completed'`,
+  ['user-wallet']
+);
+
+// Monthly spending (last 30 days)
+const monthlyStats = await db.get<{ total: string }>(
+  `SELECT SUM(CAST(REPLACE(REPLACE(price, '$', ''), ',', '') AS DECIMAL(10,2))) as total
+   FROM transactions
+   WHERE user_id = ?
+   AND created_at >= datetime('now', '-30 days')
+   AND status = 'completed'`,
+  ['user-wallet']
+);
+```
+
+## Migrations
+
+Database schema versioning with automatic migrations.
+
+**Reference**: `src/registry/database.ts` (Lines 124-174)
+
+```typescript
+async migrate(version: number): Promise<void> {
+  // Check current schema version
+  const versionInfo = await this.get<{ value: string }>(
+    'SELECT value FROM metadata WHERE key = ?',
+    ['schema_version']
+  );
+
+  const currentVersion = versionInfo ? parseInt(versionInfo.value) : 0;
+
+  if (currentVersion >= version) {
+    logger.info(`✓ Database already at version ${version}`);
+    return;
+  }
+
+  logger.info(`Migrating database from v${currentVersion} to v${version}...`);
+
+  // Migration logic based on version
+  if (version === 2 && currentVersion < 2) {
+    // Add soft delete columns
+    try {
+      await this.run('ALTER TABLE services ADD COLUMN deleted_at TEXT');
+      await this.run('ALTER TABLE services ADD COLUMN created_by TEXT');
+      await this.run('ALTER TABLE services ADD COLUMN updated_by TEXT');
+    } catch (e) {
+      // Columns might already exist
+    }
+  }
+
+  // Update schema version (handle SQLite vs Postgres UPSERT)
+  const dbType = this.adapter.getType();
+  if (dbType === 'postgres') {
+    await this.run(
+      `INSERT INTO metadata (key, value)
+       VALUES (?, ?)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      ['schema_version', version.toString()]
+    );
+  } else {
+    await this.run(
+      `INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)`,
+      ['schema_version', version.toString()]
+    );
+  }
+
+  logger.info(`✓ Database migrated to version ${version}`);
+}
+```
+
+**Usage**:
+
+```typescript
+// Run migration on startup
+await db.initialize();
+await db.migrate(2);  // Migrate to version 2
+```
+
+## Audit Logging
+
+Comprehensive audit trail for all database changes.
+
+```typescript
+// Log service approval
+await db.logAudit(
+  'service',                           // Entity type
+  'service-sentiment-001',             // Entity ID
+  'UPDATE',                            // Action
+  {                                    // Changes
+    before: { status: 'pending' },
+    after: { status: 'approved' }
+  },
+  'admin-wallet-address',              // Performed by
+  req.ip,                              // IP address
+  req.headers['user-agent']            // User agent
+);
+
+// Get audit history
+const history = await db.getAuditHistory('service', 'service-sentiment-001', 50);
+```
+
+## Connection Pooling
+
+### SQLite (Single Connection)
+
+SQLite uses a single connection (file-based):
+
+```typescript
+const db = new Database('./data/agentmarket.db');
+```
+
+**Concurrency**: SQLite handles concurrent reads, but writes are serialized.
+
+### PostgreSQL (Connection Pool)
+
+PostgreSQL uses connection pooling for high concurrency:
+
+```typescript
+this.pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 20,                    // Max connections in pool
+  idleTimeoutMillis: 30000,   // Close idle connections after 30s
+  connectionTimeoutMillis: 2000  // Fail fast if no connection available
+});
+```
+
+**Best Practice**: Let the pool manage connections automatically:
+
+```typescript
+// ✅ Good: Pool handles connection lifecycle
+await db.all('SELECT * FROM services');
+
+// ❌ Bad: Don't manage connections manually
+const client = await pool.connect();
+const result = await client.query('SELECT * FROM services');
+client.release();
+```
+
+## Performance Optimization
+
+### Indexes
+
+All frequently queried columns have indexes:
+
+```sql
+-- Fast lookups by ID (primary key - automatic index)
+SELECT * FROM services WHERE id = ?;
+
+-- Fast capability searches
+CREATE INDEX idx_services_capabilities ON services(capabilities);
+SELECT * FROM services WHERE capabilities LIKE '%sentiment%';
+
+-- Fast user transaction queries
+CREATE INDEX idx_transactions_user ON transactions(user_id);
+SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC;
+
+-- Fast signature lookups (payment verification)
+CREATE INDEX idx_transactions_signature ON transactions(solana_signature);
+SELECT * FROM transactions WHERE solana_signature = ?;
+```
+
+### Query Optimization Tips
+
+```typescript
+// ✅ Good: Use parameterized queries (prevents SQL injection + prepared statements)
+await db.all('SELECT * FROM services WHERE status = ?', ['approved']);
+
+// ❌ Bad: String concatenation (SQL injection risk)
+await db.all(`SELECT * FROM services WHERE status = '${status}'`);
+
+// ✅ Good: Limit results
+await db.all('SELECT * FROM services LIMIT 100');
+
+// ❌ Bad: Fetch all rows
+await db.all('SELECT * FROM services');
+
+// ✅ Good: Select only needed columns
+await db.all('SELECT id, name, price FROM services');
+
+// ❌ Bad: Select all columns
+await db.all('SELECT * FROM services');
+```
+
+## Backup & Recovery
+
+### SQLite Backup
+
+```bash
+# Manual backup
+cp ./data/agentmarket.db ./data/agentmarket-backup-$(date +%Y%m%d).db
+
+# Automated daily backups
+0 0 * * * cp /path/to/agentmarket.db /backups/agentmarket-$(date +\%Y\%m\%d).db
+```
+
+### PostgreSQL Backup (Railway)
+
+Railway automatically backs up PostgreSQL databases:
+
+- **Frequency**: Daily
+- **Retention**: 7 days (free plan), 30 days (paid)
+- **Manual backup**: Use Railway dashboard
+
+**Manual backup via pg_dump**:
+
+```bash
+pg_dump $DATABASE_URL > backup.sql
+```
+
+## Environment Configuration
+
+### Local Development (SQLite)
+
+```bash
+# .env
+DATABASE_PATH=./data/agentmarket.db
+```
+
+### Production (PostgreSQL on Railway)
+
+```bash
+# Railway automatically sets DATABASE_URL
+DATABASE_URL=postgresql://user:pass@host.railway.app:5432/railway
+```
+
+**No code changes needed!** The Database class auto-detects.
+
+## Common Queries
+
+### Service Statistics
+
+```typescript
+// Total services
+const { count } = await db.get<{ count: number }>(
+  'SELECT COUNT(*) as count FROM services WHERE status = ?',
+  ['approved']
+);
+
+// Average rating
+const { avgRating } = await db.get<{ avgRating: number }>(
+  'SELECT AVG(score) as avgRating FROM ratings'
+);
+```
+
+### Revenue Analytics
+
+```typescript
+// Total revenue
+const { revenue } = await db.get<{ revenue: string }>(
+  `SELECT SUM(CAST(REPLACE(REPLACE(price, '$', ''), ',', '') AS DECIMAL(10,2))) as revenue
+   FROM transactions
+   WHERE status = 'completed'`
+);
+
+// Revenue by service
+const revenueByService = await db.all<{ service_id: string; revenue: string }>(
+  `SELECT service_id, SUM(CAST(REPLACE(REPLACE(price, '$', ''), ',', '') AS DECIMAL(10,2))) as revenue
+   FROM transactions
+   WHERE status = 'completed'
+   GROUP BY service_id
+   ORDER BY revenue DESC`
+);
+```
+
+## Code References
+
+| File | Lines | Description |
+|------|-------|-------------|
+| `src/registry/database.ts` | 1-191 | Main Database class with auto-detection |
+| `src/registry/DatabaseAdapter.ts` | 1-50 | Adapter interface |
+| `src/registry/adapters/SQLiteAdapter.ts` | 1-300 | SQLite implementation |
+| `src/registry/adapters/PostgresAdapter.ts` | 1-300 | PostgreSQL implementation |
+| `src/registry/ServiceRegistry.ts` | 1-500 | Service registry using Database |
+
+## Next Steps
+
+- [Service Registry Concept](/docs/concepts/service-registry) - How services are stored and retrieved
+- [Payment Execution](/docs/guides/payment-execution) - Transaction recording
+- [Spending Limits](/docs/guides/spending-limits) - Budget calculations
+- [Authentication](/docs/guides/authentication) - User management

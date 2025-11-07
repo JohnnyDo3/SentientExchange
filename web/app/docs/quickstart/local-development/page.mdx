@@ -1,0 +1,572 @@
+# Local Development Setup
+
+**TL;DR:** Set up the complete AgentMarket stack locally (MCP server + API server + Web dashboard) for development and testing.
+
+## What is This?
+
+This guide walks you through setting up the entire AgentMarket platform locally, including:
+
+- **MCP Server** - Model Context Protocol server for Claude Desktop integration
+- **API Server** - REST API + WebSocket server for remote access
+- **Web Dashboard** - Next.js 14 frontend with 3D visualization
+- **Database** - SQLite for local development
+- **AI Services** - Example sentiment, image, and text services
+
+## Why Run Locally?
+
+- **Development** - Build and test new features
+- **Debugging** - Inspect logs and debug issues
+- **Testing** - Run automated tests against local instance
+- **Customization** - Modify code and see changes instantly
+- **Learning** - Understand how the architecture works
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+1. **Node.js 20+** - [Download from nodejs.org](https://nodejs.org/)
+2. **Git** - [Download from git-scm.com](https://git-scm.com/)
+3. **Solana Wallet** - Base58 private key for testing payments
+4. **Anthropic API Key** (optional) - For AI services ([console.anthropic.com](https://console.anthropic.com/))
+
+<Callout type="info">
+Use **Solana devnet** for testing! Get free devnet SOL and USDC from [https://faucet.solana.com](https://faucet.solana.com)
+</Callout>
+
+## Quick Start (20 Minutes)
+
+### Step 1: Clone the Repository
+
+```bash
+# Clone from GitHub
+git clone https://github.com/yourusername/agentmarket-mcp.git
+cd agentmarket-mcp
+```
+
+### Step 2: Install Dependencies
+
+```bash
+# Install backend dependencies
+npm install
+
+# Install web dashboard dependencies
+cd web
+npm install
+cd ..
+```
+
+<Callout type="tip">
+This project uses npm workspaces. Running `npm install` in the root installs all dependencies.
+</Callout>
+
+### Step 3: Configure Environment Variables
+
+Create `.env` file from the example:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your configuration:
+
+```bash
+# Network Configuration
+NETWORK=devnet
+
+# Database (SQLite for local development)
+DATABASE_PATH=./data/agentmarket.db
+
+# Server Configuration
+NODE_ENV=development
+LOG_LEVEL=debug
+API_PORT=8081
+
+# Payment Mode (hybrid recommended)
+PAYMENT_MODE=hybrid
+
+# Security (generate with: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))")
+JWT_SECRET=your-local-development-jwt-secret-change-in-production
+
+# Solana Wallet (for testing payments)
+# Get devnet USDC from https://faucet.solana.com
+SOLANA_PRIVATE_KEY=your-base58-private-key-here
+
+# AI Services (optional - required for image/text services)
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# AI Service Pricing (in USDC)
+IMAGE_ANALYZER_PRICE=0.02
+SENTIMENT_ANALYZER_PRICE=0.01
+TEXT_SUMMARIZER_PRICE=0.015
+
+# Recipient Wallet (where payments go)
+RECIPIENT_WALLET_ADDRESS=your_solana_wallet_address_here
+
+# Admin Wallets (comma-separated)
+ADMIN_WALLETS=your_solana_wallet_address_here
+```
+
+<Callout type="danger">
+**NEVER commit your `.env` file!** It contains sensitive keys. Add it to `.gitignore`.
+</Callout>
+
+### Step 4: Generate JWT Keys (Optional)
+
+For production-like testing with x402 middleware:
+
+```bash
+# Generate RSA key pair
+openssl genrsa -out private.key 2048
+openssl rsa -in private.key -pubout -out public.key
+
+# Convert to single-line format for .env
+awk -v ORS='\\n' '1' private.key
+awk -v ORS='\\n' '1' public.key
+
+# Add to .env:
+# JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+# JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+```
+
+<Callout type="warning">
+JWT keys are only needed if you're testing the x402 middleware package. For basic development, you can skip this step.
+</Callout>
+
+### Step 5: Build the Project
+
+```bash
+# Build backend TypeScript
+npm run build
+
+# Build web dashboard
+cd web
+npm run build
+cd ..
+```
+
+Expected output:
+```
+✓ Compiling TypeScript... Done
+✓ Building web dashboard... Done
+✓ Generated 15 static pages
+```
+
+### Step 6: Seed the Database (Optional)
+
+Add example services for testing:
+
+```bash
+npm run seed
+```
+
+This creates sample services in your local database:
+- Sentiment Analyzer
+- Image Analyzer
+- Text Summarizer
+- Data Aggregator
+- And more...
+
+### Step 7: Start the Full Stack
+
+Option A: **Start All Services** (recommended)
+
+```bash
+npm run start:all
+```
+
+This starts:
+- **MCP Server** (stdio) - For Claude Desktop
+- **API Server** (port 8081) - REST API + WebSocket
+- **Web Dashboard** (port 3000) - Next.js frontend
+
+Option B: **Start Individual Services**
+
+```bash
+# Terminal 1: MCP Server
+npm run start:mcp
+
+# Terminal 2: API Server
+npm run start:api
+
+# Terminal 3: Web Dashboard
+cd web && npm run dev
+```
+
+<Callout type="info">
+Use Option B when developing - it enables hot reloading for each service.
+</Callout>
+
+### Step 8: Verify Everything Works
+
+**Check API Health:**
+```bash
+curl http://localhost:8081/api/pulse
+```
+
+Expected response:
+```json
+{
+  "pulse": "strong",
+  "heartbeat": "💓",
+  "agents": "active",
+  "market": "open",
+  "vibe": "immaculate",
+  "uptime": "0m 23s",
+  "mcp": {
+    "sseEndpoint": "/mcp/sse",
+    "activeSessions": 0
+  }
+}
+```
+
+**Check Web Dashboard:**
+
+Open [http://localhost:3000](http://localhost:3000) in your browser. You should see:
+- 3D particle visualization
+- Service count
+- Transaction feed
+- Marketplace stats
+
+**Check MCP Server:**
+
+Configure Claude Desktop to use your local server (see [Claude Desktop Integration](/docs/quickstart/claude-desktop)).
+
+## Development Workflow
+
+### Hot Reloading
+
+For development with instant code updates:
+
+```bash
+# Terminal 1: Backend with hot reload
+npm run dev
+
+# Terminal 2: API server with hot reload
+npm run dev:api
+
+# Terminal 3: Web dashboard with hot reload
+cd web && npm run dev
+```
+
+Changes to TypeScript files will automatically recompile!
+
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run specific test suite
+npm run test:unit
+npm run test:integration
+
+# Run tests in watch mode (for TDD)
+npm run test:watch
+
+# Run tests with coverage
+npm test -- --coverage
+```
+
+Target: **80%+ coverage** (enforced by CI/CD)
+
+### Linting and Formatting
+
+```bash
+# Run ESLint
+npm run lint
+
+# Auto-fix ESLint issues
+npm run lint:fix
+
+# Check Prettier formatting
+npm run format:check
+
+# Auto-format code
+npm run format
+```
+
+<Callout type="tip">
+Pre-commit hooks automatically run linting and tests! Commits will fail if checks don't pass.
+</Callout>
+
+### Database Management
+
+```bash
+# View database contents (SQLite)
+sqlite3 data/agentmarket.db "SELECT * FROM services;"
+
+# Reset database (delete and reseed)
+rm data/agentmarket.db
+npm run seed
+
+# Backup database
+cp data/agentmarket.db data/agentmarket.db.backup
+```
+
+## Project Structure
+
+```
+agentmarket-mcp/
+├── src/                          # Backend source code
+│   ├── index.ts                  # MCP server entry point
+│   ├── server.ts                 # MCP server implementation
+│   ├── api/
+│   │   └── apiServer.ts          # API server (Express + Socket.IO)
+│   ├── registry/
+│   │   ├── ServiceRegistry.ts    # Service management
+│   │   └── database.ts           # Database adapter (SQLite/PostgreSQL)
+│   ├── payment/
+│   │   ├── DirectSolanaProvider.ts   # Client-side signing
+│   │   ├── SolanaVerifier.ts         # On-chain verification
+│   │   └── SpendingLimitManager.ts   # Budget controls
+│   ├── mcp/
+│   │   ├── tools/                # 13 MCP tools
+│   │   └── SSETransport.ts       # Remote MCP connections
+│   ├── services/ai/              # AI service implementations
+│   │   ├── image/
+│   │   ├── sentiment/
+│   │   └── text/
+│   ├── middleware/               # Security middleware
+│   ├── auth/                     # JWT + SIWE authentication
+│   └── types/                    # TypeScript types
+│
+├── web/                          # Next.js 14 web dashboard
+│   ├── app/                      # App router pages
+│   │   ├── page.tsx              # Landing page
+│   │   ├── docs/                 # Documentation portal
+│   │   ├── providers/            # Provider registration
+│   │   └── admin/                # Admin dashboard
+│   ├── components/               # React components
+│   │   ├── 3d/                   # Three.js visualizations
+│   │   ├── dashboard/            # Dashboard components
+│   │   └── docs/                 # Documentation components
+│   └── public/                   # Static assets
+│
+├── packages/                     # NPM packages
+│   └── x402-middleware/          # Payment middleware package
+│
+├── tests/                        # Test suites
+│   ├── unit/                     # Unit tests
+│   ├── integration/              # Integration tests
+│   └── e2e/                      # End-to-end tests
+│
+├── scripts/                      # Utility scripts
+│   ├── setup.sh                  # Initial setup
+│   ├── test-all.sh               # Run all tests
+│   └── seed-database.ts          # Database seeding
+│
+├── data/                         # Local database (gitignored)
+├── dist/                         # Compiled output (gitignored)
+└── .env                          # Environment config (gitignored)
+```
+
+## Common Development Tasks
+
+### Add a New MCP Tool
+
+1. Create tool file in `src/mcp/tools/yourTool.ts`
+2. Implement tool logic with MCP SDK
+3. Register tool in `src/server.ts`
+4. Add tests in `tests/unit/tools/yourTool.test.ts`
+5. Update documentation
+
+Example:
+
+```typescript
+// src/mcp/tools/myTool.ts
+export async function myTool(args: { query: string }) {
+  // Tool logic here
+  return {
+    content: [{
+      type: "text",
+      text: `Result for: ${args.query}`
+    }]
+  };
+}
+```
+
+### Add a New AI Service
+
+1. Create service directory in `src/services/ai/yourService/`
+2. Implement service class
+3. Add x402 middleware endpoint in `src/api/apiServer.ts`
+4. Register service in database
+5. Add tests
+
+See `/docs/guides/building-services` for complete guide.
+
+### Modify Database Schema
+
+1. Update schema in `src/registry/database.ts`
+2. Create migration script if needed
+3. Test with fresh database
+4. Update TypeScript types in `src/types/`
+5. Run tests to verify
+
+### Add New REST Endpoint
+
+1. Add route in `src/api/apiServer.ts`
+2. Add validation schema in `src/validation/schemas.ts`
+3. Implement handler logic
+4. Add integration test
+5. Update API documentation
+
+## Troubleshooting
+
+### Port Already in Use
+
+**Problem**: `Error: listen EADDRINUSE: address already in use :::8081`
+
+**Solution**:
+```bash
+# Find process using port 8081
+lsof -i :8081  # macOS/Linux
+netstat -ano | findstr :8081  # Windows
+
+# Kill the process
+kill -9 <PID>  # macOS/Linux
+taskkill /PID <PID> /F  # Windows
+```
+
+### Database Locked Error
+
+**Problem**: `Error: SQLITE_BUSY: database is locked`
+
+**Solution**:
+1. Ensure only one instance of the server is running
+2. Close any SQLite browser tools
+3. Delete `data/agentmarket.db` and reseed
+
+### TypeScript Build Errors
+
+**Problem**: `error TS2304: Cannot find name 'X'`
+
+**Solution**:
+```bash
+# Clear build cache
+rm -rf dist/
+rm -rf node_modules/
+npm install
+npm run build
+```
+
+### MCP Server Not Loading in Claude Desktop
+
+**Problem**: Claude Desktop doesn't show AgentMarket tools
+
+**Solutions**:
+1. Verify `dist/index.js` exists (run `npm run build`)
+2. Check config path is absolute (not relative)
+3. Restart Claude Desktop completely
+4. Check Claude Desktop logs for errors
+
+### Payment Execution Fails
+
+**Problem**: `Payment verification failed`
+
+**Solutions**:
+1. Verify you're using **devnet** in `.env`
+2. Check wallet has devnet USDC (get from faucet)
+3. Ensure `SOLANA_PRIVATE_KEY` is valid base58
+4. Verify `NETWORK=devnet` matches RPC URL
+
+## Advanced Configuration
+
+### Use PostgreSQL Instead of SQLite
+
+For production-like testing:
+
+```bash
+# Start PostgreSQL with Docker
+docker run --name agentmarket-postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=agentmarket \
+  -p 5432:5432 \
+  -d postgres:15
+
+# Update .env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/agentmarket
+
+# Remove DATABASE_PATH (PostgreSQL takes precedence)
+```
+
+The database adapter automatically detects PostgreSQL!
+
+### Enable Debug Logging
+
+```bash
+# .env
+LOG_LEVEL=debug
+NODE_ENV=development
+
+# Run with debug output
+DEBUG=* npm run dev
+```
+
+### Custom RPC Endpoint
+
+For faster development, use a private RPC:
+
+```bash
+# .env
+SOLANA_RPC_URL=https://your-quicknode-url.com
+
+# Or Helius
+SOLANA_RPC_URL=https://devnet.helius-rpc.com/?api-key=YOUR_KEY
+```
+
+## Testing
+
+### Run Specific Tests
+
+```bash
+# Single test file
+npm test -- tests/unit/registry/ServiceRegistry.test.ts
+
+# Test pattern
+npm test -- --testNamePattern="should discover services"
+
+# With coverage
+npm test -- --coverage --collectCoverageFrom="src/registry/**"
+```
+
+### Integration Tests
+
+```bash
+# API server tests (requires server running)
+npm run test:integration
+
+# E2E payment flow tests (requires devnet USDC)
+npm run test:e2e:real
+```
+
+### Manual Testing with curl
+
+```bash
+# Search services
+curl -X POST http://localhost:8081/api/services/search \
+  -H "Content-Type: application/json" \
+  -d '{"capabilities": ["sentiment-analysis"], "maxPrice": 0.1}'
+
+# Get service details
+curl http://localhost:8081/api/services/service-sentiment-001
+
+# Check stats
+curl http://localhost:8081/api/stats
+```
+
+## Next Steps
+
+Now that you have a local development environment:
+
+- [Build Your First Service](/docs/quickstart/service-provider) - Create an x402 service
+- [Understand the Architecture](/docs/concepts/architecture) - Deep dive into internals
+- [Explore MCP Tools](/docs/guides/mcp-tools) - Learn all 13 tools
+- [Deploy to Production](/docs/deployment/railway) - Ship to Railway
+
+## Related Documentation
+
+- [Claude Desktop Integration](/docs/quickstart/claude-desktop) - Connect MCP client
+- [Database Architecture](/docs/architecture/database-adapters) - SQLite vs PostgreSQL
+- [Security Middleware](/docs/architecture/security-middleware) - Auth and rate limiting
+- [Environment Variables](/docs/deployment/environment-variables) - Complete reference

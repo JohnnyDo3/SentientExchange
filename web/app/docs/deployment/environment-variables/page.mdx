@@ -1,0 +1,977 @@
+# Environment Variables Reference
+
+**TL;DR:** Complete reference for all 30+ environment variables in AgentMarket, with descriptions, defaults, and production vs development configurations.
+
+## Overview
+
+AgentMarket uses environment variables for configuration to:
+
+- **Separate config from code** - 12-factor app principles
+- **Secure secrets** - Never commit sensitive data to git
+- **Environment-specific settings** - Different configs for dev/staging/prod
+- **Easy deployment** - Configure via Railway, Docker, or `.env` file
+
+All environment variables are optional except where marked as **REQUIRED**.
+
+## Configuration File
+
+Create a `.env` file in the project root (never commit this file):
+
+```bash
+cp .env.example .env
+```
+
+<Callout type="danger">
+**SECURITY WARNING**: Never commit `.env` files to git! Add to `.gitignore` and use secure secret management in production.
+</Callout>
+
+## Quick Reference
+
+| Variable | Type | Default | Required | Description |
+|----------|------|---------|----------|-------------|
+| `NODE_ENV` | string | `development` | No | Runtime environment |
+| `LOG_LEVEL` | string | `info` | No | Logging verbosity |
+| `NETWORK` | string | `devnet` | **Yes** | Blockchain network |
+| `DATABASE_PATH` | string | `./data/agentmarket.db` | No* | SQLite database path |
+| `DATABASE_URL` | string | - | No* | PostgreSQL connection URL |
+| `API_PORT` | number | `8081` | No | API server port |
+| `PAYMENT_MODE` | string | `hybrid` | No | Payment strategy |
+| `FACILITATOR_URL` | string | - | No | PayAI facilitator endpoint |
+| `JWT_SECRET` | string | - | **Yes** | JWT signing secret |
+| `JWT_PRIVATE_KEY` | string | - | No | RSA private key for JWT |
+| `JWT_PUBLIC_KEY` | string | - | No | RSA public key for JWT |
+| `ANTHROPIC_API_KEY` | string | - | No | Anthropic API key |
+| `RECIPIENT_WALLET_ADDRESS` | string | - | **Yes** | Main payment recipient |
+| `ADMIN_WALLETS` | string | - | No | Admin wallet addresses |
+| `ALLOWED_ORIGINS` | string | `*` | No | CORS allowed origins |
+
+\* Either `DATABASE_PATH` or `DATABASE_URL` is required
+
+## Detailed Configuration
+
+### Node Environment
+
+#### `NODE_ENV`
+
+**Type**: `string`
+**Default**: `development`
+**Options**: `development`, `production`, `test`
+
+Runtime environment mode:
+
+```bash
+# Development (local)
+NODE_ENV=development
+
+# Production (Railway, Docker)
+NODE_ENV=production
+
+# Testing (CI/CD)
+NODE_ENV=test
+```
+
+**Effects**:
+- **Development**: Verbose logging, hot reload, source maps
+- **Production**: Optimized builds, minimal logging, no dev tools
+- **Test**: Mocked services, in-memory database
+
+---
+
+#### `LOG_LEVEL`
+
+**Type**: `string`
+**Default**: `info`
+**Options**: `debug`, `info`, `warn`, `error`
+
+Controls logging verbosity:
+
+```bash
+# Development (verbose)
+LOG_LEVEL=debug
+
+# Production (essential only)
+LOG_LEVEL=info
+
+# Production (errors only)
+LOG_LEVEL=error
+```
+
+**Log levels**:
+- **debug**: Everything (SQL queries, API calls, internal state)
+- **info**: Important events (service registration, payments, errors)
+- **warn**: Warnings and errors only
+- **error**: Errors only
+
+---
+
+### Network Configuration
+
+#### `NETWORK`
+
+**Type**: `string`
+**Default**: `devnet`
+**Required**: **Yes**
+**Options**: `devnet`, `mainnet-beta`, `testnet`, `localnet`
+
+Blockchain network for Solana transactions:
+
+```bash
+# Development/Testing (free USDC from faucet)
+NETWORK=devnet
+
+# Production (real USDC)
+NETWORK=mainnet-beta
+
+# Local development (requires local validator)
+NETWORK=localnet
+```
+
+**Get test tokens**:
+- Devnet: [https://faucet.solana.com](https://faucet.solana.com)
+- Testnet: [https://faucet.solana.com](https://faucet.solana.com)
+
+<Callout type="warning">
+Always use `devnet` for testing! Mainnet transactions use real money.
+</Callout>
+
+---
+
+#### `SOLANA_RPC_URL`
+
+**Type**: `string`
+**Default**: Public RPC endpoints (auto-detected from `NETWORK`)
+
+Custom Solana RPC endpoint for better performance:
+
+```bash
+# Default (uses public endpoints - slow)
+# SOLANA_RPC_URL not set
+
+# QuickNode (faster, private)
+SOLANA_RPC_URL=https://your-endpoint.solana-devnet.quiknode.pro/your-token/
+
+# Helius (faster, private)
+SOLANA_RPC_URL=https://devnet.helius-rpc.com/?api-key=YOUR_KEY
+
+# Alchemy (faster, private)
+SOLANA_RPC_URL=https://solana-devnet.g.alchemy.com/v2/YOUR_KEY
+```
+
+**When to use**:
+- Production deployments (rate limits on public RPCs)
+- High transaction volume
+- Need for guaranteed uptime
+
+**Recommended providers**:
+- [QuickNode](https://www.quicknode.com/) - $49/month
+- [Helius](https://www.helius.dev/) - Free tier available
+- [Alchemy](https://www.alchemy.com/) - Free tier available
+
+---
+
+### Database Configuration
+
+#### `DATABASE_PATH`
+
+**Type**: `string`
+**Default**: `./data/agentmarket.db`
+
+SQLite database file path (for local development):
+
+```bash
+# Relative path
+DATABASE_PATH=./data/agentmarket.db
+
+# Absolute path
+DATABASE_PATH=/app/data/agentmarket.db
+
+# In-memory (testing only - data not persisted)
+DATABASE_PATH=:memory:
+```
+
+**Used when**:
+- Local development
+- Docker with SQLite
+- Single-instance deployments
+
+**Auto-ignored if**: `DATABASE_URL` is set (PostgreSQL takes precedence)
+
+---
+
+#### `DATABASE_URL`
+
+**Type**: `string`
+**Default**: None
+
+PostgreSQL connection string (for production):
+
+```bash
+# Railway (auto-provided)
+DATABASE_URL=postgresql://user:password@host.railway.internal:5432/railway
+
+# Docker Compose
+DATABASE_URL=postgresql://agentmarket:password@postgres:5432/agentmarket
+
+# External PostgreSQL
+DATABASE_URL=postgresql://user:password@db.example.com:5432/dbname?sslmode=require
+```
+
+**When set**: AgentMarket automatically uses PostgreSQL instead of SQLite.
+
+**Railway**: Automatically set when you add the PostgreSQL addon.
+
+**Format**: `postgresql://[user]:[password]@[host]:[port]/[database][?options]`
+
+<Callout type="info">
+PostgreSQL is recommended for production deployments with multiple instances or high traffic.
+</Callout>
+
+---
+
+### Server Configuration
+
+#### `API_PORT`
+
+**Type**: `number`
+**Default**: `8081`
+
+Port for the API server (REST + WebSocket + SSE):
+
+```bash
+# Default
+API_PORT=8081
+
+# Railway (auto-provided as PORT, but we use API_PORT)
+API_PORT=8081
+
+# Custom
+API_PORT=3000
+```
+
+**Used for**:
+- REST API endpoints (`/api/*`)
+- MCP SSE transport (`/mcp/sse`)
+- WebSocket connections (`/ws`)
+- Health checks (`/api/pulse`, `/health`)
+
+**Access**:
+- Local: `http://localhost:8081`
+- Production: `https://your-app.railway.app`
+
+---
+
+### Payment Configuration
+
+#### `PAYMENT_MODE`
+
+**Type**: `string`
+**Default**: `hybrid`
+**Options**: `x402`, `direct`, `hybrid`
+
+Payment execution strategy:
+
+```bash
+# Recommended (try x402, fallback to direct)
+PAYMENT_MODE=hybrid
+
+# x402 only (via PayAI facilitator)
+PAYMENT_MODE=x402
+
+# Direct blockchain only (client-side signing)
+PAYMENT_MODE=direct
+```
+
+**Modes explained**:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **x402** | Use PayAI facilitator for all payments | Testing x402 protocol |
+| **direct** | Direct Solana transactions (no facilitator) | Self-hosted, full control |
+| **hybrid** | Try x402 first, fallback to direct on failure | **Recommended for production** |
+
+---
+
+#### `FACILITATOR_URL`
+
+**Type**: `string`
+**Default**: None
+
+PayAI facilitator endpoint for x402 protocol:
+
+```bash
+# Production PayAI facilitator
+FACILITATOR_URL=https://facilitator.payai.network
+
+# Custom facilitator (self-hosted)
+FACILITATOR_URL=https://facilitator.example.com
+
+# Local development
+FACILITATOR_URL=http://localhost:4000
+```
+
+**Required when**: `PAYMENT_MODE=x402` or `PAYMENT_MODE=hybrid`
+
+**Not required when**: `PAYMENT_MODE=direct`
+
+<Callout type="tip">
+PayAI facilitator simplifies payments by handling transaction signing and relay. Recommended for most use cases.
+</Callout>
+
+---
+
+#### `MAX_PAYMENT_VALUE`
+
+**Type**: `number`
+**Default**: None (no limit)
+
+Maximum payment value in token base units (lamports for SOL, smallest unit for USDC):
+
+```bash
+# 100 USDC (6 decimals)
+MAX_PAYMENT_VALUE=100000000
+
+# 1 USDC
+MAX_PAYMENT_VALUE=1000000
+
+# 0.1 USDC
+MAX_PAYMENT_VALUE=100000
+```
+
+**Purpose**: Prevent accidental large payments
+
+**Calculation**: `value = amount * (10 ** decimals)`
+- USDC: 6 decimals
+- SOL: 9 decimals
+
+---
+
+### Security Configuration
+
+#### `JWT_SECRET`
+
+**Type**: `string`
+**Default**: None
+**Required**: **Yes** (in production)
+
+Secret key for signing JWT authentication tokens:
+
+```bash
+# Development (insecure - DO NOT USE IN PRODUCTION)
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+
+# Production (REQUIRED - 128+ characters)
+JWT_SECRET=e33d60b1fe7708d84a6174c980f1792c4cb6c37a3392545895371dd483fda4eae95b0d8fb4cd1e46ad8f7e0fb5c7bb740baa820260571c2b68dc6a58148792f6
+```
+
+**Generate secure secret**:
+
+```bash
+# Node.js (128 characters / 512 bits)
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+
+# OpenSSL
+openssl rand -hex 64
+
+# Output: 128-character hex string
+```
+
+<Callout type="danger">
+**CRITICAL SECURITY REQUIREMENTS**:
+- **Minimum 64 characters** (128 recommended)
+- **Cryptographically random** - never use predictable values
+- **Never use default/example values** in production
+- **Never commit to git** - use Railway secrets or environment-specific configs
+- **Rotate regularly** (every 90 days recommended)
+</Callout>
+
+---
+
+#### `JWT_PRIVATE_KEY`
+
+**Type**: `string` (multi-line RSA private key)
+**Default**: None
+
+RSA private key for signing payment authorization JWTs (used by x402 middleware):
+
+```bash
+# Generate RSA key pair
+openssl genrsa -out private.key 2048
+openssl rsa -in private.key -pubout -out public.key
+
+# Convert to single-line format for .env (replace newlines with \n)
+awk -v ORS='\\n' '1' private.key
+
+# Add to .env
+JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----"
+```
+
+**Used for**: Signing payment authorization JWTs in the `@sentientexchange/x402-middleware` package.
+
+**Security**:
+- Keep private key secret (server only)
+- Never commit to git
+- Corresponds to `JWT_PUBLIC_KEY` embedded in middleware package
+
+---
+
+#### `JWT_PUBLIC_KEY`
+
+**Type**: `string` (multi-line RSA public key)
+**Default**: None
+
+RSA public key for verifying payment authorization JWTs:
+
+```bash
+# Convert to single-line format
+awk -v ORS='\\n' '1' public.key
+
+# Add to .env
+JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\n-----END PUBLIC KEY-----"
+```
+
+**Used for**: Verifying JWTs in services that use x402 middleware.
+
+**Public**: Can be embedded in NPM packages and distributed.
+
+---
+
+#### `ALLOWED_ORIGINS`
+
+**Type**: `string` (comma-separated)
+**Default**: `*` (all origins - insecure in production)
+
+CORS allowed origins for API requests:
+
+```bash
+# Development (allow all)
+ALLOWED_ORIGINS=*
+
+# Production (specific domains only)
+ALLOWED_ORIGINS=https://agentmarket.io,https://www.agentmarket.io,https://app.agentmarket.io
+
+# Railway (with custom domain)
+ALLOWED_ORIGINS=https://api.agentmarket.io,https://agentmarket-production.up.railway.app
+
+# Multiple environments
+ALLOWED_ORIGINS=https://staging.agentmarket.io,https://app.agentmarket.io
+```
+
+<Callout type="warning">
+**Production**: Never use `*` in production! Specify exact domains to prevent CSRF attacks.
+</Callout>
+
+---
+
+### Wallet Configuration
+
+#### `RECIPIENT_WALLET_ADDRESS`
+
+**Type**: `string` (Solana public key)
+**Default**: None
+**Required**: **Yes**
+
+Main Solana wallet address for receiving service payments:
+
+```bash
+# Example (base58 Solana address)
+RECIPIENT_WALLET_ADDRESS=7gk8FxVPzGMFk8dNNLxvQNzWs9L2n2K4XfCjZ5YqF3rH
+```
+
+**Where to get**:
+- Phantom wallet: Settings → Copy Address
+- Solflare wallet: Click address to copy
+- CLI: `solana address`
+
+**Used as**: Fallback recipient for all AI services if individual service wallets not specified.
+
+---
+
+#### `ADMIN_WALLETS`
+
+**Type**: `string` (comma-separated Solana addresses)
+**Default**: None
+
+Admin wallet addresses with elevated permissions:
+
+```bash
+# Single admin
+ADMIN_WALLETS=7gk8FxVPzGMFk8dNNLxvQNzWs9L2n2K4XfCjZ5YqF3rH
+
+# Multiple admins
+ADMIN_WALLETS=7gk8FxVPzGMFk8dNNLxvQNzWs9L2n2K4XfCjZ5YqF3rH,9k2mBx8GhPzL4jNvYc9Qr1T5w6Uf7sD3eH8aK4xV2pR
+```
+
+**Admin permissions**:
+- Approve/reject pending services
+- Modify service listings
+- Access admin dashboard
+- View sensitive data
+
+<Callout type="info">
+Use your personal wallet address as admin during development. Add team members in production.
+</Callout>
+
+---
+
+### AI Services Configuration
+
+#### `ANTHROPIC_API_KEY`
+
+**Type**: `string`
+**Default**: None
+**Required**: No (but needed for AI services)
+
+Anthropic API key for Claude-powered AI services:
+
+```bash
+# Get from: https://console.anthropic.com/
+ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**Used by**:
+- Image Analyzer service
+- Text Summarizer service
+- Sentiment Analyzer service (alternative to Hugging Face)
+
+**Get API key**:
+1. Sign up at [console.anthropic.com](https://console.anthropic.com/)
+2. Go to API Keys
+3. Create new key
+4. Copy to `.env`
+
+**Pricing**: Pay-per-use, ~$0.01 per request
+
+---
+
+#### `IMAGE_ANALYZER_PRICE`
+
+**Type**: `number` (USDC)
+**Default**: `0.02`
+
+Price in USDC for image analysis service:
+
+```bash
+# Default (2 cents per image)
+IMAGE_ANALYZER_PRICE=0.02
+
+# Custom pricing
+IMAGE_ANALYZER_PRICE=0.05
+```
+
+---
+
+#### `SENTIMENT_ANALYZER_PRICE`
+
+**Type**: `number` (USDC)
+**Default**: `0.01`
+
+Price in USDC for sentiment analysis service:
+
+```bash
+# Default (1 cent per analysis)
+SENTIMENT_ANALYZER_PRICE=0.01
+
+# Custom pricing
+SENTIMENT_ANALYZER_PRICE=0.015
+```
+
+---
+
+#### `TEXT_SUMMARIZER_PRICE`
+
+**Type**: `number` (USDC)
+**Default**: `0.015`
+
+Price in USDC for text summarization service:
+
+```bash
+# Default (1.5 cents per summary)
+TEXT_SUMMARIZER_PRICE=0.015
+
+# Custom pricing
+TEXT_SUMMARIZER_PRICE=0.03
+```
+
+---
+
+#### `IMAGE_ANALYZER_WALLET`
+
+**Type**: `string` (Solana address)
+**Default**: Falls back to `RECIPIENT_WALLET_ADDRESS`
+
+Wallet address for image analyzer service payments:
+
+```bash
+IMAGE_ANALYZER_WALLET=7gk8FxVPzGMFk8dNNLxvQNzWs9L2n2K4XfCjZ5YqF3rH
+```
+
+**Optional**: If not set, uses `RECIPIENT_WALLET_ADDRESS`.
+
+---
+
+#### `SENTIMENT_ANALYZER_WALLET`
+
+**Type**: `string` (Solana address)
+**Default**: Falls back to `RECIPIENT_WALLET_ADDRESS`
+
+Wallet address for sentiment analyzer service payments:
+
+```bash
+SENTIMENT_ANALYZER_WALLET=9k2mBx8GhPzL4jNvYc9Qr1T5w6Uf7sD3eH8aK4xV2pR
+```
+
+---
+
+#### `TEXT_SUMMARIZER_WALLET`
+
+**Type**: `string` (Solana address)
+**Default**: Falls back to `RECIPIENT_WALLET_ADDRESS`
+
+Wallet address for text summarizer service payments:
+
+```bash
+TEXT_SUMMARIZER_WALLET=5h7jKx3NmP9vQ2wR8tY1uF4bC6dE9gA2kL5mN7pS3rH
+```
+
+---
+
+### Health Monitoring
+
+#### `HEALTH_CHECK_INTERVAL_MINUTES`
+
+**Type**: `number` (minutes)
+**Default**: `5`
+
+Interval for automatic health checks:
+
+```bash
+# Default (check every 5 minutes)
+HEALTH_CHECK_INTERVAL_MINUTES=5
+
+# More frequent (every 1 minute)
+HEALTH_CHECK_INTERVAL_MINUTES=1
+
+# Less frequent (every 15 minutes)
+HEALTH_CHECK_INTERVAL_MINUTES=15
+
+# Disable (0)
+HEALTH_CHECK_INTERVAL_MINUTES=0
+```
+
+**Health checks include**:
+- Database connectivity
+- Service endpoint availability
+- Transaction verification
+- Memory/CPU usage
+
+---
+
+## Configuration Examples
+
+### Development (Local)
+
+Complete `.env` for local development:
+
+```bash
+# Environment
+NODE_ENV=development
+LOG_LEVEL=debug
+
+# Network (use devnet for testing)
+NETWORK=devnet
+
+# Database (SQLite for local dev)
+DATABASE_PATH=./data/agentmarket.db
+
+# Server
+API_PORT=8081
+
+# Payment
+PAYMENT_MODE=hybrid
+FACILITATOR_URL=https://facilitator.payai.network
+
+# Security (weak secret OK for dev)
+JWT_SECRET=dev-secret-not-for-production-use-only
+
+# Wallets (your test wallet)
+RECIPIENT_WALLET_ADDRESS=7gk8FxVPzGMFk8dNNLxvQNzWs9L2n2K4XfCjZ5YqF3rH
+ADMIN_WALLETS=7gk8FxVPzGMFk8dNNLxvQNzWs9L2n2K4XfCjZ5YqF3rH
+
+# AI Services (optional - comment out if not testing AI)
+ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
+IMAGE_ANALYZER_PRICE=0.02
+SENTIMENT_ANALYZER_PRICE=0.01
+TEXT_SUMMARIZER_PRICE=0.015
+
+# CORS (allow all for dev)
+ALLOWED_ORIGINS=*
+
+# Health Checks
+HEALTH_CHECK_INTERVAL_MINUTES=5
+```
+
+---
+
+### Production (Railway)
+
+Railway environment variables (set in dashboard):
+
+```bash
+# Environment
+NODE_ENV=production
+LOG_LEVEL=info
+
+# Network (mainnet for production)
+NETWORK=mainnet-beta
+
+# Database (auto-provided by Railway PostgreSQL addon)
+# DATABASE_URL is automatically set by Railway
+
+# Server
+API_PORT=8081
+
+# Payment
+PAYMENT_MODE=hybrid
+FACILITATOR_URL=https://facilitator.payai.network
+
+# Security (GENERATE NEW SECRET!)
+JWT_SECRET=<generate-with-crypto-randomBytes-64>
+
+# Wallets (production wallets)
+RECIPIENT_WALLET_ADDRESS=<your-production-wallet>
+ADMIN_WALLETS=<admin-wallet-1>,<admin-wallet-2>
+
+# AI Services
+ANTHROPIC_API_KEY=<your-production-api-key>
+IMAGE_ANALYZER_PRICE=0.02
+SENTIMENT_ANALYZER_PRICE=0.01
+TEXT_SUMMARIZER_PRICE=0.015
+IMAGE_ANALYZER_WALLET=<wallet-1>
+SENTIMENT_ANALYZER_WALLET=<wallet-2>
+TEXT_SUMMARIZER_WALLET=<wallet-3>
+
+# CORS (specific domains only)
+ALLOWED_ORIGINS=https://agentmarket.io,https://www.agentmarket.io,https://app.agentmarket.io
+
+# RPC (optional - for better performance)
+SOLANA_RPC_URL=https://your-quicknode-url.com
+
+# Health Checks
+HEALTH_CHECK_INTERVAL_MINUTES=5
+```
+
+---
+
+### Staging (Railway)
+
+Staging environment variables:
+
+```bash
+# Environment
+NODE_ENV=staging
+LOG_LEVEL=debug
+
+# Network (devnet for staging)
+NETWORK=devnet
+
+# Database (separate PostgreSQL instance)
+# DATABASE_URL is automatically set by Railway
+
+# Server
+API_PORT=8081
+
+# Payment
+PAYMENT_MODE=hybrid
+FACILITATOR_URL=https://facilitator.payai.network
+
+# Security (separate secret from production)
+JWT_SECRET=<staging-secret-different-from-production>
+
+# Wallets (test wallets)
+RECIPIENT_WALLET_ADDRESS=<staging-wallet>
+ADMIN_WALLETS=<staging-admin-wallet>
+
+# AI Services
+ANTHROPIC_API_KEY=<your-api-key>
+
+# CORS
+ALLOWED_ORIGINS=https://staging.agentmarket.io
+
+# Health Checks
+HEALTH_CHECK_INTERVAL_MINUTES=1
+```
+
+---
+
+### Docker (Production)
+
+Docker Compose `.env` file:
+
+```bash
+# Environment
+NODE_ENV=production
+LOG_LEVEL=info
+
+# Network
+NETWORK=mainnet-beta
+
+# Database (PostgreSQL in Docker)
+DATABASE_URL=postgresql://agentmarket:your-password@postgres:5432/agentmarket
+POSTGRES_PASSWORD=your-secure-postgres-password
+
+# Server
+API_PORT=8081
+
+# Payment
+PAYMENT_MODE=hybrid
+FACILITATOR_URL=https://facilitator.payai.network
+
+# Security
+JWT_SECRET=<generate-new-secret>
+
+# Wallets
+RECIPIENT_WALLET_ADDRESS=<your-wallet>
+ADMIN_WALLETS=<admin-wallets>
+
+# AI Services
+ANTHROPIC_API_KEY=<your-key>
+IMAGE_ANALYZER_PRICE=0.02
+SENTIMENT_ANALYZER_PRICE=0.01
+TEXT_SUMMARIZER_PRICE=0.015
+
+# CORS
+ALLOWED_ORIGINS=https://your-domain.com
+
+# Health Checks
+HEALTH_CHECK_INTERVAL_MINUTES=5
+```
+
+---
+
+## Security Best Practices
+
+### Secrets Management
+
+<Callout type="danger">
+**NEVER commit secrets to git!** Always use environment-specific secret management.
+</Callout>
+
+**Railway**:
+1. Add secrets in Railway dashboard (Variables tab)
+2. Secrets encrypted at rest
+3. Never logged or exposed
+
+**Docker**:
+1. Use Docker secrets (not environment variables)
+2. Mount secrets as files
+3. Read from `/run/secrets/` in code
+
+**GitHub Actions**:
+1. Add secrets in GitHub Settings → Secrets
+2. Reference as `${{ secrets.SECRET_NAME }}`
+3. Never echo secrets in logs
+
+### Secret Rotation
+
+**Rotate secrets regularly**:
+
+| Secret | Rotation Frequency |
+|--------|-------------------|
+| `JWT_SECRET` | Every 90 days |
+| `ANTHROPIC_API_KEY` | Every 180 days or on compromise |
+| `DATABASE_URL` password | Every 90 days |
+| `JWT_PRIVATE_KEY` | Every 365 days |
+
+**Rotation procedure**:
+1. Generate new secret
+2. Add as `SECRET_NAME_NEW`
+3. Update code to accept both old and new
+4. Deploy
+5. Remove old secret after 24 hours
+
+### Validation
+
+**Validate environment variables on startup**:
+
+AgentMarket automatically validates:
+- Required variables are set
+- Wallet addresses are valid base58
+- Network is valid option
+- Ports are valid numbers
+- URLs are valid format
+
+**Validation error example**:
+
+```
+Error: Required environment variable missing: JWT_SECRET
+Error: Invalid NETWORK value: "invalid" (must be: devnet, mainnet-beta, testnet, localnet)
+Error: Invalid RECIPIENT_WALLET_ADDRESS: Not a valid base58 string
+```
+
+## Troubleshooting
+
+### Variables Not Loading
+
+**Problem**: Environment variables not accessible in code
+
+**Solution**:
+```bash
+# 1. Verify .env file exists
+ls -la .env
+
+# 2. Check file is in project root
+pwd  # Should be agentmarket-mcp/
+
+# 3. Restart server (variables load on startup)
+npm run dev
+
+# 4. Verify with debug script
+node -e "require('dotenv').config(); console.log(process.env.NODE_ENV);"
+```
+
+### Invalid Values
+
+**Problem**: `Error: Invalid NETWORK value`
+
+**Solution**:
+```bash
+# Check spelling
+NETWORK=devnet  # Correct
+NETWORK=dev     # Wrong
+
+# Check case sensitivity
+NETWORK=DEVNET  # Wrong (case-sensitive)
+NETWORK=devnet  # Correct
+```
+
+### Missing Required Variables
+
+**Problem**: `Error: Required environment variable missing: JWT_SECRET`
+
+**Solution**:
+```bash
+# Generate JWT secret
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+
+# Add to .env
+echo "JWT_SECRET=<generated-secret>" >> .env
+
+# Restart server
+npm run dev
+```
+
+## Next Steps
+
+Now that you understand environment variables:
+
+- [Railway Deployment](/docs/deployment/railway) - Deploy with Railway secrets
+- [Docker Deployment](/docs/deployment/docker) - Configure Docker environments
+- [CI/CD Pipeline](/docs/deployment/ci-cd) - Manage secrets in GitHub Actions
+- [Security Model](/docs/concepts/security-model) - Production security best practices
+
+## Related Documentation
+
+- [Local Development](/docs/quickstart/local-development) - Setting up `.env` file
+- [Database Configuration](/docs/architecture/database-adapters) - DATABASE_URL vs DATABASE_PATH
+- [Payment Configuration](/docs/concepts/payment-protocol) - Payment mode options
+- [Security Best Practices](/docs/concepts/security-model) - Securing production deployments

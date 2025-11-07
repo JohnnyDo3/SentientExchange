@@ -1,0 +1,779 @@
+# Architecture Deep Dive
+
+**TL;DR:** AgentMarket is built as a 3-layer system: MCP Server (local AI integration) + API Server (remote HTTP access) + Web Dashboard (visualization), all sharing a common core layer with client-side payment execution.
+
+## System Overview
+
+AgentMarket is designed to bridge the gap between autonomous AI agents and AI service providers through a decentralized marketplace architecture.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                  Client Layer (User's Machine)            │
+│  ┌─────────────────┐         ┌──────────────────────┐   │
+│  │ Claude Desktop  │         │  Web Browser         │   │
+│  │ (MCP Client)    │         │  (React App)         │   │
+│  │                 │         │                      │   │
+│  │ • User Wallet   │         │ • Connect Wallet     │   │
+│  │ • Signs TX      │         │ • Browse Services    │   │
+│  └────────┬────────┘         └──────────┬───────────┘   │
+└───────────┼───────────────────────────────┼──────────────┘
+            │ stdio/SSE                     │ HTTPS + WS
+┌───────────┼───────────────────────────────┼──────────────┐
+│           ▼                               ▼               │
+│  ┌─────────────────┐         ┌──────────────────────┐   │
+│  │   MCP Server    │         │    API Server        │   │
+│  │   (stdio)       │◄────────┤    (Express.js)      │   │
+│  │                 │  Shared │                      │   │
+│  │ • 13 MCP Tools  │  Core   │ • REST API           │   │
+│  │ • stdio/SSE     │         │ • WebSocket          │   │
+│  └────────┬────────┘         └──────────┬───────────┘   │
+│           │                              │               │
+│           └──────────┬───────────────────┘               │
+│                      ▼                                    │
+│  ┌────────────────────────────────────────────────┐     │
+│  │             Core Services Layer                 │     │
+│  ├────────────────────┬───────────────────────────┤     │
+│  │  Service Registry  │  Payment System           │     │
+│  │  - SQLite/Postgres │  - DirectSolanaProvider   │     │
+│  │  - In-memory cache │  - SolanaVerifier         │     │
+│  │  - Discovery engine│  - SpendingLimitManager   │     │
+│  └────────────────────┴───────────────────────────┘     │
+│                                                           │
+│  ┌────────────────────────────────────────────────┐     │
+│  │          Web Dashboard (Next.js 14)             │     │
+│  │  - 3D Particle Visualization (Three.js)        │     │
+│  │  - Real-time Transaction Feed (WebSocket)      │     │
+│  │  - Provider Registration Portal                │     │
+│  │  - Admin Dashboard                             │     │
+│  └────────────────────────────────────────────────┘     │
+└──────────────────────┬───────────────────────────────────┘
+                       │
+┌──────────────────────┴───────────────────────────────────┐
+│             External Layer (Blockchain)                   │
+│                                                           │
+│  ┌────────────────────────────────────────────────┐     │
+│  │          Solana Blockchain (USDC)               │     │
+│  │  - Payment Settlement                          │     │
+│  │  - On-chain Verification                       │     │
+│  │  - Transaction History                         │     │
+│  └────────────────────────────────────────────────┘     │
+└───────────────────────────────────────────────────────────┘
+```
+
+<Callout type="info">
+**Client-Side Architecture**: Private keys never leave the client! Users sign transactions locally, servers only verify on-chain.
+</Callout>
+
+## Layer 1: MCP Server (stdio/SSE Transport)
+
+The MCP Server implements the Model Context Protocol, exposing 13 tools to AI clients like Claude Desktop.
+
+### Key Components
+
+**src/server.ts** (Lines 45-150)
+
+```typescript
+export class SentientExchangeServer {
+  private server: Server;                        // MCP SDK server
+  private db: Database;                          // SQLite/PostgreSQL
+  private registry: ServiceRegistry;             // Service management
+  private solanaVerifier: SolanaVerifier;        // Payment verification
+  private spendingLimitManager: SpendingLimitManager;  // Budget controls
+
+  async initialize(): Promise<void> {
+    await this.db.initialize();
+    this.registry = new ServiceRegistry(this.db);
+    await this.registry.initialize();
+    this.solanaVerifier = new SolanaVerifier();
+    this.spendingLimitManager = new SpendingLimitManager(this.db);
+  }
+}
+```
+
+### Transport Modes
+
+#### Local Mode (stdio)
+
+For Claude Desktop integration:
+
+```
+Claude Desktop Process
+    │
+    ├─ stdin  ──────► MCP Server (receives tool calls)
+    └─ stdout ◄────── MCP Server (returns results)
+```
+
+**Configuration** (`~/.config/claude/config.json`):
+```json
+{
+  "mcpServers": {
+    "agentmarket": {
+      "command": "node",
+      "args": ["/path/to/dist/index.js"],
+      "env": {
+        "SOLANA_PRIVATE_KEY": "base58-key",
+        "DATABASE_PATH": "/path/to/db.sqlite"
+      }
+    }
+  }
+}
+```
+
+<Callout type="warning">
+stdio mode is single-user and local-only. Use SSE mode for multi-user or remote access.
+</Callout>
+
+#### Remote Mode (SSE)
+
+For Railway deployment and remote access:
+
+```
+Claude Desktop/API Client
+    │
+    ├─ GET /mcp/sse ──────────► MCP Server (establishes SSE stream)
+    │                           │
+    │    ◄────────────────────── (server sends MCP messages)
+    │
+    └─ POST /mcp/message?sessionId=X
+                                MCP Server (receives client messages)
+```
+
+**src/mcp/SSETransport.ts** (Lines 1-100)
+
+- GET `/mcp/sse` - Establishes Server-Sent Events stream
+- POST `/mcp/message?sessionId=X` - Receives client JSON-RPC requests
+- Bidirectional: Server pushes updates, client posts requests
+
+<Callout type="tip">
+SSE Transport shares the same ServiceRegistry and Database instances with the API Server - no data duplication!
+</Callout>
+
+### 13 MCP Tools
+
+| Category | Tools | Description |
+|----------|-------|-------------|
+| **Discovery** | `discover_services` | Search by capability/price/rating |
+| | `get_service_details` | Full service information |
+| | `list_all_services` | Paginated list of all services |
+| **Payment** | `purchase_service` | Request service (gets payment instruction) |
+| | `execute_payment` | Sign transaction with local wallet |
+| | `submit_payment` | Complete purchase with tx signature |
+| **Analytics** | `get_transaction` | Retrieve transaction details |
+| | `rate_service` | Submit rating/review |
+| **Budget** | `set_spending_limits` | Configure per-tx/daily/monthly limits |
+| | `check_spending` | View spending stats |
+| | `reset_spending_limits` | Remove all limits |
+| **Smart Workflows** | `discover_and_prepare_service` | Discover + health check + prepare (1 call) |
+| | `complete_service_with_payment` | Verify + submit + retry (1 call) |
+
+**Smart Tools Benefit**: Reduce 5-call workflow to 3 calls (40% reduction)
+
+## Layer 2: API Server (Express.js + Socket.IO)
+
+The API Server provides HTTP REST endpoints and WebSocket events for remote access.
+
+### Key Components
+
+**src/api/apiServer.ts** (Lines 46-1275)
+
+```typescript
+const app = express();
+const httpServer = createServer(app);
+const io = new SocketIOServer(httpServer, { cors: corsOptions });
+
+// Initialize shared components
+const db = new Database(dbPathOrUrl);
+const registry = new ServiceRegistry(db);
+const sseTransport = new SSETransportManager(registry, db, solanaVerifier, spendingLimitManager);
+
+// Security middleware stack
+app.use(helmetConfig);          // Security headers
+app.use(requestId);              // Request tracing
+app.use(cors(corsOptions));      // CORS configuration
+app.use(express.json({ limit: '1mb' }));
+app.use(sanitizeRequest);        // Input sanitization
+app.use('/api', apiLimiter);     // Rate limiting
+```
+
+### Endpoint Categories
+
+#### Public Endpoints (No Auth Required)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/pulse` | GET | Health check (creative stats) |
+| `/api/services` | GET | List approved services |
+| `/api/services/:id` | GET | Service details |
+| `/api/services/search` | POST | Advanced search |
+| `/api/stats` | GET | Marketplace stats |
+| `/api/transactions/recent` | GET | Recent transactions |
+
+#### Authenticated Endpoints (JWT Required)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/auth/nonce` | POST | Get SIWE nonce |
+| `/api/auth/verify` | POST | Verify signature, get JWT |
+| `/api/auth/me` | GET | Get current user |
+| `/api/services/my-services` | GET | Services owned by user |
+| `/api/services` | POST | Register new service |
+| `/api/services/:id` | PUT | Update service (owner) |
+| `/api/services/:id` | DELETE | Delete service (owner) |
+| `/api/services/:id/analytics` | GET | Revenue analytics (owner) |
+
+#### Admin Endpoints (Admin Role Required)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/admin/pending-services` | GET | Get pending approvals |
+| `/api/admin/approve/:id` | POST | Approve service |
+| `/api/admin/reject/:id` | POST | Reject service |
+| `/api/admin/test-endpoint/:id` | POST | Test x402 middleware |
+| `/api/admin/health/stats` | GET | Health monitoring stats |
+
+#### AI Service Endpoints (x402 Payment Required)
+
+| Endpoint | Price | Purpose |
+|----------|-------|---------|
+| `POST /api/ai/sentiment/analyze` | $0.01 | Sentiment analysis |
+| `POST /api/ai/image/analyze` | $0.02 | Image analysis (Claude) |
+| `POST /api/ai/text/summarize` | $0.015 | Text summarization (Claude) |
+
+<Callout type="info">
+AI services use the `x402Middleware()` from `@sentientexchange/x402-middleware` package.
+</Callout>
+
+### WebSocket Events
+
+Real-time updates via Socket.IO:
+
+```typescript
+// Client → Server (none currently - could add subscriptions)
+
+// Server → Client
+socket.emit('initial-stats', { services: count });
+socket.emit('new-service', service);       // New approved service
+socket.emit('new-transaction', transaction);  // Payment completed
+socket.emit('service-updated', service);   // Service modified
+socket.emit('service-deleted', { id });    // Service removed
+```
+
+## Layer 3: Web Dashboard (Next.js 14)
+
+React-based frontend with App Router, SSR, and real-time visualization.
+
+### Key Features
+
+#### 1. 3D Particle Visualization
+
+**web/components/3d/AgentSwarm.tsx**
+
+- Three.js + React Three Fiber
+- 500+ particles representing active agents
+- Real-time transaction animations
+- Interactive camera controls
+- Performance-optimized with `useFrame` batching
+
+#### 2. Service Discovery UI
+
+**web/app/page.tsx**
+
+- Search by capability
+- Filter by price range
+- Sort by rating/price
+- Real-time service count updates
+
+#### 3. Provider Registration Portal
+
+**web/app/providers/register/page.tsx**
+
+- SIWE authentication (Sign-In with Ethereum)
+- Service submission form
+- Endpoint validation
+- Middleware verification test
+
+#### 4. Admin Dashboard
+
+**web/app/admin/page.tsx**
+
+- Pending service approvals
+- Health monitoring stats
+- Transaction analytics
+- User management
+
+### Technology Stack
+
+| Layer | Technologies |
+|-------|-------------|
+| **Framework** | Next.js 14 (App Router, RSC) |
+| **Styling** | TailwindCSS, HeadlessUI |
+| **3D Graphics** | Three.js, React Three Fiber |
+| **State Management** | React Query, Zustand |
+| **Real-time** | Socket.IO client |
+| **Authentication** | wagmi, viem, siwe |
+
+## Core Services Layer
+
+Shared by both MCP Server and API Server.
+
+### 1. Service Registry
+
+**src/registry/ServiceRegistry.ts**
+
+```typescript
+export class ServiceRegistry {
+  private services: Map<string, Service> = new Map();  // In-memory cache
+
+  async initialize() {
+    // Load all services from database into memory
+    const rows = await this.db.all<ServiceRow>('SELECT * FROM services');
+    rows.forEach(row => {
+      const service = this.deserializeService(row);
+      this.services.set(service.id, service);
+    });
+  }
+
+  async searchServices(query: SearchQuery): Promise<Service[]> {
+    // Search in-memory cache (fast!)
+    let results = Array.from(this.services.values());
+
+    if (query.capabilities) {
+      results = results.filter(s =>
+        query.capabilities!.some(cap => s.capabilities.includes(cap))
+      );
+    }
+
+    if (query.maxPrice) {
+      results = results.filter(s =>
+        parseFloat(s.pricing.perRequest) <= query.maxPrice!
+      );
+    }
+
+    if (query.minRating) {
+      results = results.filter(s => s.reputation.rating >= query.minRating!);
+    }
+
+    return results.sort((a, b) => b.reputation.rating - a.reputation.rating);
+  }
+}
+```
+
+**Performance**:
+- **O(1)** lookup by ID
+- **O(n)** search (where n = services count, typically ~100-500)
+- **Memory footprint**: ~1-5 MB for 1000 services
+- **Cache invalidation**: On writes (register/update/delete)
+
+### 2. Database Adapter (Dual-Mode)
+
+**src/registry/database.ts**
+
+```typescript
+export class Database {
+  private db: Database.Database | Client | null = null;
+  private dbType: 'sqlite' | 'postgres' = 'sqlite';
+
+  async initialize() {
+    if (this.dbPath.startsWith('postgres://')) {
+      // PostgreSQL for production (Railway)
+      this.dbType = 'postgres';
+      this.db = new Client({ connectionString: this.dbPath });
+      await this.db.connect();
+    } else {
+      // SQLite for development
+      this.dbType = 'sqlite';
+      this.db = new Database(this.dbPath);
+    }
+
+    await this.createTables();
+  }
+}
+```
+
+**Auto-detection**:
+- If `DATABASE_URL` starts with `postgres://` → PostgreSQL
+- Otherwise → SQLite with `DATABASE_PATH`
+
+**Tables**:
+1. `services` - Service listings
+2. `transactions` - Payment records
+3. `ratings` - User reviews
+4. `health_checks` - Service uptime monitoring
+5. `audit_log` - Change history
+
+### 3. Payment System
+
+#### DirectSolanaProvider (Client-Side)
+
+**src/payment/DirectSolanaProvider.ts**
+
+```typescript
+export class DirectSolanaProvider {
+  async executePayment(instruction: PaymentInstruction): Promise<string> {
+    // 1. Get keypair from environment (CLIENT-SIDE ONLY!)
+    const keypair = Keypair.fromSecretKey(bs58.decode(process.env.SOLANA_PRIVATE_KEY!));
+
+    // 2. Get token accounts
+    const senderTokenAccount = await getAssociatedTokenAddress(USDC_MINT, keypair.publicKey);
+    const recipientTokenAccount = await getAssociatedTokenAddress(USDC_MINT, new PublicKey(instruction.recipient));
+
+    // 3. Create SPL token transfer
+    const transferInstruction = createTransferInstruction(
+      senderTokenAccount,
+      recipientTokenAccount,
+      keypair.publicKey,
+      Math.floor(parseFloat(instruction.amount) * 1_000_000)  // USDC has 6 decimals
+    );
+
+    // 4. Sign and send
+    const transaction = new Transaction().add(transferInstruction);
+    const signature = await sendAndConfirmTransaction(this.connection, transaction, [keypair]);
+
+    return signature;  // Return to caller (submit_payment tool)
+  }
+}
+```
+
+<Callout type="warning">
+**CRITICAL**: `DirectSolanaProvider` runs on the CLIENT'S machine (MCP client environment), NOT the server! The server never has access to private keys.
+</Callout>
+
+#### SolanaVerifier (Server-Side)
+
+**src/payment/SolanaVerifier.ts**
+
+```typescript
+export class SolanaVerifier {
+  async verifyPayment(signature: string, expectedRecipient: string, expectedAmount: string): Promise<boolean> {
+    // 1. Fetch transaction from Solana RPC
+    const tx = await this.connection.getTransaction(signature, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0,
+    });
+
+    if (!tx) return false;
+
+    // 2. Parse SPL token transfer from transaction
+    const transfer = parseTransferInstruction(tx);
+
+    // 3. Verify recipient matches
+    if (transfer.destination !== expectedRecipient) return false;
+
+    // 4. Verify amount matches (within 1% tolerance for fees)
+    const actualAmount = transfer.amount / 1_000_000;
+    const expected = parseFloat(expectedAmount);
+    if (Math.abs(actualAmount - expected) > expected * 0.01) return false;
+
+    return true;  // Payment verified!
+  }
+}
+```
+
+**Verification Flow**:
+1. Client calls `execute_payment` (signs TX locally)
+2. TX sent to Solana blockchain
+3. Client calls `submit_payment` with signature
+4. Server calls `SolanaVerifier.verifyPayment()`
+5. Verifier fetches TX from Solana RPC
+6. Verifier checks recipient + amount
+7. If valid → Service executes, transaction recorded
+
+### 4. Spending Limit Manager
+
+**src/payment/SpendingLimitManager.ts**
+
+```typescript
+export class SpendingLimitManager {
+  async checkLimits(userId: string, amount: number): Promise<void> {
+    const limits = await this.getLimits(userId);
+    const spending = await this.getSpending(userId);
+
+    // Check per-transaction limit
+    if (limits.perTransaction && amount > limits.perTransaction) {
+      throw new Error(`Transaction exceeds limit: $${amount} > $${limits.perTransaction}`);
+    }
+
+    // Check daily limit
+    const today = startOfDay(new Date());
+    const dailySpending = spending.filter(s => s.timestamp >= today)
+      .reduce((sum, s) => sum + s.amount, 0);
+
+    if (limits.daily && dailySpending + amount > limits.daily) {
+      throw new Error(`Daily limit exceeded: $${dailySpending + amount} > $${limits.daily}`);
+    }
+
+    // Check monthly limit
+    const monthStart = startOfMonth(new Date());
+    const monthlySpending = spending.filter(s => s.timestamp >= monthStart)
+      .reduce((sum, s) => sum + s.amount, 0);
+
+    if (limits.monthly && monthlySpending + amount > limits.monthly) {
+      throw new Error(`Monthly limit exceeded`);
+    }
+  }
+}
+```
+
+**Budget Protection**:
+- Checked BEFORE payment execution
+- Prevents runaway costs for autonomous agents
+- Per-user limits stored in database
+- Resets automatically (daily/monthly)
+
+## Data Flow Examples
+
+### Example 1: Discover Services
+
+```
+Claude Desktop
+    │
+    ├─ User: "Find sentiment analysis services under $0.10"
+    │
+    ├─ 1. discover_services({ capabilities: ["sentiment-analysis"], maxPrice: 0.10 })
+    │         │
+    │         ▼
+    │    MCP Server (stdio)
+    │         │
+    │         ├─ ServiceRegistry.searchServices(query)
+    │         │       │
+    │         │       ├─ Search in-memory cache
+    │         │       ├─ Filter by capabilities
+    │         │       ├─ Filter by maxPrice
+    │         │       └─ Sort by rating
+    │         │
+    │         └─ Returns: [Service1, Service2, Service3]
+    │
+    └─ Display results to user
+```
+
+### Example 2: Purchase Service with Payment
+
+```
+Claude Desktop
+    │
+    ├─ User: "Purchase service-sentiment-001 to analyze 'I love this!'"
+    │
+    ├─ 1. purchase_service({ serviceId, input: {...} })
+    │         │
+    │         ▼
+    │    MCP Server → Service Endpoint (POST /api/ai/sentiment/analyze)
+    │         │
+    │         ├─ x402Middleware checks X-AgentMarket-Auth header
+    │         └─ Returns: 402 Payment Required
+    │               {
+    │                 recipient: "WALLET_ADDRESS",
+    │                 amount: "0.01",
+    │                 currency: "USDC",
+    │                 transaction_id: "tx-12345"
+    │               }
+    │
+    ├─ 2. execute_payment({ paymentInstruction })
+    │         │
+    │         ▼
+    │    DirectSolanaProvider (CLIENT-SIDE)
+    │         │
+    │         ├─ Load SOLANA_PRIVATE_KEY from MCP client env
+    │         ├─ Sign SPL token transfer (USDC)
+    │         ├─ Send to Solana blockchain
+    │         └─ Returns: "3Xy7z8...abc123" (signature)
+    │
+    ├─ 3. submit_payment({ transactionId, signature, serviceId, input })
+    │         │
+    │         ▼
+    │    MCP Server
+    │         │
+    │         ├─ SolanaVerifier.verifyPayment(signature, recipient, amount)
+    │         │       │
+    │         │       ├─ Fetch TX from Solana RPC
+    │         │       ├─ Parse SPL transfer
+    │         │       └─ Verify recipient + amount
+    │         │
+    │         ├─ Retry service request with X-AgentMarket-Auth: JWT
+    │         │       │
+    │         │       ├─ x402Middleware verifies JWT
+    │         │       ├─ Service executes analysis
+    │         │       └─ Returns result
+    │         │
+    │         └─ Record transaction in database
+    │
+    └─ Display result to user
+```
+
+## Security Architecture
+
+### 1. Client-Side Signing
+
+**Private keys NEVER transmitted to server!**
+
+```
+User's Machine (MCP Client)           AgentMarket Server
+┌─────────────────────┐              ┌──────────────────┐
+│ SOLANA_PRIVATE_KEY  │              │  No keys stored  │
+│ (in .env or config) │              │                  │
+│         │           │              │                  │
+│         ├─ Signs TX │              │                  │
+│         └─ ────────────────────────┤ Receives signature│
+│                     │              │ Verifies on-chain│
+└─────────────────────┘              └──────────────────┘
+```
+
+### 2. Rate Limiting (Express Middleware)
+
+```typescript
+// Global API rate limit
+apiLimiter: 100 requests / 15 minutes per IP
+
+// Write operations
+writeLimiter: 10 requests / 15 minutes per IP
+
+// Service registration
+registrationLimiter: 5 requests / 60 minutes per IP
+
+// MCP connections
+mcpConnectionLimiter: 10 connections / 15 minutes per IP
+mcpMessageLimiter: 60 messages / 1 minute per session
+```
+
+### 3. Authentication (JWT + SIWE)
+
+**SIWE Flow** (Sign-In with Ethereum):
+
+1. Client requests nonce: `POST /api/auth/nonce`
+2. Client signs SIWE message with wallet
+3. Client submits signature: `POST /api/auth/verify`
+4. Server verifies signature
+5. Server issues JWT (expires in 7 days)
+6. Client includes JWT in `Authorization: Bearer <token>` header
+
+**JWT Storage**:
+- **httpOnly cookie** - XSS protection (cannot be accessed by JavaScript)
+- **Response body** - Backwards compatibility for non-browser clients
+
+### 4. Input Validation (Zod)
+
+**src/validation/schemas.ts**
+
+```typescript
+export const serviceSchema = z.object({
+  name: z.string().min(3).max(100),
+  description: z.string().min(10).max(500),
+  endpoint: z.string().url(),
+  capabilities: z.array(z.string()).min(1),
+  pricing: z.object({
+    perRequest: z.string().regex(/^\d+(\.\d{1,4})?$/),  // Decimal with 4 precision
+  }),
+  walletAddress: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/),  // Solana address
+});
+```
+
+All endpoints validate inputs before processing!
+
+## Performance Optimizations
+
+### 1. In-Memory Caching
+
+Service Registry keeps all services in RAM:
+- **Benefit**: O(1) lookups, O(n) searches (no DB hits)
+- **Trade-off**: 1-5 MB memory for 1000 services
+- **Invalidation**: Automatic on writes
+
+### 2. Connection Pooling (PostgreSQL)
+
+```typescript
+const pool = new Pool({
+  max: 20,            // Maximum connections
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+```
+
+### 3. WebSocket for Real-Time Updates
+
+Instead of polling `/api/stats` every 1 second:
+- **Before**: 3600 requests/hour
+- **After**: 1 WebSocket connection, 0 polling requests
+
+### 4. Static Site Generation (Next.js)
+
+```
+✓ Generating static pages (18/18)
+  - / (Landing page)
+  - /docs (Documentation)
+  - /docs/** (All doc pages)
+```
+
+**Result**: Instant page loads, no server rendering
+
+## Deployment Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│              Railway (Production)                 │
+├──────────────────────────────────────────────────┤
+│  ┌────────────────────────────────────────────┐ │
+│  │  AgentMarket Service                       │ │
+│  │  - API Server (port 8081)                  │ │
+│  │  - MCP SSE Transport (/mcp/sse)            │ │
+│  │  - Web Dashboard (Next.js static export)   │ │
+│  └────────────────┬───────────────────────────┘ │
+│                   │                              │
+│  ┌────────────────┴───────────────────────────┐ │
+│  │  PostgreSQL Database (Railway addon)       │ │
+│  │  - Services table                          │ │
+│  │  - Transactions table                      │ │
+│  │  - Ratings, health_checks, audit_log       │ │
+│  └────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────┘
+                      │
+                      │ HTTPS
+                      ▼
+┌──────────────────────────────────────────────────┐
+│          Custom Domain (sentientexchange.com)     │
+│  - API: sentientexchange.com/api                 │
+│  - MCP: sentientexchange.com/mcp/sse             │
+│  - Web: sentientexchange.com                     │
+└──────────────────────────────────────────────────┘
+```
+
+**Railway Benefits**:
+- Automatic PostgreSQL provisioning
+- Environment variable management
+- Zero-downtime deployments
+- Automatic HTTPS
+- Health check monitoring
+
+## Scalability Considerations
+
+### Current Limits
+
+| Resource | Limit | Bottleneck |
+|----------|-------|------------|
+| **Services** | ~10,000 | In-memory cache (50 MB) |
+| **Concurrent Users** | ~1,000 | API rate limits |
+| **Transactions/sec** | ~100 | Solana verification RPCs |
+| **WebSocket Connections** | ~500 | Socket.IO memory |
+
+### Scaling Strategies
+
+**Horizontal Scaling**:
+1. Load balancer → Multiple API servers
+2. Shared PostgreSQL database
+3. Redis for distributed caching
+4. WebSocket sticky sessions
+
+**Vertical Scaling**:
+1. Increase Railway plan (currently Hobby)
+2. More PostgreSQL connections
+3. Larger in-memory cache
+
+**Caching Layers**:
+1. **L1**: In-memory (ServiceRegistry)
+2. **L2**: Redis (distributed cache)
+3. **L3**: PostgreSQL (persistent storage)
+
+## Next Steps
+
+- [Payment Protocol](/docs/concepts/payment-protocol) - x402 + client-side signing details
+- [Service Registry](/docs/concepts/service-registry) - Discovery and reputation system
+- [Master Orchestrator](/docs/architecture/master-orchestrator) - Multi-service workflows
+- [Security Model](/docs/concepts/security-model) - JWT + SIWE authentication
