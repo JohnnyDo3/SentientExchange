@@ -8,10 +8,6 @@ on:
       - completed
     branches: [develop]
   workflow_dispatch:
-  push:
-    branches: [develop]
-    paths:
-      - '.github/workflows/deploy-staging.yml'
 
 jobs:
   deploy-staging:
@@ -19,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: staging
-    # Only deploy if CI succeeded
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    # Only deploy if CI succeeded (or manually triggered)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - uses: actions/checkout@v4

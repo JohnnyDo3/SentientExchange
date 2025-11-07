@@ -1,7 +1,10 @@
 name: Deploy to Production (Railway)
 
 on:
-  push:
+  workflow_run:
+    workflows: ['CI']
+    types:
+      - completed
     branches: [master]
   workflow_dispatch:
 
@@ -14,6 +17,8 @@ jobs:
     environment:
       name: production
       url: ${{ secrets.RAILWAY_PRODUCTION_URL }}
+    # Only deploy if CI succeeded (or manually triggered)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - uses: actions/checkout@v4
