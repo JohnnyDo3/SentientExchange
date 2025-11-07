@@ -93,7 +93,8 @@ const orchestrator = new MasterOrchestrator(registry);
 // ============================================================================
 
 // Trust Railway proxy (required for rate limiting and IP detection)
-app.set('trust proxy', true);
+// Set to 1 to trust only the first proxy (Railway) - more secure than 'true'
+app.set('trust proxy', 1);
 
 // Security headers
 app.use(helmetConfig);

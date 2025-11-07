@@ -45,7 +45,9 @@ export class HealthMonitor {
     }
 
     this.isRunning = true;
-    logger.info(`🏥 Health monitor started (checking every ${intervalMinutes} minutes)`);
+    logger.info(
+      `🏥 Health monitor started (checking every ${intervalMinutes} minutes)`
+    );
 
     // Run immediately on start
     this.runHealthChecks();
@@ -76,7 +78,9 @@ export class HealthMonitor {
     logger.info('🏥 Running health checks for all approved services...');
 
     const services = this.registry.getAllServices();
-    const approvedServices = services.filter((s: any) => s.status === 'approved');
+    const approvedServices = services.filter(
+      (s: any) => s.status === 'approved'
+    );
 
     logger.info(`Found ${approvedServices.length} approved services to check`);
 
@@ -95,11 +99,13 @@ export class HealthMonitor {
       }
     }
 
-    const healthy = results.filter(r => r.status === 'healthy').length;
-    const unhealthy = results.filter(r => r.status === 'unhealthy').length;
-    const degraded = results.filter(r => r.status === 'degraded').length;
+    const healthy = results.filter((r) => r.status === 'healthy').length;
+    const unhealthy = results.filter((r) => r.status === 'unhealthy').length;
+    const degraded = results.filter((r) => r.status === 'degraded').length;
 
-    logger.info(`✓ Health check complete: ${healthy} healthy, ${degraded} degraded, ${unhealthy} unhealthy`);
+    logger.info(
+      `✓ Health check complete: ${healthy} healthy, ${degraded} degraded, ${unhealthy} unhealthy`
+    );
 
     return results;
   }
@@ -144,7 +150,9 @@ export class HealthMonitor {
         status = 'degraded';
       }
 
-      logger.debug(`${serviceName}: ${status} (${response.status}, ${responseTime}ms)`);
+      logger.debug(
+        `${serviceName}: ${status} (${response.status}, ${responseTime}ms)`
+      );
 
       return {
         serviceId,
@@ -154,7 +162,6 @@ export class HealthMonitor {
         statusCode: response.status,
         checkedAt: Date.now(),
       };
-
     } catch (error: any) {
       const responseTime = Date.now() - startTime;
 
@@ -176,11 +183,13 @@ export class HealthMonitor {
    */
   private async recordHealthCheck(result: HealthCheckResult): Promise<void> {
     try {
+      const id = `health-${Date.now()}-${Math.random().toString(36).substring(7)}`;
       await this.db.run(
         `INSERT INTO service_health_checks (
-          service_id, status, response_time, status_code, error, checked_at
-        ) VALUES (?, ?, ?, ?, ?, ?)`,
+          id, service_id, status, response_time, status_code, error, checked_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
+          id,
           result.serviceId,
           result.status,
           result.responseTime,
@@ -190,7 +199,10 @@ export class HealthMonitor {
         ]
       );
     } catch (error: any) {
-      logger.error(`Failed to record health check for ${result.serviceName}:`, error);
+      logger.error(
+        `Failed to record health check for ${result.serviceName}:`,
+        error
+      );
     }
   }
 
@@ -199,7 +211,10 @@ export class HealthMonitor {
    * - Check recent health check history
    * - If consistently unhealthy, mark service as degraded
    */
-  private async handleUnhealthyService(service: any, result: HealthCheckResult): Promise<void> {
+  private async handleUnhealthyService(
+    service: any,
+    result: HealthCheckResult
+  ): Promise<void> {
     try {
       // Get last 5 health checks for this service
       const recentChecks = await this.db.all<any>(
@@ -211,26 +226,35 @@ export class HealthMonitor {
       );
 
       // If all recent checks are unhealthy, log warning
-      const allUnhealthy = recentChecks.every((check) => check.status === 'unhealthy');
+      const allUnhealthy = recentChecks.every(
+        (check) => check.status === 'unhealthy'
+      );
 
       if (allUnhealthy && recentChecks.length >= 3) {
-        logger.warn(`⚠️  Service "${service.name}" has failed ${recentChecks.length} consecutive health checks`);
+        logger.warn(
+          `⚠️  Service "${service.name}" has failed ${recentChecks.length} consecutive health checks`
+        );
 
         // TODO: In production, you might want to:
         // - Send notification to service owner
         // - Update service status to 'degraded' or 'inactive'
         // - Alert admins
       }
-
     } catch (error: any) {
-      logger.error(`Failed to handle unhealthy service ${service.name}:`, error);
+      logger.error(
+        `Failed to handle unhealthy service ${service.name}:`,
+        error
+      );
     }
   }
 
   /**
    * Get health check history for a service
    */
-  async getHealthHistory(serviceId: string, limit: number = 100): Promise<any[]> {
+  async getHealthHistory(
+    serviceId: string,
+    limit: number = 100
+  ): Promise<any[]> {
     try {
       const history = await this.db.all<any>(
         `SELECT * FROM service_health_checks
@@ -269,13 +293,19 @@ export class HealthMonitor {
          )`
       );
 
-      const healthy = latestChecks.filter(c => c.status === 'healthy').length;
-      const degraded = latestChecks.filter(c => c.status === 'degraded').length;
-      const unhealthy = latestChecks.filter(c => c.status === 'unhealthy').length;
+      const healthy = latestChecks.filter((c) => c.status === 'healthy').length;
+      const degraded = latestChecks.filter(
+        (c) => c.status === 'degraded'
+      ).length;
+      const unhealthy = latestChecks.filter(
+        (c) => c.status === 'unhealthy'
+      ).length;
 
-      const avgResponseTime = latestChecks.length > 0
-        ? latestChecks.reduce((sum, c) => sum + c.response_time, 0) / latestChecks.length
-        : 0;
+      const avgResponseTime =
+        latestChecks.length > 0
+          ? latestChecks.reduce((sum, c) => sum + c.response_time, 0) /
+            latestChecks.length
+          : 0;
 
       return {
         totalServices: latestChecks.length,
@@ -284,7 +314,6 @@ export class HealthMonitor {
         unhealthy,
         avgResponseTime: Math.round(avgResponseTime),
       };
-
     } catch (error: any) {
       logger.error('Failed to get health stats:', error);
       return {

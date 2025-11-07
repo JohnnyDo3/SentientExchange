@@ -16,6 +16,7 @@ interface ServiceRow {
   pricing: string; // JSON string
   reputation: string; // JSON string
   metadata: string; // JSON string
+  status: string;
   created_by: string | null;
   updated_by: string | null;
   deleted_at: string | null;
@@ -50,14 +51,18 @@ export class ServiceRegistry {
    */
   async initialize(): Promise<void> {
     // Only load non-deleted services
-    const services = await this.db.all<ServiceRow>('SELECT * FROM services WHERE deleted_at IS NULL');
+    const services = await this.db.all<ServiceRow>(
+      'SELECT * FROM services WHERE deleted_at IS NULL'
+    );
 
     for (const row of services) {
       const service = this.deserializeService(row);
       this.cache.set(service.id, service);
     }
 
-    logger.info(`✓ ServiceRegistry initialized with ${services.length} active services`);
+    logger.info(
+      `✓ ServiceRegistry initialized with ${services.length} active services`
+    );
   }
 
   /**
@@ -95,7 +100,13 @@ export class ServiceRegistry {
     );
 
     // Log audit
-    await this.db.logAudit('service', newService.id, 'CREATE', newService, createdBy);
+    await this.db.logAudit(
+      'service',
+      newService.id,
+      'CREATE',
+      newService,
+      createdBy
+    );
 
     // Update cache
     this.cache.set(newService.id, newService);
@@ -134,7 +145,12 @@ export class ServiceRegistry {
     if (query.maxPrice) {
       const maxPrice = parseFloat(query.maxPrice.replace('$', ''));
       results = results.filter((service) => {
-        const price = parseFloat((service.pricing.perRequest || service.pricing.amount || "0").replace('$', ''));
+        const price = parseFloat(
+          (service.pricing.perRequest || service.pricing.amount || '0').replace(
+            '$',
+            ''
+          )
+        );
         return price <= maxPrice;
       });
     }
@@ -149,8 +165,12 @@ export class ServiceRegistry {
     // Sort results
     if (query.sortBy === 'price') {
       results.sort((a, b) => {
-        const priceA = parseFloat((a.pricing.perRequest || a.pricing.amount || "0").replace('$', ''));
-        const priceB = parseFloat((b.pricing.perRequest || b.pricing.amount || "0").replace('$', ''));
+        const priceA = parseFloat(
+          (a.pricing.perRequest || a.pricing.amount || '0').replace('$', '')
+        );
+        const priceB = parseFloat(
+          (b.pricing.perRequest || b.pricing.amount || '0').replace('$', '')
+        );
         return priceA - priceB;
       });
     } else if (query.sortBy === 'rating') {
@@ -176,7 +196,10 @@ export class ServiceRegistry {
     }
 
     // Check if service is soft deleted
-    const row = await this.db.get<{ deleted_at: string | null }>('SELECT deleted_at FROM services WHERE id = ?', [id]);
+    const row = await this.db.get<{ deleted_at: string | null }>(
+      'SELECT deleted_at FROM services WHERE id = ?',
+      [id]
+    );
     if (row?.deleted_at) {
       throw new Error(`Service has been deleted: ${id}`);
     }
@@ -206,7 +229,7 @@ export class ServiceRegistry {
         JSON.stringify(updated.metadata),
         updatedBy || null,
         updated.updatedAt,
-        id
+        id,
       ]
     );
 
@@ -259,7 +282,10 @@ export class ServiceRegistry {
    */
   async restoreService(id: string, restoredBy?: string): Promise<Service> {
     // Get the service from database (including soft-deleted ones)
-    const row = await this.db.get<ServiceRow>('SELECT * FROM services WHERE id = ?', [id]);
+    const row = await this.db.get<ServiceRow>(
+      'SELECT * FROM services WHERE id = ?',
+      [id]
+    );
 
     if (!row) {
       throw new Error(`Service not found: ${id}`);
@@ -278,7 +304,13 @@ export class ServiceRegistry {
     );
 
     // Log audit
-    await this.db.logAudit('service', id, 'UPDATE', { restored: true }, restoredBy);
+    await this.db.logAudit(
+      'service',
+      id,
+      'UPDATE',
+      { restored: true },
+      restoredBy
+    );
 
     // Reload into cache
     const service = this.deserializeService(row);
@@ -321,16 +353,25 @@ export class ServiceRegistry {
    * Deserialize a database row into a Service object
    */
   private deserializeService(row: ServiceRow): Service {
+    // Helper to parse JSON (handles both SQLite strings and Postgres JSONB objects)
+    const parseJson = (value: any) => {
+      if (typeof value === 'string') {
+        return JSON.parse(value);
+      }
+      return value; // Already an object (Postgres JSONB)
+    };
+
     return {
       id: row.id,
       name: row.name,
       description: row.description,
       provider: row.provider,
       endpoint: row.endpoint,
-      capabilities: JSON.parse(row.capabilities) as string[],
-      pricing: JSON.parse(row.pricing) as Service['pricing'],
-      reputation: JSON.parse(row.reputation) as Service['reputation'],
-      metadata: JSON.parse(row.metadata) as Service['metadata'],
+      capabilities: parseJson(row.capabilities) as string[],
+      pricing: parseJson(row.pricing) as Service['pricing'],
+      reputation: parseJson(row.reputation) as Service['reputation'],
+      metadata: parseJson(row.metadata) as Service['metadata'],
+      status: row.status as 'pending' | 'approved' | 'rejected',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

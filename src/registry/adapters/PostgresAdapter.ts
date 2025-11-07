@@ -29,7 +29,9 @@ export class PostgresAdapter implements DatabaseAdapter {
       logger.error('Unexpected Postgres pool error:', err);
     });
 
-    logger.info(`✓ PostgreSQL adapter initialized: ${connectionString.split('@')[1] || 'connection established'}`);
+    logger.info(
+      `✓ PostgreSQL adapter initialized: ${connectionString.split('@')[1] || 'connection established'}`
+    );
   }
 
   async initialize(): Promise<void> {
@@ -137,31 +139,58 @@ export class PostgresAdapter implements DatabaseAdapter {
         id TEXT PRIMARY KEY,
         service_id TEXT NOT NULL,
         status TEXT NOT NULL,
-        response_time_ms INTEGER,
-        error_message TEXT,
+        response_time INTEGER,
+        status_code INTEGER,
+        error TEXT,
         checked_at BIGINT NOT NULL,
         FOREIGN KEY (service_id) REFERENCES services(id)
       )
     `);
 
     // Create B-tree indexes for exact lookups
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider)`);
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_services_deleted ON services(deleted_at) WHERE deleted_at IS NULL`);
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_transactions_service ON transactions(serviceId)`);
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_transactions_buyer ON transactions(buyer)`);
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_ratings_service ON ratings(serviceId)`);
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id)`);
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp DESC)`);
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_services_provider ON services(provider)`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_services_deleted ON services(deleted_at) WHERE deleted_at IS NULL`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_transactions_service ON transactions(serviceId)`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_transactions_buyer ON transactions(buyer)`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_ratings_service ON ratings(serviceId)`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id)`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp DESC)`
+    );
 
     // Create GIN indexes for JSONB columns (efficient searching within JSON)
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_services_capabilities_gin ON services USING GIN (capabilities)`);
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_services_pricing_gin ON services USING GIN (pricing)`);
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_services_capabilities_gin ON services USING GIN (capabilities)`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_services_pricing_gin ON services USING GIN (pricing)`
+    );
 
     // Create indexes for new tables
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_used_request_expires ON used_request_ids(expires_at)`);
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_used_request_service ON used_request_ids(service_id)`);
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_health_service ON service_health_checks(service_id, checked_at)`);
-    await this.run(`CREATE INDEX IF NOT EXISTS idx_services_status ON services(status)`);
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_used_request_expires ON used_request_ids(expires_at)`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_used_request_service ON used_request_ids(service_id)`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_health_service ON service_health_checks(service_id, checked_at)`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_services_status ON services(status)`
+    );
 
     logger.info('✓ PostgreSQL schema initialized with JSONB optimization');
   }
@@ -178,7 +207,10 @@ export class PostgresAdapter implements DatabaseAdapter {
     }
   }
 
-  async get<T = unknown>(sql: string, params?: unknown[]): Promise<T | undefined> {
+  async get<T = unknown>(
+    sql: string,
+    params?: unknown[]
+  ): Promise<T | undefined> {
     // Convert ? placeholders to $1, $2, etc.
     const convertedSql = this.convertPlaceholders(sql, params?.length || 0);
 
