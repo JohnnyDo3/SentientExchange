@@ -102,20 +102,45 @@ export class SpendingLimitManager {
     this.validatePriceFormat(newLimits.daily);
     this.validatePriceFormat(newLimits.monthly);
 
-    await this.db.run(
-      `INSERT OR REPLACE INTO spending_limits
-       (userId, perTransaction, daily, monthly, enabled, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        newLimits.userId,
-        newLimits.perTransaction,
-        newLimits.daily,
-        newLimits.monthly,
-        newLimits.enabled ? 1 : 0,
-        newLimits.createdAt,
-        newLimits.updatedAt
-      ]
-    );
+    // Handle both SQLite and PostgreSQL UPSERT syntax
+    const dbType = this.db.getType();
+    if (dbType === 'postgres') {
+      await this.db.run(
+        `INSERT INTO spending_limits
+         (userId, perTransaction, daily, monthly, enabled, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (userId) DO UPDATE SET
+           perTransaction = EXCLUDED.perTransaction,
+           daily = EXCLUDED.daily,
+           monthly = EXCLUDED.monthly,
+           enabled = EXCLUDED.enabled,
+           updatedAt = EXCLUDED.updatedAt`,
+        [
+          newLimits.userId,
+          newLimits.perTransaction,
+          newLimits.daily,
+          newLimits.monthly,
+          newLimits.enabled ? 1 : 0,
+          newLimits.createdAt,
+          newLimits.updatedAt
+        ]
+      );
+    } else {
+      await this.db.run(
+        `INSERT OR REPLACE INTO spending_limits
+         (userId, perTransaction, daily, monthly, enabled, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newLimits.userId,
+          newLimits.perTransaction,
+          newLimits.daily,
+          newLimits.monthly,
+          newLimits.enabled ? 1 : 0,
+          newLimits.createdAt,
+          newLimits.updatedAt
+        ]
+      );
+    }
 
     logger.info(`✓ Spending limits set for ${userId}`, newLimits);
     return newLimits;

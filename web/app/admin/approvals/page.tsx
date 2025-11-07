@@ -45,7 +45,7 @@ export default function AdminApprovalsPage() {
   useEffect(() => {
     if (!isAuthenticated || !token) return;
 
-    fetch('http://localhost:3333/api/admin/pending-services', {
+    fetch('/api/admin/pending-services', {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
@@ -72,7 +72,7 @@ export default function AdminApprovalsPage() {
     setProcessing((prev) => ({ ...prev, [serviceId]: true }));
 
     try {
-      const res = await fetch(`http://localhost:3333/api/admin/test-endpoint/${serviceId}`, {
+      const res = await fetch(`/api/admin/test-endpoint/${serviceId}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -115,7 +115,7 @@ export default function AdminApprovalsPage() {
     setProcessing((prev) => ({ ...prev, [serviceId]: true }));
 
     try {
-      const res = await fetch(`http://localhost:3333/api/admin/approve/${serviceId}`, {
+      const res = await fetch(`/api/admin/approve/${serviceId}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -152,7 +152,7 @@ export default function AdminApprovalsPage() {
     setProcessing((prev) => ({ ...prev, [serviceId]: true }));
 
     try {
-      const res = await fetch(`http://localhost:3333/api/admin/reject/${serviceId}`, {
+      const res = await fetch(`/api/admin/reject/${serviceId}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

@@ -1011,16 +1011,21 @@ app.get(
 app.get('/api/stats', async (req, res, next) => {
   try {
     const services = registry.getAllServices();
-    const query =
-      'SELECT COUNT(*) as count, SUM(CAST(SUBSTR(amount, 2) AS REAL)) as volume FROM transactions WHERE status = "completed"';
-    const stats = await db.get<{ count: number; volume: number }>(query);
+
+    // Get transaction stats (compatible with both SQLite and PostgreSQL)
+    const stats = await db.get<{ count: string; volume: string }>(
+      `SELECT COUNT(*) as count, COALESCE(SUM(CAST(REPLACE(amount, '$', '') AS DECIMAL)), 0) as volume
+       FROM transactions
+       WHERE status = ?`,
+      ['completed']
+    );
 
     res.json({
       success: true,
       stats: {
         services: services.length,
-        transactions: stats?.count || 0,
-        volume: stats?.volume || 0,
+        transactions: parseInt(stats?.count || '0'),
+        volume: parseFloat(stats?.volume || '0'),
         agents: 47, // Mock data
       },
     });
@@ -1042,7 +1047,7 @@ app.get('/api/transactions/recent', async (req, res, next) => {
       SELECT t.*, s.name as service_name
       FROM transactions t
       LEFT JOIN services s ON t.serviceId = s.id
-      WHERE t.status = "completed"
+      WHERE t.status = ?
       ORDER BY t.timestamp DESC
       LIMIT ?
     `;
@@ -1053,7 +1058,7 @@ app.get('/api/transactions/recent', async (req, res, next) => {
       amount: string;
       timestamp: string;
     }
-    const transactions = await db.all<TransactionRow>(query, [limit]);
+    const transactions = await db.all<TransactionRow>(query, ['completed', limit]);
 
     res.json({
       success: true,
