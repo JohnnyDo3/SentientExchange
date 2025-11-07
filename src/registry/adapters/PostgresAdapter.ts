@@ -192,6 +192,30 @@ export class PostgresAdapter implements DatabaseAdapter {
       `CREATE INDEX IF NOT EXISTS idx_services_status ON services(status)`
     );
 
+    // Migration: Fix health check table columns (if old table exists with wrong columns)
+    try {
+      // Check if old columns exist and add new ones
+      await this.run(
+        `ALTER TABLE service_health_checks ADD COLUMN IF NOT EXISTS response_time INTEGER`
+      );
+      await this.run(
+        `ALTER TABLE service_health_checks ADD COLUMN IF NOT EXISTS status_code INTEGER`
+      );
+      await this.run(
+        `ALTER TABLE service_health_checks ADD COLUMN IF NOT EXISTS error TEXT`
+      );
+      // Drop old columns if they exist
+      await this.run(
+        `ALTER TABLE service_health_checks DROP COLUMN IF EXISTS response_time_ms`
+      );
+      await this.run(
+        `ALTER TABLE service_health_checks DROP COLUMN IF EXISTS error_message`
+      );
+    } catch (error) {
+      // Ignore errors if columns already correct
+      logger.debug('Health check table migration:', error);
+    }
+
     logger.info('✓ PostgreSQL schema initialized with JSONB optimization');
   }
 

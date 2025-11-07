@@ -283,7 +283,7 @@ app.post('/api/auth/nonce', (req, res, next) => {
   }
 });
 
-// POST /api/auth/verify - Verify SIWE signature and return JWT
+// POST /api/auth/verify - Verify wallet signature (Ethereum SIWE or Solana) and return JWT
 // SECURITY: Sets JWT in httpOnly cookie (XSS-safe) + returns in body (backwards compatibility)
 app.post('/api/auth/verify', async (req, res, _next) => {
   try {
@@ -296,8 +296,45 @@ app.post('/api/auth/verify', async (req, res, _next) => {
       });
     }
 
-    // Verify SIWE signature
-    const { address, chainId } = await verifySiweMessage(message, signature);
+    let address: string;
+    let chainId: number;
+
+    // Detect if this is a Solana or Ethereum signature
+    const isSolanaMessage =
+      message.includes('Wallet:') &&
+      /[1-9A-HJ-NP-Za-km-z]{32,44}/.test(message);
+
+    if (isSolanaMessage) {
+      // Verify Solana signature
+      const { verifySolanaSignature, extractSolanaAddress } = await import(
+        '../auth/solana.js'
+      );
+      const walletAddress = extractSolanaAddress(message);
+
+      if (!walletAddress) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid Solana message format',
+        });
+      }
+
+      const isValid = verifySolanaSignature(message, signature, walletAddress);
+
+      if (!isValid) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid Solana signature',
+        });
+      }
+
+      address = walletAddress;
+      chainId = 0; // Use chainId 0 for Solana wallets (vs 1 for Ethereum mainnet)
+    } else {
+      // Verify SIWE (Ethereum) signature
+      const result = await verifySiweMessage(message, signature);
+      address = result.address;
+      chainId = result.chainId;
+    }
 
     // Generate JWT token
     const token = generateToken(address, chainId);
