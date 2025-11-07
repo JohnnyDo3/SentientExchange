@@ -81,8 +81,8 @@ export class ServiceRegistry {
 
     // Insert into database
     await this.db.run(
-      `INSERT INTO services (id, name, description, provider, endpoint, capabilities, pricing, reputation, metadata, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO services (id, name, description, provider, endpoint, capabilities, pricing, reputation, status, metadata, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         newService.id,
         newService.name,
@@ -92,6 +92,7 @@ export class ServiceRegistry {
         JSON.stringify(newService.capabilities),
         JSON.stringify(newService.pricing),
         JSON.stringify(newService.reputation),
+        newService.status || 'pending',
         JSON.stringify(newService.metadata),
         createdBy || null,
         newService.createdAt,
