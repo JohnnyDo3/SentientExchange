@@ -56,7 +56,8 @@
       "Bash(bash:*)",
       "Bash(timeout:*)",
       "WebFetch(domain:www.helius.dev)",
-      "WebFetch(domain:r1xlabs.com)"
+      "WebFetch(domain:r1xlabs.com)",
+      "WebFetch(domain:www.sentientexchange.com)"
     ],
     "deny": [],
     "ask": []
