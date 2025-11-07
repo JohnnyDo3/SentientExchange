@@ -3,6 +3,7 @@
  */
 export interface Service {
   id: string; // UUID
+  status?: 'pending' | 'approved' | 'rejected'; // Service approval status
   name: string; // Service name (e.g., "vision-pro")
   description: string; // Human-readable description
   provider: string; // Wallet address of service provider

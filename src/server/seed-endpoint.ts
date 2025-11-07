@@ -9,6 +9,7 @@ export async function seedDatabase(
 ): Promise<Service[]> {
   const exampleServices: Omit<Service, 'id' | 'createdAt' | 'updatedAt'>[] = [
     {
+      status: 'approved',
       name: 'Sentiment Analyzer',
       description:
         'State-of-the-art sentiment analysis with PhD-level expertise in psycholinguistics, emotion detection, and sarcasm understanding',
@@ -43,6 +44,7 @@ export async function seedDatabase(
       },
     },
     {
+      status: 'approved',
       name: 'Image Analyzer',
       description:
         'Professional computer vision with Claude Vision API for objects, OCR, faces, and comprehensive image analysis',
@@ -77,6 +79,7 @@ export async function seedDatabase(
       },
     },
     {
+      status: 'approved',
       name: 'Text Summarizer',
       description:
         'Executive-grade text summarization with multiple formats (bullets, paragraph, executive), key point extraction, and topic tags',
@@ -108,62 +111,6 @@ export async function seedDatabase(
         maxPayload: '5MB',
         image: '📝',
         color: '#f59e0b',
-      },
-    },
-    {
-      name: 'Data Processor',
-      description:
-        'High-performance data transformation and ETL service for structured and unstructured data',
-      endpoint: 'https://data-processor.example.com/process',
-      capabilities: ['data-transformation', 'etl', 'data-cleaning'],
-      provider: 'did:key:dataflow',
-      pricing: {
-        perRequest: '0.15',
-        currency: 'USDC',
-        network: 'base-sepolia',
-        billingModel: 'per-request',
-      },
-      reputation: {
-        totalJobs: 2100,
-        successRate: 99.1,
-        avgResponseTime: '1.8s',
-        rating: 4.9,
-        reviews: 142,
-      },
-      metadata: {
-        apiVersion: 'v4.2.0',
-        rateLimit: '200/min',
-        maxPayload: '50MB',
-        image: '⚙️',
-        color: '#8b5cf6',
-      },
-    },
-    {
-      name: 'Code Analyzer',
-      description:
-        'Static code analysis and vulnerability scanning for multiple programming languages',
-      endpoint: 'https://code-analyzer.example.com/analyze',
-      capabilities: ['code-analysis', 'security-scanning', 'linting'],
-      provider: 'did:key:secure-code',
-      pricing: {
-        perRequest: '0.12',
-        currency: 'USDC',
-        network: 'base-sepolia',
-        billingModel: 'per-request',
-      },
-      reputation: {
-        totalJobs: 1540,
-        successRate: 98.7,
-        avgResponseTime: '5.3s',
-        rating: 4.8,
-        reviews: 97,
-      },
-      metadata: {
-        apiVersion: 'v2.8.5',
-        rateLimit: '30/min',
-        maxPayload: '15MB',
-        image: '🔍',
-        color: '#ef4444',
       },
     },
   ];
