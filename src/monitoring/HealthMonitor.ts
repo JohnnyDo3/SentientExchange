@@ -120,7 +120,11 @@ export class HealthMonitor {
 
     try {
       // Use health check URL if provided, otherwise use main endpoint
-      const checkUrl = (service as any).health_check_url || service.endpoint;
+      // Check both health_check_url (database column) and metadata.healthCheckUrl (seed data)
+      const checkUrl =
+        (service as any).health_check_url ||
+        service.metadata?.healthCheckUrl ||
+        service.endpoint;
 
       logger.debug(`Checking health: ${serviceName} at ${checkUrl}`);
 
