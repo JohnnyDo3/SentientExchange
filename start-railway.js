@@ -31,7 +31,7 @@ console.log('');
 // Start API Server on internal port (merged marketplace + orchestration API)
 const apiServer = spawn('node', ['dist/api/apiServer.js'], {
   stdio: 'inherit',
-  env: { ...process.env, PORT: API_PORT }
+  env: { ...process.env, API_PORT: API_PORT }
 });
 
 // Start Next.js Web App on Railway PORT (no longer using standalone)
