@@ -27,6 +27,7 @@ export interface Service {
     apiVersion: string; // API version (e.g., "v1")
     rateLimit?: string; // Rate limit (e.g., "100/min")
     maxPayload?: string; // Maximum payload size (e.g., "10MB")
+    healthCheckUrl?: string; // Health check endpoint URL (e.g., "https://service.xyz/health")
     walletAddress?: string; // Primary wallet address (EVM)
     paymentAddresses?: Record<string, string>; // Multi-chain payment addresses
     image?: string; // Service icon/emoji
