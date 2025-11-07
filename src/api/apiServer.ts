@@ -173,6 +173,11 @@ async function initialize() {
     );
     try {
       for (const service of oldSeededServices) {
+        // Delete health check records first (foreign key constraint)
+        await db.run(`DELETE FROM service_health_checks WHERE service_id = ?`, [
+          service.id,
+        ]);
+        // Then delete the service
         await db.run(`DELETE FROM services WHERE id = ?`, [service.id]);
         logger.info(`  ✓ Deleted: ${service.name}`);
       }
