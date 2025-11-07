@@ -187,12 +187,11 @@ async function initialize() {
         `✅ Deleted ${oldSeededServices.length} old services - re-seeding now...`
       );
 
-      // Re-seed with new healthCheckUrl
+      // Re-seed with new healthCheckUrl (registerService updates cache automatically)
       const seededServices = await seedDatabase(registry);
       logger.info(
         `✅ Re-seeded ${seededServices.length} services with healthCheckUrl`
       );
-      await registry.initialize();
     } catch (error: unknown) {
       logger.error('❌ Failed to delete/re-seed old services:', error);
     }
