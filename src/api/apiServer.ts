@@ -1194,6 +1194,45 @@ app.post(
   }
 );
 
+// POST /api/admin/approve-all-pending - Approve all pending services (one-time fix)
+app.post(
+  '/api/admin/approve-all-pending',
+  requireAuth,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      logger.info('📋 Approving all pending services...');
+
+      // Get all pending services
+      const pendingServices = registry
+        .getAllServices()
+        .filter((s: any) => s.status === 'pending');
+
+      // Approve each one
+      for (const service of pendingServices) {
+        await db.run(
+          `UPDATE services SET status = ?, approved_at = ? WHERE id = ?`,
+          ['approved', Date.now(), service.id]
+        );
+      }
+
+      // Reload registry cache
+      await registry.initialize();
+
+      logger.info(`✅ Approved ${pendingServices.length} services`);
+
+      res.json({
+        success: true,
+        message: `Approved ${pendingServices.length} pending services`,
+        services: pendingServices.map((s) => ({ id: s.id, name: s.name })),
+      });
+    } catch (error: unknown) {
+      logger.error('Failed to approve pending services:', error);
+      next(error);
+    }
+  }
+);
+
 // ============================================================================
 // AI SERVICES (with x402 payment)
 // ============================================================================
