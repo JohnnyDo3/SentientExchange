@@ -154,12 +154,46 @@ async function initialize() {
     logger.info(`✓ Database already seeded with ${serviceCount} services`);
   }
 
-  // One-time fix: Auto-approve the 3 specific seeded services (for migration from SQLite to Postgres)
+  // One-time migration: Delete old seeded services without healthCheckUrl so they get re-seeded
   const seededServiceNames = [
     'Sentiment Analyzer',
     'Image Analyzer',
     'Text Summarizer',
   ];
+  const oldSeededServices = registry
+    .getAllServices()
+    .filter(
+      (s: any) =>
+        seededServiceNames.includes(s.name) && !s.metadata?.healthCheckUrl
+    );
+
+  if (oldSeededServices.length > 0) {
+    logger.info(
+      `🔧 Found ${oldSeededServices.length} old seeded services without healthCheckUrl - deleting for re-seed...`
+    );
+    try {
+      for (const service of oldSeededServices) {
+        await db.run(`DELETE FROM services WHERE id = ?`, [service.id]);
+        logger.info(`  ✓ Deleted: ${service.name}`);
+      }
+      // Reload registry to update cache
+      await registry.initialize();
+      logger.info(
+        `✅ Deleted ${oldSeededServices.length} old services - re-seeding now...`
+      );
+
+      // Re-seed with new healthCheckUrl
+      const seededServices = await seedDatabase(registry);
+      logger.info(
+        `✅ Re-seeded ${seededServices.length} services with healthCheckUrl`
+      );
+      await registry.initialize();
+    } catch (error: unknown) {
+      logger.error('❌ Failed to delete/re-seed old services:', error);
+    }
+  }
+
+  // One-time fix: Auto-approve the 3 specific seeded services (for migration from SQLite to Postgres)
   const pendingSeededServices = registry
     .getAllServices()
     .filter(
