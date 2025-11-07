@@ -12,6 +12,9 @@
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
+    "@mdx-js/loader": "^3.0.1",
+    "@mdx-js/react": "^3.0.1",
+    "@next/mdx": "^14.2.3",
     "@react-three/drei": "^9.105.4",
     "@react-three/fiber": "^8.16.2",
     "@react-three/postprocessing": "^2.16.2",
@@ -24,6 +27,7 @@
     "@solana/wallet-adapter-torus": "^0.11.32",
     "@solana/web3.js": "^1.98.4",
     "@tanstack/react-query": "^5.90.5",
+    "@types/mdx": "^2.0.13",
     "bs58": "^6.0.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
@@ -35,6 +39,8 @@
     "react-dom": "^18.3.1",
     "reactflow": "^11.11.4",
     "recharts": "^2.12.7",
+    "rehype-prism-plus": "^2.0.0",
+    "remark-gfm": "^4.0.0",
     "socket.io-client": "^4.7.5",
     "tailwind-merge": "^2.3.0",
     "three": "^0.164.1",
