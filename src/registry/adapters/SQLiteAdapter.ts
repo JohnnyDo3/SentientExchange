@@ -193,6 +193,41 @@ export class SQLiteAdapter implements DatabaseAdapter {
       `CREATE INDEX IF NOT EXISTS idx_services_status ON services(status)`
     );
 
+    // Create chat_sessions table
+    await this.runAsync(`
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id TEXT PRIMARY KEY,
+        pda_address TEXT NOT NULL,
+        wallet_address TEXT NOT NULL,
+        initial_balance TEXT NOT NULL,
+        current_balance TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_activity INTEGER NOT NULL,
+        nonce_accounts TEXT
+      )
+    `);
+
+    // Create chat_messages table
+    await this.runAsync(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tool_calls TEXT,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES chat_sessions(id)
+      )
+    `);
+
+    // Create indexes for chat tables
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_chat_sessions_last_activity ON chat_sessions(last_activity)`
+    );
+    await this.runAsync(
+      `CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, timestamp)`
+    );
+
     logger.info('✓ SQLite schema initialized');
   }
 

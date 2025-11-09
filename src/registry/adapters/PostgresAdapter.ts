@@ -216,6 +216,41 @@ export class PostgresAdapter implements DatabaseAdapter {
       logger.debug('Health check table migration:', error);
     }
 
+    // Create chat_sessions table
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id TEXT PRIMARY KEY,
+        pda_address TEXT NOT NULL,
+        wallet_address TEXT NOT NULL,
+        initial_balance TEXT NOT NULL,
+        current_balance TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        last_activity BIGINT NOT NULL,
+        nonce_accounts TEXT
+      )
+    `);
+
+    // Create chat_messages table
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tool_calls TEXT,
+        timestamp BIGINT NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES chat_sessions(id)
+      )
+    `);
+
+    // Create indexes for chat tables
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_chat_sessions_last_activity ON chat_sessions(last_activity)`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, timestamp)`
+    );
+
     logger.info('✓ PostgreSQL schema initialized with JSONB optimization');
   }
 

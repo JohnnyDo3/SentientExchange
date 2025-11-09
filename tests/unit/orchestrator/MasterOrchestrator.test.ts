@@ -38,7 +38,7 @@ describe('MasterOrchestrator', () => {
         pricing: { perRequest: 0.10, currency: 'USDC' },
         reputation: { totalJobs: 10, successRate: 95, avgResponseTime: '1s', rating: 4.5, reviews: 5 },
         endpoint: 'https://company-data.example.com',
-        metadata: {},
+        metadata: {}, createdAt: Date.now(), updatedAt: Date.now(),
       },
       {
         id: 'service-2',
@@ -49,7 +49,7 @@ describe('MasterOrchestrator', () => {
         pricing: { perRequest: 0.05, currency: 'USDC' },
         reputation: { totalJobs: 10, successRate: 95, avgResponseTime: '1s', rating: 4.5, reviews: 5 },
         endpoint: 'https://news.example.com',
-        metadata: {},
+        metadata: {}, createdAt: Date.now(), updatedAt: Date.now(),
       },
       {
         id: 'service-3',
@@ -60,7 +60,7 @@ describe('MasterOrchestrator', () => {
         pricing: { perRequest: 0.25, currency: 'USDC' },
         reputation: { totalJobs: 10, successRate: 95, avgResponseTime: '1s', rating: 4.5, reviews: 5 },
         endpoint: 'https://market-research.example.com',
-        metadata: {},
+        metadata: {}, createdAt: Date.now(), updatedAt: Date.now(),
       },
       {
         id: 'service-4',
@@ -71,7 +71,7 @@ describe('MasterOrchestrator', () => {
         pricing: { perRequest: 0.15, currency: 'USDC' },
         reputation: { totalJobs: 10, successRate: 95, avgResponseTime: '1s', rating: 4.5, reviews: 5 },
         endpoint: 'https://trends.example.com',
-        metadata: {},
+        metadata: {}, createdAt: Date.now(), updatedAt: Date.now(),
       },
       {
         id: 'service-5',
@@ -82,7 +82,7 @@ describe('MasterOrchestrator', () => {
         pricing: { perRequest: 0.20, currency: 'USDC' },
         reputation: { totalJobs: 10, successRate: 95, avgResponseTime: '1s', rating: 4.5, reviews: 5 },
         endpoint: 'https://pricing.example.com',
-        metadata: {},
+        metadata: {}, createdAt: Date.now(), updatedAt: Date.now(),
       },
       {
         id: 'service-6',
@@ -93,7 +93,7 @@ describe('MasterOrchestrator', () => {
         pricing: { perRequest: 0.30, currency: 'USDC' },
         reputation: { totalJobs: 10, successRate: 95, avgResponseTime: '1s', rating: 4.5, reviews: 5 },
         endpoint: 'https://channels.example.com',
-        metadata: {},
+        metadata: {}, createdAt: Date.now(), updatedAt: Date.now(),
       },
       {
         id: 'service-7',
@@ -104,7 +104,7 @@ describe('MasterOrchestrator', () => {
         pricing: { perRequest: 0.12, currency: 'USDC' },
         reputation: { totalJobs: 10, successRate: 95, avgResponseTime: '1s', rating: 4.5, reviews: 5 },
         endpoint: 'https://copywriter.example.com',
-        metadata: {},
+        metadata: {}, createdAt: Date.now(), updatedAt: Date.now(),
       },
       {
         id: 'service-8',
@@ -115,7 +115,7 @@ describe('MasterOrchestrator', () => {
         pricing: { perRequest: 0.08, currency: 'USDC' },
         reputation: { totalJobs: 10, successRate: 95, avgResponseTime: '1s', rating: 4.5, reviews: 5 },
         endpoint: 'https://charts.example.com',
-        metadata: {},
+        metadata: {}, createdAt: Date.now(), updatedAt: Date.now(),
       },
       {
         id: 'service-9',
@@ -126,7 +126,7 @@ describe('MasterOrchestrator', () => {
         pricing: { perRequest: 0.50, currency: 'USDC' },
         reputation: { totalJobs: 10, successRate: 95, avgResponseTime: '1s', rating: 4.5, reviews: 5 },
         endpoint: 'https://presentations.example.com',
-        metadata: {},
+        metadata: {}, createdAt: Date.now(), updatedAt: Date.now(),
       },
     ] as Service[];
 

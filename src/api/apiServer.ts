@@ -48,6 +48,10 @@ import { SentimentAnalyzer } from '../services/ai/sentiment/sentimentAnalyzer.js
 import { TextSummarizer } from '../services/ai/text/textSummarizer.js';
 import { MasterOrchestrator } from '../orchestrator/MasterOrchestrator.js';
 import { seedDatabase } from '../server/seed-endpoint.js';
+import { ChatOrchestrator } from '../chat/ChatOrchestrator.js';
+import { SessionWalletManager } from '../wallet/SessionWalletManager.js';
+import { randomUUID } from 'crypto';
+import cron from 'node-cron';
 
 const app = express();
 const httpServer = createServer(app);
@@ -87,6 +91,17 @@ const textSummarizer = new TextSummarizer();
 
 // Initialize Master Orchestrator for /swarm page
 const orchestrator = new MasterOrchestrator(registry);
+
+// Initialize Session Wallet Manager for chat wallets
+const sessionWalletManager = new SessionWalletManager(db);
+
+// Initialize Chat Orchestrator for AI chat (with web search + x402 superpowers)
+const chatOrchestrator = new ChatOrchestrator(
+  process.env.ANTHROPIC_API_KEY || '',
+  registry,
+  db,
+  spendingLimitManager
+);
 
 // ============================================================================
 // MIDDLEWARE
@@ -1541,6 +1556,183 @@ app.get('/api/ai/health', (req, res) => {
 });
 
 // ============================================================================
+// CHAT ENDPOINTS
+// ============================================================================
+
+/**
+ * POST /api/chat/sessions - Create new chat session
+ */
+app.post('/api/chat/sessions', async (req, res, next) => {
+  try {
+    const sessionId = randomUUID();
+
+    // Create session wallet (Phase 3 - for now just save to DB)
+    const initialBalance = '0.50';
+    const pdaAddress = 'placeholder'; // Will be actual PDA in Phase 3
+
+    await db.run(
+      `INSERT INTO chat_sessions (id, pda_address, wallet_address, initial_balance, current_balance, created_at, last_activity, nonce_accounts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        sessionId,
+        pdaAddress,
+        pdaAddress, // Same for now
+        initialBalance,
+        initialBalance,
+        Date.now(),
+        Date.now(),
+        JSON.stringify([])
+      ]
+    );
+
+    res.json({
+      id: sessionId,
+      pdaAddress,
+      balance: initialBalance,
+      initialBalance
+    });
+
+    logger.info(`✓ Chat session created: ${sessionId}`);
+  } catch (error: unknown) {
+    logger.error('Failed to create chat session:', error);
+    next(error);
+  }
+});
+
+/**
+ * POST /api/chat/message - Send message (triggers async processing)
+ */
+app.post('/api/chat/message', async (req, res, next) => {
+  try {
+    const { sessionId, message } = req.body;
+
+    if (!sessionId || !message) {
+      return res.status(400).json({ error: 'sessionId and message required' });
+    }
+
+    // Update last activity
+    await db.run(
+      `UPDATE chat_sessions SET last_activity = ? WHERE id = ?`,
+      [Date.now(), sessionId]
+    );
+
+    res.json({ success: true });
+
+    // Processing happens in SSE stream
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/chat/stream - SSE stream for chat responses
+ */
+app.get('/api/chat/stream', async (req, res) => {
+  const sessionId = req.query.sessionId as string;
+
+  if (!sessionId) {
+    return res.status(400).json({ error: 'sessionId required' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    // Get last user message
+    const lastMessage = await db.get<any>(
+      `SELECT * FROM chat_messages WHERE session_id = ? AND role = 'user' ORDER BY timestamp DESC LIMIT 1`,
+      [sessionId]
+    );
+
+    if (!lastMessage) {
+      res.write(`data: ${JSON.stringify({ type: 'error', error: 'No message found' })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // Process message and stream events
+    const eventStream = chatOrchestrator.processMessage(sessionId, lastMessage.content);
+
+    for await (const event of eventStream) {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
+
+    res.end();
+  } catch (error: any) {
+    res.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`);
+    res.end();
+  }
+});
+
+/**
+ * POST /api/chat/fund - Add funds to session wallet
+ */
+app.post('/api/chat/fund', async (req, res, next) => {
+  try {
+    const { sessionId, amount } = req.body;
+
+    if (!sessionId || !amount) {
+      return res.status(400).json({ error: 'sessionId and amount required' });
+    }
+
+    // Update balance (Phase 3 will actually transfer USDC)
+    const session = await db.get<any>(
+      `SELECT * FROM chat_sessions WHERE id = ?`,
+      [sessionId]
+    );
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const newBalance = (parseFloat(session.current_balance) + amount).toFixed(2);
+
+    await db.run(
+      `UPDATE chat_sessions SET current_balance = ?, last_activity = ? WHERE id = ?`,
+      [newBalance, Date.now(), sessionId]
+    );
+
+    res.json({
+      id: sessionId,
+      balance: newBalance,
+      initialBalance: session.initial_balance
+    });
+
+    logger.info(`✓ Funds added to session ${sessionId}: +$${amount}`);
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/chat/history/:sessionId - Get conversation history
+ */
+app.get('/api/chat/history/:sessionId', async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+
+    const messages = await db.all<any>(
+      `SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC`,
+      [sessionId]
+    );
+
+    res.json({
+      sessionId,
+      messages: messages.map(m => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        toolCalls: m.tool_calls ? JSON.parse(m.tool_calls) : []
+      }))
+    });
+  } catch (error: unknown) {
+    next(error);
+  }
+});
+
+// ============================================================================
 // WEBSOCKET EVENTS
 // ============================================================================
 
@@ -1620,6 +1812,17 @@ async function start() {
     10
   );
   healthMonitor.start(healthCheckInterval);
+
+  // Start session cleanup cron (runs every hour to close expired sessions)
+  cron.schedule('0 * * * *', async () => {
+    logger.info('🧹 Running expired session cleanup...');
+    try {
+      await sessionWalletManager.cleanupExpiredSessions();
+    } catch (error) {
+      logger.error('Session cleanup failed:', error);
+    }
+  });
+  logger.info('🧹 Session cleanup cron initialized (runs hourly)');
 
   httpServer.listen(PORT, () => {
     logger.info(
