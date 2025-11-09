@@ -42,7 +42,7 @@ export default function ChatInput({
             placeholder={placeholder}
             disabled={disabled}
             rows={1}
-            className="w-full px-4 py-3 bg-dark-card border border-gray-700 rounded-lg text-white placeholder-gray-500 resize-none focus:outline-none focus:border-purple transition-colors"
+            className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-400 resize-none focus:outline-none focus:border-purple focus:ring-1 focus:ring-purple/50 transition-all"
             style={{ maxHeight: '150px', minHeight: '52px' }}
           />
           {disabled && (

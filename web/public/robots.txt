@@ -1,0 +1,15 @@
+# robots.txt for Sentient Exchange
+User-agent: *
+Allow: /
+Allow: /marketplace
+Allow: /chat
+Allow: /swarm
+Allow: /dashboard
+Allow: /docs
+Allow: /providers
+
+Disallow: /api/
+Disallow: /admin/
+Disallow: /_next/
+
+Sitemap: https://sentientexchange.com/sitemap.xml

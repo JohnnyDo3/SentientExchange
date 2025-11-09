@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, ShoppingCart, BarChart3, Zap, User, FileText, Menu, X } from 'lucide-react';
+import { Home, ShoppingCart, BarChart3, Zap, User, FileText, Menu, X, MessageSquare } from 'lucide-react';
 import { soundManager } from '@/lib/sound';
 import UnifiedConnectButton from '@/components/wallet/UnifiedConnectButton';
 
@@ -24,6 +24,7 @@ export default function Header() {
   const navItems = [
     { href: '/', label: 'Home', icon: Home },
     { href: '/marketplace', label: 'Marketplace', icon: ShoppingCart },
+    { href: '/chat', label: 'AI Chat', icon: MessageSquare },
     { href: '/swarm', label: 'Orchestrator', icon: Zap },
     { href: '/dashboard', label: 'Dashboard', icon: BarChart3 },
     { href: '/docs', label: 'Docs', icon: FileText },

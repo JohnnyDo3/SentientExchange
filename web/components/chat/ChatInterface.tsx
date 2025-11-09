@@ -34,43 +34,20 @@ export default function ChatInterface() {
   }, [messages, serviceCalls, searchQueries, paymentRequests]);
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-b from-dark via-dark to-dark-secondary">
-      {/* Streamlined Header */}
-      <div className="border-b border-gray-800/50 bg-dark/80 backdrop-blur-sm px-4 py-3">
+    <div className="flex flex-col h-screen bg-gradient-to-b from-gray-950 via-black to-gray-900">
+      {/* Clean Header */}
+      <div className="border-b border-gray-800/50 bg-black/80 backdrop-blur-sm px-4 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple via-purple/80 to-blue flex items-center justify-center shadow-lg shadow-purple/20">
-              <MessageSquare className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold gradient-text">AI Assistant</h1>
-              <p className="text-xs text-gray-500">Powered by AgentMarket</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {messages.length > 0 && (
-              <button
-                onClick={clearChat}
-                className="btn-secondary text-xs px-3 py-2 flex items-center gap-2"
-                title="Clear chat"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Clear</span>
-              </button>
-            )}
-
-            {session && (
-              <div className="hidden lg:block max-w-xs">
-                <SessionWalletCard
-                  sessionId={session.id}
-                  balance={session.balance}
-                  initialBalance={session.initialBalance}
-                  onAddFunds={addFunds}
-                />
-              </div>
-            )}
-          </div>
+          {messages.length > 0 && (
+            <button
+              onClick={clearChat}
+              className="btn-secondary text-xs px-3 py-2 flex items-center gap-2"
+              title="Clear chat"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Clear Chat</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -190,17 +167,6 @@ export default function ChatInterface() {
         </div>
       </div>
 
-      {/* Mobile Wallet Card */}
-      {session && (
-        <div className="lg:hidden border-t border-gray-800/50 bg-dark/80 backdrop-blur-sm p-3">
-          <SessionWalletCard
-            sessionId={session.id}
-            balance={session.balance}
-            initialBalance={session.initialBalance}
-            onAddFunds={addFunds}
-          />
-        </div>
-      )}
 
       {/* Input Area */}
       <ChatInput
