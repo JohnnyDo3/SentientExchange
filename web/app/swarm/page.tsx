@@ -8,7 +8,7 @@ import { socketManager } from '@/lib/socket';
 import { LiveStats } from '@/components/dashboard/LiveStats';
 import { OrchestrationGraph } from '@/components/dashboard/OrchestrationGraph';
 import { LiveDeliverable } from '@/components/dashboard/LiveDeliverable';
-import { Footer } from '@/components/Footer';
+import Footer from '@/components/Footer';
 
 interface Agent {
   id: string;

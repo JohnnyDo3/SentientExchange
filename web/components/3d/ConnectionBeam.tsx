@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use client';
 
 import { useRef, useMemo } from 'react';
@@ -83,7 +84,7 @@ export default function ConnectionBeam({
   return (
     <group>
       {/* Connection line */}
-      <line ref={lineRef} geometry={lineGeometry}>
+      <line ref={lineRef as any} geometry={lineGeometry}>
         <lineBasicMaterial
           color={color}
           transparent

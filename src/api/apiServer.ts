@@ -1610,10 +1610,18 @@ app.post('/api/chat/message', async (req, res, next) => {
       return res.status(400).json({ error: 'sessionId and message required' });
     }
 
+    // Save user message to database
+    const messageId = randomUUID();
+    const timestamp = Date.now();
+    await db.run(
+      `INSERT INTO chat_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+      [messageId, sessionId, 'user', message, timestamp]
+    );
+
     // Update last activity
     await db.run(
       `UPDATE chat_sessions SET last_activity = ? WHERE id = ?`,
-      [Date.now(), sessionId]
+      [timestamp, sessionId]
     );
 
     res.json({ success: true });

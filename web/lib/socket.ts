@@ -15,7 +15,7 @@ export interface OrchestrationEvent {
 
 class SocketManager {
   private socket: Socket | null = null;
-  private listeners: Map<string, Function[]> = new Map();
+  private listeners: Map<string, ((...args: any[]) => void)[]> = new Map();
 
   connect() {
     if (this.socket?.connected) return this.socket;
@@ -75,14 +75,14 @@ class SocketManager {
     this.socket.emit('start-orchestration', { query });
   }
 
-  on(event: string, callback: Function) {
+  on(event: string, callback: (...args: any[]) => void) {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
     }
     this.listeners.get(event)!.push(callback);
   }
 
-  off(event: string, callback: Function) {
+  off(event: string, callback: (...args: any[]) => void) {
     const listeners = this.listeners.get(event);
     if (listeners) {
       const index = listeners.indexOf(callback);

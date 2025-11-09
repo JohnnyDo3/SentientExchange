@@ -26,8 +26,8 @@ export default function EditServiceModal({
     endpoint: service.endpoint,
     price: service.pricing.perRequest,
     capabilities: service.capabilities.join(', '),
-    image: service.metadata?.image || '🔮',
-    color: service.metadata?.color || '#a855f7',
+    image: (service.metadata as any)?.image || '🔮',
+    color: (service.metadata as any)?.color || '#a855f7',
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,8 +41,8 @@ export default function EditServiceModal({
       endpoint: service.endpoint,
       price: service.pricing.perRequest,
       capabilities: service.capabilities.join(', '),
-      image: service.metadata?.image || '🔮',
-      color: service.metadata?.color || '#a855f7',
+      image: (service.metadata as any)?.image || '🔮',
+      color: (service.metadata as any)?.color || '#a855f7',
     });
     setError('');
   }, [service]);
@@ -77,8 +77,7 @@ export default function EditServiceModal({
       onClose();
     } catch (err: any) {
       setError(err.message || 'Failed to update service');
-      soundManager.playError?.();
-    } finally {
+    } finally{
       setIsSubmitting(false);
     }
   };

@@ -5,6 +5,7 @@ import SoundToggle from "@/components/ui/SoundToggle";
 import Header from "@/components/ui/Header";
 import Footer from "@/components/Footer";
 import Providers from "@/components/Providers";
+import ConditionalLayout from "@/components/ConditionalLayout";
 import { organizationSchema, websiteSchema, softwareApplicationSchema } from './structured-data';
 import Script from 'next/script';
 
@@ -130,11 +131,9 @@ export default function RootLayout({
         </Script>
 
         <Providers>
-          <Header />
-          <main className="flex-1">
+          <ConditionalLayout>
             {children}
-          </main>
-          <Footer />
+          </ConditionalLayout>
           <SoundToggle />
         </Providers>
       </body>

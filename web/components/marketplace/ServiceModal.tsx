@@ -83,7 +83,6 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
       console.error('Failed to fetch payment instructions:', error);
       setErrorMessage(error.message || 'Failed to fetch payment details');
       setPurchaseState('error');
-      soundManager.playError?.();
     }
   };
 
@@ -161,13 +160,12 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
 
       setServiceResult(submitResult.result);
       setPurchaseState('success');
-      soundManager.playSuccess?.();
+      soundManager.playSuccessChord();
 
     } catch (error: any) {
       console.error('Purchase failed:', error);
       setErrorMessage(error.message || 'Transaction failed');
       setPurchaseState('error');
-      soundManager.playError?.();
     }
   };
 

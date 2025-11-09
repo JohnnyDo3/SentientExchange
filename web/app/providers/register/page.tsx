@@ -102,7 +102,6 @@ export default function RegisterServicePage() {
     } catch (error: any) {
       console.error('Failed to register service:', error);
       alert(`Failed to register service: ${error.message || 'Please try again.'}`);
-      soundManager.playError?.();
     } finally {
       setIsSubmitting(false);
     }
