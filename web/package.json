@@ -26,7 +26,7 @@
     "@solana/wallet-adapter-solflare": "^0.6.31",
     "@solana/wallet-adapter-torus": "^0.11.32",
     "@solana/web3.js": "^1.98.4",
-    "@tanstack/react-query": "^5.90.5",
+    "@tanstack/react-query": "^5.90.7",
     "@types/mdx": "^2.0.13",
     "bs58": "^6.0.0",
     "class-variance-authority": "^0.7.0",
@@ -34,7 +34,7 @@
     "framer-motion": "^11.2.6",
     "gray-matter": "^4.0.3",
     "gsap": "^3.12.5",
-    "lucide-react": "^0.379.0",
+    "lucide-react": "^0.553.0",
     "next": "^14.2.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -46,7 +46,7 @@
     "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.7.5",
     "tailwind-merge": "^2.3.0",
-    "three": "^0.164.1",
+    "three": "^0.181.1",
     "tone": "^15.0.4"
   },
   "devDependencies": {
