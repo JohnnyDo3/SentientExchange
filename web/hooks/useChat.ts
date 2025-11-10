@@ -152,17 +152,18 @@ export function useChat() {
             // Update streaming assistant message
             setMessages(prev => {
               const lastMsg = prev[prev.length - 1];
+              const token = data.data?.token || '';
               if (lastMsg?.role === 'assistant' && lastMsg.isStreaming) {
                 return [
                   ...prev.slice(0, -1),
-                  { ...lastMsg, content: lastMsg.content + data.token }
+                  { ...lastMsg, content: lastMsg.content + token }
                 ];
               } else {
                 return [
                   ...prev,
                   {
                     role: 'assistant',
-                    content: data.token,
+                    content: token,
                     timestamp: new Date().toLocaleTimeString(),
                     isStreaming: true
                   }

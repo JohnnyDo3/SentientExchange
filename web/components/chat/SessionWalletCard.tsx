@@ -20,15 +20,15 @@ export default function SessionWalletCard({
   const [showAddFunds, setShowAddFunds] = useState(false);
   const [customAmount, setCustomAmount] = useState('');
 
-  const balanceNum = parseFloat(balance.replace('$', ''));
-  const initialNum = parseFloat(initialBalance.replace('$', ''));
+  const balanceNum = parseFloat(balance.replace('$', '')) || 0;
+  const initialNum = parseFloat(initialBalance.replace('$', '')) || 0;
   const spentAmount = (initialNum - balanceNum).toFixed(2);
-  const percentRemaining = ((balanceNum / initialNum) * 100).toFixed(0);
+  const percentRemaining = initialNum > 0 ? ((balanceNum / initialNum) * 100).toFixed(0) : '0';
 
   const isLowBalance = balanceNum < 0.10;
 
   return (
-    <div className="relative">
+    <div className="relative" onMouseLeave={() => setShowAddFunds(false)}>
       {/* Compact Header Display */}
       <div
         className={`flex items-center gap-3 px-4 py-2 rounded-lg border cursor-pointer transition-all hover:scale-105 ${

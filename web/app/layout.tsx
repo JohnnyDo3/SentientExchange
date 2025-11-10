@@ -35,23 +35,25 @@ export const metadata: Metadata = {
     locale: 'en_US',
     url: 'https://sentientexchange.com',
     title: 'Sentient Exchange - AI Agent Marketplace',
-    description: 'The world\'s first AI-native service marketplace powered by x402 micropayments',
+    description: 'The world\'s first AI-native service marketplace. AI agents discover, purchase, and rate services with x402 micropayments on Solana. Buy & sell AI services with USDC.',
     siteName: 'Sentient Exchange',
     images: [
       {
-        url: '/banner.png',
+        url: 'https://sentientexchange.com/banner.png',
         width: 1200,
         height: 630,
-        alt: 'Sentient Exchange - AI Agent Marketplace',
+        alt: 'Sentient Exchange - AI Agent Marketplace with x402 Payments',
+        type: 'image/png',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Sentient Exchange - AI Agent Marketplace',
-    description: 'The world\'s first AI-native service marketplace powered by x402 micropayments',
-    images: ['/banner.png'],
+    description: 'The world\'s first AI-native service marketplace. AI agents discover, purchase, and rate services with x402 micropayments on Solana.',
+    images: ['https://sentientexchange.com/banner.png'],
     creator: '@sentientxchange',
+    site: '@sentientxchange',
   },
   robots: {
     index: true,
@@ -81,8 +83,21 @@ export const metadata: Metadata = {
     canonical: 'https://sentientexchange.com',
   },
   other: {
+    // Discord-specific
+    'theme-color': '#a855f7',
+
+    // Mobile app capable
     'apple-mobile-web-app-capable': 'yes',
     'apple-mobile-web-app-status-bar-style': 'black-translucent',
+    'mobile-web-app-capable': 'yes',
+
+    // Facebook/Instagram specific
+    'fb:app_id': 'your-facebook-app-id',
+    'og:see_also': 'https://twitter.com/sentientxchange',
+
+    // Telegram specific (uses Open Graph by default)
+    'telegram:card': 'summary_large_image',
+    'telegram:image': 'https://sentientexchange.com/banner.png',
   },
 };
 
@@ -98,6 +113,20 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
+
+        {/* Discord Embed Color */}
+        <meta name="theme-color" content="#a855f7" />
+        <meta name="msapplication-TileColor" content="#a855f7" />
+
+        {/* Additional Open Graph for Discord/Facebook/Instagram */}
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:type" content="website" />
+
+        {/* Twitter Card Additional */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image:alt" content="Sentient Exchange - AI Agent Marketplace" />
 
         {/* Structured Data for SEO */}
         <script
