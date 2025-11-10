@@ -96,6 +96,150 @@ export class ChatOrchestrator {
 
       const toolCalls: ToolCall[] = [];
 
+      // Detect multi-service pipelines (search → sentiment)
+      const hasWebSearch = intent.serviceType.includes('web-search');
+      const hasSentiment = intent.serviceType.includes('sentiment-analysis');
+      let searchResults: any = null;
+
+      // Handle search → sentiment pipeline intelligently
+      if (hasWebSearch && hasSentiment) {
+        // Execute search first
+        const extractedQuery = QueryExtractor.extractSearchQuery(userMessage);
+
+        yield {
+          type: 'service_status',
+          data: {
+            serviceName: 'Web Search',
+            status: 'executing',
+            icon: '🔍',
+            message: 'Searching the web...',
+          },
+        };
+
+        try {
+          let result = await this.searchClient.search(extractedQuery, {
+            count: 5,
+          });
+
+          // Smart retry if no results
+          if (result.results.length === 0) {
+            yield {
+              type: 'service_status',
+              data: {
+                serviceName: 'Web Search',
+                status: 'retrying',
+                icon: '🔄',
+                message: 'No results found, trying refined query...',
+              },
+            };
+
+            const refinedQuery =
+              QueryExtractor.refineSearchQuery(extractedQuery);
+            result = await this.searchClient.search(refinedQuery, {
+              count: 5,
+            });
+          }
+
+          searchResults = result;
+
+          yield {
+            type: 'service_status',
+            data: {
+              serviceName: 'Web Search',
+              status: 'completed',
+              icon: '✅',
+              message: `Found ${result.results.length} results`,
+              cost: result.apiCallCost,
+            },
+          };
+
+          toolCalls.push({
+            tool: 'web-search',
+            arguments: { query: extractedQuery },
+            result,
+            cost: result.apiCallCost,
+            status: 'completed',
+            startTime: Date.now(),
+            endTime: Date.now(),
+          });
+
+          // Now analyze sentiment of search results
+          if (result.results.length > 0) {
+            yield {
+              type: 'service_status',
+              data: {
+                serviceName: 'Sentiment Analysis',
+                status: 'executing',
+                icon: '📊',
+                message: 'Analyzing sentiment of results...',
+              },
+            };
+
+            // Combine search results into text for sentiment
+            const searchText = result.results
+              .slice(0, 5)
+              .map((r: any) => `${r.title}: ${r.description}`)
+              .join('\n\n');
+
+            // Execute sentiment analysis
+            const sentimentResult =
+              await this.executeSentimentService(searchText);
+
+            yield {
+              type: 'service_status',
+              data: {
+                serviceName: 'Sentiment Analysis',
+                status: 'completed',
+                icon: '✅',
+                message: 'Sentiment analysis complete',
+                cost: '$0.01',
+              },
+            };
+
+            toolCalls.push({
+              tool: 'sentiment-analysis',
+              arguments: { text: searchText },
+              result: sentimentResult,
+              cost: '$0.01',
+              status: 'completed',
+              startTime: Date.now(),
+              endTime: Date.now(),
+            });
+          }
+        } catch (error: any) {
+          logger.error('Multi-service pipeline failed:', error.message);
+        }
+
+        // Skip individual processing for these services
+        const skipServices = new Set(['web-search', 'sentiment-analysis']);
+        const remainingServices = intent.serviceType.filter(
+          (s) => !skipServices.has(s)
+        );
+
+        // Format results and respond
+        if (toolCalls.length > 0) {
+          const responseStream = await this.aiEngine.formatServiceResponse(
+            userMessage,
+            toolCalls
+          );
+
+          let fullResponse = '';
+          for await (const token of responseStream) {
+            fullResponse += token;
+            yield { type: 'token', data: { token } };
+          }
+
+          await this.saveMessage(
+            sessionId,
+            'assistant',
+            fullResponse,
+            toolCalls
+          );
+          yield { type: 'done', data: {} };
+          return;
+        }
+      }
+
       for (const serviceType of intent.serviceType) {
         // Handle marketplace discovery
         if (serviceType === 'marketplace-discovery') {
@@ -499,6 +643,38 @@ export class ChatOrchestrator {
       }
     } catch (error: any) {
       logger.error(`Service execution failed:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Helper to execute sentiment analysis service
+   * Used in multi-service pipelines (e.g., search → sentiment)
+   */
+  private async executeSentimentService(text: string): Promise<any> {
+    try {
+      const axios = (await import('axios')).default;
+
+      const response = await axios.post(
+        'http://localhost:3333/api/ai/sentiment/analyze',
+        { text },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          validateStatus: () => true,
+        }
+      );
+
+      if (response.status === 200) {
+        logger.info('✓ Sentiment analysis completed successfully');
+        return response.data;
+      } else {
+        logger.error(`Sentiment analysis failed: ${response.status}`);
+        throw new Error(
+          `Sentiment service returned ${response.status}: ${response.data?.error || 'Unknown error'}`
+        );
+      }
+    } catch (error: any) {
+      logger.error('Sentiment analysis execution failed:', error.message);
       throw error;
     }
   }

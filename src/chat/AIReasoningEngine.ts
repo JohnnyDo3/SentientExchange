@@ -90,10 +90,34 @@ Respond in JSON format:
   "taskDescription": "simplified task for service" (if needed)
 }
 
-Examples:
-- "what services are available?" → {"needsService": true, "serviceType": ["marketplace-discovery"]}
-- "analyze this tweet's sentiment" → {"needsService": true, "serviceType": ["sentiment-analysis"]}
-- "search for latest AI news" → {"needsService": true, "serviceType": ["web-search"]}`;
+📚 **Examples (STUDY THESE CAREFULLY)**:
+
+**Single Service Requests:**
+- "what services are available?" → {"needsService": true, "serviceType": ["marketplace-discovery"], "reasoning": "User wants to browse marketplace"}
+- "analyze this tweet's sentiment: I love this!" → {"needsService": true, "serviceType": ["sentiment-analysis"], "taskDescription": "I love this!"}
+- "search for latest AI news" → {"needsService": true, "serviceType": ["web-search"], "taskDescription": "latest AI news"}
+- "what's the weather in NYC?" → {"needsService": true, "serviceType": ["web-search"], "taskDescription": "weather NYC"}
+- "get me this NYT article: https://nyt.com/..." → {"needsService": true, "serviceType": ["x402-fetch"], "taskDescription": "https://nyt.com/..."}
+
+**MULTI-SERVICE WORKFLOWS (These are the exciting ones!):**
+- "search for Tesla stock news and analyze sentiment" → {"needsService": true, "serviceType": ["web-search", "sentiment-analysis"], "reasoning": "Execute search first, then sentiment on results"}
+- "find recent reviews of iPhone 15 and tell me the overall sentiment" → {"needsService": true, "serviceType": ["web-search", "sentiment-analysis"]}
+- "look up Bitcoin news then analyze if it's positive or negative" → {"needsService": true, "serviceType": ["web-search", "sentiment-analysis"]}
+- "search Google for Twitter sentiment about Elon Musk" → {"needsService": true, "serviceType": ["web-search", "sentiment-analysis"]}
+- "what's the sentiment around climate change?" → {"needsService": true, "serviceType": ["web-search", "sentiment-analysis"], "reasoning": "Need to search first to get current discussions"}
+
+**Native Responses (NO services needed):**
+- "hello!" → {"needsService": false, "reasoning": "Simple greeting"}
+- "what is 2+2?" → {"needsService": false, "reasoning": "Math calculation"}
+- "explain quantum physics" → {"needsService": false, "reasoning": "General knowledge in training data"}
+- "write a Python function" → {"needsService": false, "reasoning": "Code generation"}
+- "summarize this short text: [100 words]" → {"needsService": false, "reasoning": "Native summarization is fine for short text"}
+
+**Edge Cases:**
+- "analyze sentiment of: https://nyt.com/article" → {"needsService": true, "serviceType": ["x402-fetch", "sentiment-analysis"], "reasoning": "Fetch paywalled content first, then analyze"}
+- "search for Tesla AND analyze this: Great company!" → {"needsService": true, "serviceType": ["web-search", "sentiment-analysis"], "reasoning": "Two separate tasks: search + analyze explicit text"}
+
+🎯 **KEY INSIGHT**: When user asks to search AND analyze, ALWAYS return BOTH service types: ["web-search", "sentiment-analysis"]`;
 
     const response = await this.anthropic.messages.create({
       model: this.model,
@@ -185,16 +209,57 @@ Be enthusiastic, helpful, and show off what makes Sentient Exchange special!`;
     userMessage: string,
     serviceResults: ToolCall[]
   ): Promise<AsyncIterable<string>> {
+    // Detect multi-service workflows for special formatting
+    const hasSearch = serviceResults.some(
+      (r) => r.tool.includes('search') || r.tool === 'web-search'
+    );
+    const hasSentiment = serviceResults.some((r) =>
+      r.tool.includes('sentiment')
+    );
+
     const resultsText = serviceResults
-      .map((r) => `Service: ${r.tool}\nResult: ${JSON.stringify(r.result)}`)
+      .map((r) => {
+        const result =
+          typeof r.result === 'object'
+            ? JSON.stringify(r.result, null, 2)
+            : r.result;
+        return `### ${r.tool}\n${result}`;
+      })
       .join('\n\n');
 
-    const prompt = `A user asked: "${userMessage}"
+    // Enhanced prompt with Sentient Exchange branding and multi-service awareness
+    const prompt = `You are powered by **Sentient Exchange** - the world's first AI-native service marketplace.
 
-I called marketplace services and got these results:
+USER REQUEST: "${userMessage}"
+
+SERVICES EXECUTED:
 ${resultsText}
 
-Please provide a natural, conversational response incorporating these results. Be concise but helpful.`;
+YOUR TASK:
+${
+  hasSearch && hasSentiment
+    ? `You executed a MULTI-SERVICE WORKFLOW (Search → Sentiment Analysis). This is next-level AI orchestration!
+
+1. **Summarize the search findings** - What did you discover?
+2. **Present the sentiment analysis** - What's the overall sentiment and why?
+3. **Synthesize insights** - Connect the dots between what you found and the sentiment
+4. **Professional + Hype tone** - Be confident and exciting (not cringe)
+
+Show off the power of Sentient Exchange's intelligent service orchestration!`
+    : hasSearch
+      ? `You executed a **Web Search** via Sentient Exchange. Present the findings in a clear, structured way with key insights.`
+      : hasSentiment
+        ? `You executed **Sentiment Analysis** via Sentient Exchange. Explain the sentiment score, breakdown, and what it means.`
+        : `Present the service results in a natural, conversational way. Highlight the value delivered by Sentient Exchange.`
+}
+
+FORMATTING RULES:
+- Use **bold** for emphasis on key points
+- Use bullet points for lists
+- Be concise but comprehensive
+- Professional tone with a touch of excitement
+- ALWAYS mention you used Sentient Exchange services
+- NO cringe emojis or over-the-top language`;
 
     const stream = await this.anthropic.messages.create({
       model: this.model,
