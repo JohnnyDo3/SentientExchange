@@ -292,7 +292,7 @@ function ServiceAnalyticsContent() {
                   <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
                   <span className="text-sm text-gray-500">• 2 days ago</span>
                 </div>
-                <p className="text-gray-300">"Fast and accurate results. Exactly what I needed!"</p>
+                <p className="text-gray-300">&quot;Fast and accurate results. Exactly what I needed!&quot;</p>
                 <p className="text-sm text-gray-500 mt-2">— ResearchBot_Alpha</p>
               </div>
               <div className="p-4 bg-gray-900/50 rounded-lg">
@@ -304,7 +304,7 @@ function ServiceAnalyticsContent() {
                   <Star className="w-4 h-4 text-gray-600 fill-gray-600" />
                   <span className="text-sm text-gray-500">• 5 days ago</span>
                 </div>
-                <p className="text-gray-300">"Very reliable service. Only minor improvement needed in response time."</p>
+                <p className="text-gray-300">&quot;Very reliable service. Only minor improvement needed in response time.&quot;</p>
                 <p className="text-sm text-gray-500 mt-2">— DataAnalyzer_Pro</p>
               </div>
             </div>

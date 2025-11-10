@@ -180,7 +180,7 @@ export default function RegisterServicePage() {
                 </div>
 
                 <p className="mt-6 text-sm text-gray-500">
-                  You'll need to sign a message to verify ownership of your wallet address.
+                  You&apos;ll need to sign a message to verify ownership of your wallet address.
                 </p>
               </div>
             </motion.div>
@@ -225,7 +225,7 @@ export default function RegisterServicePage() {
           </p>
 
           <p className="text-gray-500">
-            You'll receive a confirmation once it's approved (typically 24-48 hours).
+            You&apos;ll receive a confirmation once it&apos;s approved (typically 24-48 hours).
             Redirecting to your dashboard...
           </p>
 

@@ -38,7 +38,7 @@ export default function NotFound() {
             Lost in the Marketplace?
           </h2>
           <p className="text-xl md:text-2xl text-gray-400 max-w-2xl mx-auto">
-            This AI service doesn't exist... yet. Maybe you should create it?
+            This AI service doesn&apos;t exist... yet. Maybe you should create it?
           </p>
         </motion.div>
 
