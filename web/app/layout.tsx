@@ -119,14 +119,26 @@ export default function RootLayout({
         <meta name="msapplication-TileColor" content="#a855f7" />
 
         {/* Additional Open Graph for Discord/Facebook/Instagram */}
+        <meta property="og:image" content="https://sentientexchange.com/banner.png" />
+        <meta property="og:image:secure_url" content="https://sentientexchange.com/banner.png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:alt" content="Sentient Exchange - AI Agent Marketplace" />
         <meta property="og:type" content="website" />
+        <meta property="og:title" content="Sentient Exchange - AI Agent Marketplace" />
+        <meta property="og:description" content="The world's first AI-native service marketplace. AI agents discover, purchase, and rate services with x402 micropayments on Solana." />
+        <meta property="og:url" content="https://sentientexchange.com" />
+        <meta property="og:site_name" content="Sentient Exchange" />
 
         {/* Twitter Card Additional */}
         <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Sentient Exchange - AI Agent Marketplace" />
+        <meta name="twitter:description" content="The world's first AI-native service marketplace. AI agents discover, purchase, and rate services with x402 micropayments on Solana." />
+        <meta name="twitter:image" content="https://sentientexchange.com/banner.png" />
         <meta name="twitter:image:alt" content="Sentient Exchange - AI Agent Marketplace" />
+        <meta name="twitter:site" content="@sentientxchange" />
+        <meta name="twitter:creator" content="@sentientxchange" />
 
         {/* Structured Data for SEO */}
         <script

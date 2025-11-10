@@ -142,7 +142,7 @@ export function useChat() {
 
     try {
       // Send to API and handle streaming response
-      const eventSource = chatAPI.streamMessage(session.id, content);
+      const eventSource = await chatAPI.streamMessage(session.id, content);
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);

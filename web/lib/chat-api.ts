@@ -8,16 +8,17 @@ export const chatAPI = {
     return res.json();
   },
 
-  streamMessage(sessionId: string, message: string) {
-    const url = `/api/chat/stream?sessionId=${sessionId}`;
-    const eventSource = new EventSource(url);
-
-    // Send the message via POST first
-    fetch('/api/chat/message', {
+  async streamMessage(sessionId: string, message: string) {
+    // Send the message via POST first and wait for it to be saved
+    await fetch('/api/chat/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, message })
     });
+
+    // Now open the stream (message is guaranteed to be in DB)
+    const url = `/api/chat/stream?sessionId=${sessionId}`;
+    const eventSource = new EventSource(url);
 
     return eventSource;
   },
