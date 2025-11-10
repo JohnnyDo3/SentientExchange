@@ -184,6 +184,89 @@ export class ServiceRegistry {
   }
 
   /**
+   * Semantic search: match services by natural language query
+   * Searches across capabilities, name, and description with fuzzy matching
+   */
+  async searchServicesSemantic(
+    naturalLanguageQuery: string,
+    options?: { maxResults?: number; minScore?: number }
+  ): Promise<
+    Array<{ service: Service; score: number; matchedFields: string[] }>
+  > {
+    const query = naturalLanguageQuery.toLowerCase();
+    const results: Array<{
+      service: Service;
+      score: number;
+      matchedFields: string[];
+    }> = [];
+
+    for (const service of this.cache.values()) {
+      let score = 0;
+      const matchedFields: string[] = [];
+
+      // 1. Capability matching (highest weight)
+      for (const capability of service.capabilities) {
+        const capLower = capability.toLowerCase().replace(/-/g, ' ');
+        if (query.includes(capLower)) {
+          score += 50;
+          matchedFields.push(`capability:${capability}`);
+        } else {
+          // Partial match
+          const capWords = capLower.split(' ');
+          const matchedWords = capWords.filter((word) => query.includes(word));
+          if (matchedWords.length > 0) {
+            score += 25 * (matchedWords.length / capWords.length);
+            matchedFields.push(`capability:${capability}(partial)`);
+          }
+        }
+      }
+
+      // 2. Name matching
+      const nameLower = service.name.toLowerCase();
+      if (query.includes(nameLower)) {
+        score += 30;
+        matchedFields.push('name');
+      } else {
+        const nameWords = nameLower.split(' ');
+        const matchedWords = nameWords.filter((word) => query.includes(word));
+        if (matchedWords.length > 0) {
+          score += 15 * (matchedWords.length / nameWords.length);
+          matchedFields.push('name(partial)');
+        }
+      }
+
+      // 3. Description keyword matching
+      const descLower = service.description.toLowerCase();
+      const queryWords = query.split(' ').filter((w) => w.length > 3);
+      const matchedDescWords = queryWords.filter((word) =>
+        descLower.includes(word)
+      );
+      if (matchedDescWords.length > 0) {
+        score += 20 * (matchedDescWords.length / queryWords.length);
+        matchedFields.push('description');
+      }
+
+      if (score > 0) {
+        results.push({
+          service,
+          score: Math.round(score),
+          matchedFields,
+        });
+      }
+    }
+
+    // Sort by score (highest first)
+    results.sort((a, b) => b.score - a.score);
+
+    // Apply filters
+    const minScore = options?.minScore || 10;
+    const filtered = results.filter((r) => r.score >= minScore);
+
+    const maxResults = options?.maxResults || filtered.length;
+    return filtered.slice(0, maxResults);
+  }
+
+  /**
    * Update an existing service
    */
   async updateService(

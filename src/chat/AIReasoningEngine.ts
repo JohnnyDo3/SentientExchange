@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ServiceIntent, ToolCall } from './types';
+import type { Service } from '../types/service.js';
 
 export class AIReasoningEngine {
   private anthropic: Anthropic;
@@ -11,11 +12,16 @@ export class AIReasoningEngine {
 
   /**
    * Analyze user message and decide if marketplace services are needed
+   * Now supports dynamic service catalog from the registry
    */
   async analyzeIntent(
     userMessage: string,
-    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>,
+    availableServices?: Service[]
   ): Promise<ServiceIntent> {
+    // Build dynamic service catalog section
+    const serviceCatalog = this.buildServiceCatalog(availableServices || []);
+
     const systemPrompt = `You are an AI assistant with SUPERPOWERS integrated with Sentient Exchange.
 
 🌟 YOUR CAPABILITIES:
@@ -40,10 +46,7 @@ export class AIReasoningEngine {
 - ALWAYS performs health check before payment (never pays for broken services)
 - Shows full transparency: "Paid $0.25 to NYT for article"
 
-📦 **Available marketplace services**:
-- **Sentiment Analyzer** ($0.01): Advanced sentiment with sarcasm detection, Gen-Z slang, PhD psycholinguistics
-- **Image Analyzer** ($0.02): Computer vision with Claude Vision API - object detection, OCR, face detection
-- **Text Summarizer** ($0.015): Executive-grade summarization with multiple formats, key points, topic tags
+${serviceCatalog}
 
 🎯 **Decision Framework**:
 
@@ -270,6 +273,34 @@ FORMATTING RULES:
     });
 
     return this.streamToAsyncIterable(stream);
+  }
+
+  /**
+   * Build dynamic service catalog from available services
+   */
+  private buildServiceCatalog(services: Service[]): string {
+    if (services.length === 0) {
+      return `📦 **Available marketplace services**: Currently none registered (marketplace is empty)`;
+    }
+
+    const serviceList = services
+      .map((service) => {
+        const capabilities = service.capabilities.slice(0, 5).join(', ');
+        const price =
+          service.pricing.perRequest || service.pricing.amount || '$0.00';
+        const rating = service.reputation.rating.toFixed(1);
+        return `- **${service.name}** (${price}, ⭐${rating}/5): ${service.description.substring(0, 100)}...\n  Capabilities: ${capabilities}`;
+      })
+      .join('\n');
+
+    return `📦 **Available marketplace services** (${services.length} services):
+${serviceList}
+
+**IMPORTANT**: When matching user intent to services:
+1. Check if user query matches ANY service capabilities listed above
+2. Use the exact capability names (e.g., "sentiment-analysis", "image-classification")
+3. You can combine multiple services for complex tasks (e.g., ["web-search", "sentiment-analysis"])
+4. Always include the full capability name in serviceType array`;
   }
 
   private async *streamToAsyncIterable(stream: any): AsyncIterable<string> {

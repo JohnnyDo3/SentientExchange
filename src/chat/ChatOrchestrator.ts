@@ -1,6 +1,7 @@
 import { AIReasoningEngine } from './AIReasoningEngine.js';
 import { PatternMatcher } from './PatternMatcher.js';
 import { QueryExtractor } from './QueryExtractor.js';
+import { DynamicServiceMatcher } from './DynamicServiceMatcher.js';
 import { ServiceRegistry } from '../registry/ServiceRegistry.js';
 import { Database } from '../registry/database.js';
 import type { ChatMessage, ChatSession, ToolCall } from './types.js';
@@ -18,6 +19,7 @@ export class ChatOrchestrator {
   private searchClient: BraveSearchClient;
   private x402Client: UniversalX402Client;
   private spendingLimitManager: SpendingLimitManager;
+  private serviceMatcher: DynamicServiceMatcher;
 
   constructor(
     anthropicApiKey: string,
@@ -29,6 +31,9 @@ export class ChatOrchestrator {
     this.registry = registry;
     this.db = db;
     this.spendingLimitManager = spendingLimitManager;
+
+    // Initialize dynamic service matcher
+    this.serviceMatcher = new DynamicServiceMatcher(registry);
 
     // Initialize search client
     this.searchClient = new BraveSearchClient();
@@ -45,7 +50,7 @@ export class ChatOrchestrator {
     );
 
     logger.info(
-      'ChatOrchestrator initialized with web search + x402 autopay superpowers'
+      'ChatOrchestrator initialized with dynamic service discovery + web search + x402 autopay'
     );
   }
 
@@ -62,25 +67,52 @@ export class ChatOrchestrator {
     // Save user message
     await this.saveMessage(sessionId, 'user', userMessage);
 
-    // Analyze intent (try pattern matching first for instant detection)
+    // Analyze intent with new dynamic service discovery flow
     yield { type: 'thinking', data: {} };
 
-    // Try pattern matching first (instant, <1ms)
+    // Step 1: Try pattern matching first (instant, <1ms) - only non-service patterns
     const patternIntent = PatternMatcher.detectIntent(userMessage);
 
-    // Fall back to AI analysis if no pattern matched
-    const intent =
-      patternIntent ||
-      (await this.aiEngine.analyzeIntent(
-        userMessage,
-        history.map((m) => ({ role: m.role, content: m.content }))
-      ));
-
-    // Log which method was used for transparency
+    let intent;
     if (patternIntent) {
+      // Pattern matched (conversation or built-in feature)
+      intent = patternIntent;
       logger.info(`✓ Pattern match: ${patternIntent.reasoning} (instant)`);
     } else {
-      logger.info(`AI analysis: ${intent.reasoning} (1-2s)`);
+      // Step 2: Try dynamic service matching
+      const serviceMatches =
+        await this.serviceMatcher.matchServices(userMessage);
+
+      if (serviceMatches.length > 0) {
+        // Found matching services dynamically!
+        const topMatches = serviceMatches.slice(0, 3);
+        const serviceTypes = topMatches.map(
+          (m) => m.matchedCapabilities[0] || m.serviceId
+        );
+
+        intent = {
+          needsService: true,
+          reasoning: `Dynamic service match: Found ${serviceMatches.length} matching services (${topMatches.map((m) => m.serviceName).join(', ')})`,
+          serviceType: [...new Set(serviceTypes)], // Remove duplicates
+          taskDescription: userMessage,
+        };
+
+        logger.info(
+          `✓ Dynamic service match: ${serviceMatches.length} services found (instant)`
+        );
+      } else {
+        // Step 3: Fall back to AI analysis with full service catalog
+        const allServices = await this.serviceMatcher.getAllServices();
+        intent = await this.aiEngine.analyzeIntent(
+          userMessage,
+          history.map((m) => ({ role: m.role, content: m.content })),
+          allServices
+        );
+
+        logger.info(
+          `AI analysis with service catalog: ${intent.reasoning} (1-2s)`
+        );
+      }
     }
 
     if (intent.needsService && intent.serviceType) {

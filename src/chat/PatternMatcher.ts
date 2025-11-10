@@ -1,56 +1,23 @@
 import type { ServiceIntent } from './types.js';
 
 /**
- * Fast pattern-based intent detection
+ * Fast pattern-based intent detection for NON-SERVICE patterns only
+ * Service patterns are now handled by DynamicServiceMatcher
  * Runs in <1ms vs AI analysis which takes 1-2 seconds
  */
 export class PatternMatcher {
   /**
    * Try to detect intent using pattern matching
-   * Returns null if no pattern matches (fallback to AI)
+   * Returns null if no pattern matches (fallback to DynamicServiceMatcher + AI)
+   *
+   * NOTE: This only handles:
+   * - Conversations (greetings, simple questions)
+   * - Built-in features (marketplace-discovery, x402-fetch)
+   *
+   * All marketplace services are now dynamically discovered!
    */
   static detectIntent(message: string): ServiceIntent | null {
     const lowerMessage = message.toLowerCase().trim();
-
-    // Marketplace discovery patterns
-    if (this.matchesMarketplaceDiscovery(lowerMessage)) {
-      return {
-        needsService: true,
-        reasoning: 'Pattern matched: marketplace discovery request',
-        serviceType: ['marketplace-discovery'],
-        taskDescription: 'List available marketplace services',
-      };
-    }
-
-    // Web search patterns
-    if (this.matchesWebSearch(lowerMessage)) {
-      return {
-        needsService: true,
-        reasoning: 'Pattern matched: web search request',
-        serviceType: ['web-search'],
-        taskDescription: message,
-      };
-    }
-
-    // Sentiment analysis patterns
-    if (this.matchesSentiment(lowerMessage)) {
-      return {
-        needsService: true,
-        reasoning: 'Pattern matched: sentiment analysis request',
-        serviceType: ['sentiment-analysis'],
-        taskDescription: message,
-      };
-    }
-
-    // x402 fetch patterns
-    if (this.matchesX402Fetch(lowerMessage)) {
-      return {
-        needsService: true,
-        reasoning: 'Pattern matched: x402 content fetch request',
-        serviceType: ['x402-fetch'],
-        taskDescription: message,
-      };
-    }
 
     // Conversation patterns (skip AI entirely)
     if (this.isConversation(lowerMessage)) {
@@ -60,7 +27,27 @@ export class PatternMatcher {
       };
     }
 
-    // No pattern matched - use AI
+    // Marketplace discovery patterns (built-in feature)
+    if (this.matchesMarketplaceDiscovery(lowerMessage)) {
+      return {
+        needsService: true,
+        reasoning: 'Pattern matched: marketplace discovery request',
+        serviceType: ['marketplace-discovery'],
+        taskDescription: 'List available marketplace services',
+      };
+    }
+
+    // x402 fetch patterns (built-in feature for paywalled content)
+    if (this.matchesX402Fetch(lowerMessage)) {
+      return {
+        needsService: true,
+        reasoning: 'Pattern matched: x402 content fetch request',
+        serviceType: ['x402-fetch'],
+        taskDescription: message,
+      };
+    }
+
+    // No pattern matched - use DynamicServiceMatcher + AI
     return null;
   }
 
@@ -72,29 +59,6 @@ export class PatternMatcher {
       /what can you do (beyond|besides)/i,
       /browse (the )?marketplace/i,
       /discover services/i,
-    ];
-    return patterns.some((p) => p.test(msg));
-  }
-
-  private static matchesWebSearch(msg: string): boolean {
-    const patterns = [
-      /search (for|the web|internet|online)/i,
-      /look up .+/i,
-      /find (the )?latest .+/i,
-      /what('s| is) (the )?(current|latest|recent)/i,
-      /google .+/i,
-      /web search/i,
-    ];
-    return patterns.some((p) => p.test(msg));
-  }
-
-  private static matchesSentiment(msg: string): boolean {
-    const patterns = [
-      /analyz(e|ing) (the )?sentiment/i,
-      /what('s| is) the sentiment (of|in)/i,
-      /(check|detect) sentiment/i,
-      /is this (positive|negative|neutral)/i,
-      /tone (of|in) (this|the)/i,
     ];
     return patterns.some((p) => p.test(msg));
   }
