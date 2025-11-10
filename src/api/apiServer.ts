@@ -1111,7 +1111,10 @@ app.get('/api/transactions/recent', async (req, res, next) => {
       amount: string;
       timestamp: string;
     }
-    const transactions = await db.all<TransactionRow>(query, ['completed', limit]);
+    const transactions = await db.all<TransactionRow>(query, [
+      'completed',
+      limit,
+    ]);
 
     res.json({
       success: true,
@@ -1581,7 +1584,7 @@ app.post('/api/chat/sessions', async (req, res, next) => {
         initialBalance,
         Date.now(),
         Date.now(),
-        JSON.stringify([])
+        JSON.stringify([]),
       ]
     );
 
@@ -1589,7 +1592,7 @@ app.post('/api/chat/sessions', async (req, res, next) => {
       id: sessionId,
       pdaAddress,
       balance: initialBalance,
-      initialBalance
+      initialBalance,
     });
 
     logger.info(`✓ Chat session created: ${sessionId}`);
@@ -1619,10 +1622,10 @@ app.post('/api/chat/message', async (req, res, next) => {
     );
 
     // Update last activity
-    await db.run(
-      `UPDATE chat_sessions SET last_activity = ? WHERE id = ?`,
-      [timestamp, sessionId]
-    );
+    await db.run(`UPDATE chat_sessions SET last_activity = ? WHERE id = ?`, [
+      timestamp,
+      sessionId,
+    ]);
 
     res.json({ success: true });
 
@@ -1654,21 +1657,33 @@ app.get('/api/chat/stream', async (req, res) => {
     );
 
     if (!lastMessage) {
-      res.write(`data: ${JSON.stringify({ type: 'error', error: 'No message found' })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({ type: 'error', error: 'No message found' })}\n\n`
+      );
       res.end();
       return;
     }
 
     // Process message and stream events
-    const eventStream = chatOrchestrator.processMessage(sessionId, lastMessage.content);
+    const eventStream = chatOrchestrator.processMessage(
+      sessionId,
+      lastMessage.content
+    );
 
     for await (const event of eventStream) {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
+      // Force immediate send (no buffering) - flush exists on Node.js ServerResponse
+      const flushable = res as any;
+      if (typeof flushable.flush === 'function') {
+        flushable.flush();
+      }
     }
 
     res.end();
   } catch (error: any) {
-    res.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`);
+    res.write(
+      `data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`
+    );
     res.end();
   }
 });
@@ -1694,7 +1709,9 @@ app.post('/api/chat/fund', async (req, res, next) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    const newBalance = (parseFloat(session.current_balance) + amount).toFixed(2);
+    const newBalance = (parseFloat(session.current_balance) + amount).toFixed(
+      2
+    );
 
     await db.run(
       `UPDATE chat_sessions SET current_balance = ?, last_activity = ? WHERE id = ?`,
@@ -1704,7 +1721,7 @@ app.post('/api/chat/fund', async (req, res, next) => {
     res.json({
       id: sessionId,
       balance: newBalance,
-      initialBalance: session.initial_balance
+      initialBalance: session.initial_balance,
     });
 
     logger.info(`✓ Funds added to session ${sessionId}: +$${amount}`);
@@ -1727,13 +1744,13 @@ app.get('/api/chat/history/:sessionId', async (req, res, next) => {
 
     res.json({
       sessionId,
-      messages: messages.map(m => ({
+      messages: messages.map((m) => ({
         id: m.id,
         role: m.role,
         content: m.content,
         timestamp: m.timestamp,
-        toolCalls: m.tool_calls ? JSON.parse(m.tool_calls) : []
-      }))
+        toolCalls: m.tool_calls ? JSON.parse(m.tool_calls) : [],
+      })),
     });
   } catch (error: unknown) {
     next(error);

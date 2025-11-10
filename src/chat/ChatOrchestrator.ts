@@ -1,4 +1,5 @@
 import { AIReasoningEngine } from './AIReasoningEngine.js';
+import { PatternMatcher } from './PatternMatcher.js';
 import { ServiceRegistry } from '../registry/ServiceRegistry.js';
 import { Database } from '../registry/database.js';
 import type { ChatMessage, ChatSession, ToolCall } from './types.js';
@@ -42,7 +43,9 @@ export class ChatOrchestrator {
       spendingLimitManager
     );
 
-    logger.info('ChatOrchestrator initialized with web search + x402 autopay superpowers');
+    logger.info(
+      'ChatOrchestrator initialized with web search + x402 autopay superpowers'
+    );
   }
 
   /**
@@ -58,13 +61,26 @@ export class ChatOrchestrator {
     // Save user message
     await this.saveMessage(sessionId, 'user', userMessage);
 
-    // Analyze intent
+    // Analyze intent (try pattern matching first for instant detection)
     yield { type: 'thinking', data: {} };
 
-    const intent = await this.aiEngine.analyzeIntent(
-      userMessage,
-      history.map(m => ({ role: m.role, content: m.content }))
-    );
+    // Try pattern matching first (instant, <1ms)
+    const patternIntent = PatternMatcher.detectIntent(userMessage);
+
+    // Fall back to AI analysis if no pattern matched
+    const intent =
+      patternIntent ||
+      (await this.aiEngine.analyzeIntent(
+        userMessage,
+        history.map((m) => ({ role: m.role, content: m.content }))
+      ));
+
+    // Log which method was used for transparency
+    if (patternIntent) {
+      logger.info(`✓ Pattern match: ${patternIntent.reasoning} (instant)`);
+    } else {
+      logger.info(`AI analysis: ${intent.reasoning} (1-2s)`);
+    }
 
     if (intent.needsService && intent.serviceType) {
       // Use marketplace services
@@ -73,13 +89,49 @@ export class ChatOrchestrator {
         data: {
           needsService: true,
           reasoning: intent.reasoning,
-          serviceTypes: intent.serviceType
-        }
+          serviceTypes: intent.serviceType,
+        },
       };
 
       const toolCalls: ToolCall[] = [];
 
       for (const serviceType of intent.serviceType) {
+        // Handle marketplace discovery
+        if (serviceType === 'marketplace-discovery') {
+          try {
+            const allServices = await this.registry.searchServices({});
+
+            const serviceList = allServices.map((s) => ({
+              name: s.name,
+              description: s.description,
+              price: s.pricing.perRequest,
+              rating: s.reputation.rating,
+              capabilities: s.capabilities.slice(0, 3),
+              endpoint: s.endpoint,
+            }));
+
+            toolCalls.push({
+              tool: 'marketplace-discovery',
+              arguments: {},
+              result: {
+                services: serviceList,
+                count: allServices.length,
+              },
+              cost: '$0.00',
+              status: 'completed',
+              startTime: Date.now(),
+              endTime: Date.now(),
+            });
+
+            logger.info(
+              `Discovered ${allServices.length} marketplace services`
+            );
+          } catch (error: any) {
+            logger.error('Marketplace discovery failed:', error.message);
+          }
+          continue;
+        }
+
         // Handle web search
         if (serviceType === 'web-search') {
           yield {
@@ -87,8 +139,8 @@ export class ChatOrchestrator {
             data: {
               query: intent.taskDescription || userMessage,
               status: 'pending',
-              startTime: new Date().toISOString()
-            }
+              startTime: new Date().toISOString(),
+            },
           };
 
           try {
@@ -105,8 +157,8 @@ export class ChatOrchestrator {
                 totalResults: searchResult.totalResults,
                 healthCheckPassed: searchResult.healthCheckPassed,
                 cost: searchResult.apiCallCost,
-                endTime: new Date().toISOString()
-              }
+                endTime: new Date().toISOString(),
+              },
             };
 
             toolCalls.push({
@@ -116,9 +168,8 @@ export class ChatOrchestrator {
               cost: searchResult.apiCallCost,
               status: 'completed',
               startTime: Date.now(),
-              endTime: Date.now()
+              endTime: Date.now(),
             });
-
           } catch (error: any) {
             logger.error('Web search failed:', error.message);
             yield {
@@ -126,8 +177,8 @@ export class ChatOrchestrator {
               data: {
                 error: error.message,
                 healthCheckPassed: false,
-                endTime: new Date().toISOString()
-              }
+                endTime: new Date().toISOString(),
+              },
             };
           }
           continue;
@@ -147,13 +198,13 @@ export class ChatOrchestrator {
             data: {
               url,
               status: 'checking_health',
-              startTime: new Date().toISOString()
-            }
+              startTime: new Date().toISOString(),
+            },
           };
 
           try {
             const fetchResult = await this.x402Client.fetchWithAutopay(url, {
-              autopayThreshold: '0.50' // TODO: Get from user settings
+              autopayThreshold: '0.50', // TODO: Get from user settings
             });
 
             if (fetchResult.needsUserApproval) {
@@ -163,8 +214,8 @@ export class ChatOrchestrator {
                   url,
                   amount: fetchResult.paymentAmount,
                   recipient: fetchResult.paymentRecipient,
-                  threshold: '0.50'
-                }
+                  threshold: '0.50',
+                },
               };
               continue;
             }
@@ -178,8 +229,8 @@ export class ChatOrchestrator {
                 amount: fetchResult.paymentAmount,
                 signature: fetchResult.paymentSignature,
                 healthCheckPassed: fetchResult.healthCheckPassed,
-                endTime: new Date().toISOString()
-              }
+                endTime: new Date().toISOString(),
+              },
             };
 
             toolCalls.push({
@@ -189,9 +240,8 @@ export class ChatOrchestrator {
               cost: fetchResult.paymentAmount || '$0.00',
               status: fetchResult.success ? 'completed' : 'failed',
               startTime: Date.now(),
-              endTime: Date.now()
+              endTime: Date.now(),
             });
-
           } catch (error: any) {
             logger.error('x402 fetch failed:', error.message);
             yield {
@@ -201,8 +251,8 @@ export class ChatOrchestrator {
                 success: false,
                 error: error.message,
                 healthCheckPassed: false,
-                endTime: new Date().toISOString()
-              }
+                endTime: new Date().toISOString(),
+              },
             };
           }
           continue;
@@ -215,12 +265,12 @@ export class ChatOrchestrator {
             serviceName: serviceType,
             status: 'pending',
             cost: '$0.00',
-            startTime: new Date().toISOString()
-          }
+            startTime: new Date().toISOString(),
+          },
         };
 
         const services = await this.registry.searchServices({
-          capabilities: [serviceType]
+          capabilities: [serviceType],
         });
 
         if (services.length === 0) {
@@ -230,8 +280,8 @@ export class ChatOrchestrator {
               serviceName: serviceType,
               status: 'failed',
               error: 'No matching service found',
-              endTime: new Date().toISOString()
-            }
+              endTime: new Date().toISOString(),
+            },
           };
           continue;
         }
@@ -244,8 +294,9 @@ export class ChatOrchestrator {
           data: {
             serviceName: service.name,
             status: 'executing',
-            cost: service.pricing.perRequest || service.pricing.amount || '$0.00'
-          }
+            cost:
+              service.pricing.perRequest || service.pricing.amount || '$0.00',
+          },
         };
 
         try {
@@ -262,7 +313,7 @@ export class ChatOrchestrator {
             cost: service.pricing.perRequest,
             status: 'completed',
             startTime: Date.now(),
-            endTime: Date.now()
+            endTime: Date.now(),
           });
 
           yield {
@@ -271,17 +322,16 @@ export class ChatOrchestrator {
               serviceName: service.name,
               status: 'completed',
               result: JSON.stringify(result),
-              endTime: new Date().toISOString()
-            }
+              endTime: new Date().toISOString(),
+            },
           };
 
           // Update session balance
           const session = await this.getSession(sessionId);
           yield {
             type: 'balance_update',
-            data: { balance: session.currentBalance }
+            data: { balance: session.currentBalance },
           };
-
         } catch (error: any) {
           yield {
             type: 'service_call',
@@ -289,8 +339,8 @@ export class ChatOrchestrator {
               serviceName: service.name,
               status: 'failed',
               error: error.message,
-              endTime: new Date().toISOString()
-            }
+              endTime: new Date().toISOString(),
+            },
           };
         }
       }
@@ -309,20 +359,19 @@ export class ChatOrchestrator {
 
       // Save assistant message
       await this.saveMessage(sessionId, 'assistant', fullResponse, toolCalls);
-
     } else {
       // Native response
       yield {
         type: 'intent',
         data: {
           needsService: false,
-          reasoning: intent.reasoning
-        }
+          reasoning: intent.reasoning,
+        },
       };
 
       const responseStream = await this.aiEngine.generateNativeResponse(
         userMessage,
-        history.map(m => ({ role: m.role, content: m.content }))
+        history.map((m) => ({ role: m.role, content: m.content }))
       );
 
       let fullResponse = '';
@@ -382,7 +431,7 @@ export class ChatOrchestrator {
             'Content-Type': 'application/json',
           },
           // Skip x402 auth for internal calls
-          validateStatus: () => true
+          validateStatus: () => true,
         }
       );
 
@@ -391,7 +440,9 @@ export class ChatOrchestrator {
         return response.data;
       } else {
         logger.error(`Service ${service.name} failed: ${response.status}`);
-        throw new Error(`Service returned ${response.status}: ${response.data?.error || 'Unknown error'}`);
+        throw new Error(
+          `Service returned ${response.status}: ${response.data?.error || 'Unknown error'}`
+        );
       }
     } catch (error: any) {
       logger.error(`Service execution failed:`, error.message);
@@ -399,19 +450,21 @@ export class ChatOrchestrator {
     }
   }
 
-  private async loadConversationHistory(sessionId: string): Promise<ChatMessage[]> {
+  private async loadConversationHistory(
+    sessionId: string
+  ): Promise<ChatMessage[]> {
     const rows = await this.db.all<any>(
       `SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC`,
       [sessionId]
     );
 
-    return rows.map(row => ({
+    return rows.map((row) => ({
       id: row.id,
       sessionId: row.session_id,
       role: row.role,
       content: row.content,
       timestamp: row.timestamp,
-      toolCalls: row.tool_calls ? JSON.parse(row.tool_calls) : undefined
+      toolCalls: row.tool_calls ? JSON.parse(row.tool_calls) : undefined,
     }));
   }
 
@@ -430,7 +483,7 @@ export class ChatOrchestrator {
         role,
         content,
         toolCalls ? JSON.stringify(toolCalls) : null,
-        Date.now()
+        Date.now(),
       ]
     );
   }
@@ -451,7 +504,7 @@ export class ChatOrchestrator {
       currentBalance: row.current_balance,
       createdAt: row.created_at,
       lastActivity: row.last_activity,
-      nonceAccounts: row.nonce_accounts ? JSON.parse(row.nonce_accounts) : []
+      nonceAccounts: row.nonce_accounts ? JSON.parse(row.nonce_accounts) : [],
     };
   }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { chatAPI } from '@/lib/chat-api';
 
 export interface Message {
@@ -149,26 +150,28 @@ export function useChat() {
 
         switch (data.type) {
           case 'token':
-            // Update streaming assistant message
-            setMessages(prev => {
-              const lastMsg = prev[prev.length - 1];
-              const token = data.data?.token || '';
-              if (lastMsg?.role === 'assistant' && lastMsg.isStreaming) {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...lastMsg, content: lastMsg.content + token }
-                ];
-              } else {
-                return [
-                  ...prev,
-                  {
-                    role: 'assistant',
-                    content: token,
-                    timestamp: new Date().toLocaleTimeString(),
-                    isStreaming: true
-                  }
-                ];
-              }
+            // Update streaming assistant message (force immediate render)
+            flushSync(() => {
+              setMessages(prev => {
+                const lastMsg = prev[prev.length - 1];
+                const token = data.data?.token || '';
+                if (lastMsg?.role === 'assistant' && lastMsg.isStreaming) {
+                  return [
+                    ...prev.slice(0, -1),
+                    { ...lastMsg, content: lastMsg.content + token }
+                  ];
+                } else {
+                  return [
+                    ...prev,
+                    {
+                      role: 'assistant',
+                      content: token,
+                      timestamp: new Date().toLocaleTimeString(),
+                      isStreaming: true
+                    }
+                  ];
+                }
+              });
             });
             break;
 

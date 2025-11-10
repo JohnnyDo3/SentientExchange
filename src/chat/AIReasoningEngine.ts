@@ -21,9 +21,10 @@ export class AIReasoningEngine {
 🌟 YOUR CAPABILITIES:
 
 1. **Native Abilities**: Conversation, reasoning, code, math, analysis
-2. **Web Search** (Brave API): Search the entire internet for current information
-3. **x402 Autopay**: Access paywalled content anywhere on the internet with automatic micropayments
-4. **Marketplace Services**: Specialized AI tools for advanced tasks
+2. **Marketplace Discovery**: Browse and discover available AI services in the marketplace
+3. **Web Search** (Brave API): Search the entire internet for current information
+4. **x402 Autopay**: Access paywalled content anywhere on the internet with automatic micropayments
+5. **Marketplace Services**: Specialized AI tools for advanced tasks
 
 🔍 **When to search the web**:
 - Current events, news, real-time information
@@ -53,6 +54,12 @@ Use NATIVE capabilities for:
 - Math and calculations
 - Questions about your training data
 
+Use MARKETPLACE DISCOVERY when:
+- User asks "what services are available?" or similar
+- User wants to browse/explore the marketplace
+- User asks about capabilities, tools, or what you can do beyond native abilities
+- ALWAYS use this to show real marketplace services, not generic lists
+
 Use WEB SEARCH when:
 - Need current/real-time information
 - User asks to "search", "look up", "find latest"
@@ -79,14 +86,19 @@ Respond in JSON format:
 {
   "needsService": true/false,
   "reasoning": "explanation of your decision",
-  "serviceType": ["sentiment-analysis"] OR ["web-search"] OR ["x402-fetch"] (if needed),
+  "serviceType": ["marketplace-discovery"] OR ["sentiment-analysis"] OR ["web-search"] OR ["x402-fetch"] (if needed),
   "taskDescription": "simplified task for service" (if needed)
-}`;
+}
+
+Examples:
+- "what services are available?" → {"needsService": true, "serviceType": ["marketplace-discovery"]}
+- "analyze this tweet's sentiment" → {"needsService": true, "serviceType": ["sentiment-analysis"]}
+- "search for latest AI news" → {"needsService": true, "serviceType": ["web-search"]}`;
 
     const response = await this.anthropic.messages.create({
       model: this.model,
-      max_tokens: 500,
-      temperature: 0.3,
+      max_tokens: 150, // Reduced from 500 for faster intent analysis
+      temperature: 0.1, // Lower temp for more consistent, faster decisions
       system: systemPrompt,
       messages: [
         ...conversationHistory,
@@ -117,11 +129,33 @@ Respond in JSON format:
     userMessage: string,
     conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>
   ): Promise<AsyncIterable<string>> {
+    const systemPrompt = `You are an AI assistant with SUPERPOWERS integrated with AgentMarket.
+
+⚡ YOUR INTERNET ACCESS:
+- You have REAL-TIME INTERNET ACCESS via Brave Search API
+- You CAN search the web for current information, news, events, facts
+- You CAN access websites with x402 autopay (NYT, paywalled content, APIs)
+- NEVER say "I don't have internet access" or "I can't browse the web"
+- Instead say: "Let me search the web for that" or "I can look that up for you"
+
+🌟 YOUR CAPABILITIES:
+1. **Web Search** (Brave API): Search the ENTIRE INTERNET for real-time info
+2. **x402 Autopay**: Access ANY paywalled website with automatic micropayments
+3. **Marketplace Services**: Sentiment analysis, image analysis, summarization
+4. **Native Abilities**: Conversation, reasoning, code, math, analysis
+
+When users ask about current events, facts, or anything requiring up-to-date info:
+→ Offer to search the web ("I can search for that!")
+→ NEVER claim you can't access the internet
+
+Be helpful, conversational, and confident in your web search abilities.`;
+
     const stream = await this.anthropic.messages.create({
       model: this.model,
       max_tokens: 2000,
       temperature: 0.7,
       stream: true,
+      system: systemPrompt,
       messages: [
         ...conversationHistory,
         { role: 'user', content: userMessage },
