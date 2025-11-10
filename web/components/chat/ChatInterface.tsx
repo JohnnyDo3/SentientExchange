@@ -4,12 +4,13 @@ import { useState, useEffect, useRef } from 'react';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import ServiceCallCard from './ServiceCallCard';
+import ServiceIndicator from './ServiceIndicator';
 import SearchResultCard from './SearchResultCard';
 import PaymentRequestCard from './PaymentRequestCard';
 import SessionWalletCard from './SessionWalletCard';
 import TypingIndicator from './TypingIndicator';
 import { useChat } from '@/hooks/useChat';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, Trash2, AlertCircle } from 'lucide-react';
 import Header from '@/components/ui/Header';
 
@@ -17,6 +18,7 @@ export default function ChatInterface() {
   const {
     messages,
     serviceCalls,
+    serviceStatuses,
     searchQueries,
     paymentRequests,
     session,
@@ -125,6 +127,22 @@ export default function ChatInterface() {
                     timestamp={msg.timestamp}
                     isStreaming={msg.isStreaming}
                   />
+
+                  {/* Show animated service status indicators */}
+                  <AnimatePresence>
+                    {serviceStatuses
+                      .filter(status => msg.isStreaming)
+                      .map((status, j) => (
+                        <ServiceIndicator
+                          key={`status-${j}`}
+                          serviceName={status.serviceName}
+                          status={status.status}
+                          icon={status.icon}
+                          message={status.message}
+                          cost={status.cost}
+                        />
+                      ))}
+                  </AnimatePresence>
 
                   {/* Show service calls after corresponding messages */}
                   {serviceCalls

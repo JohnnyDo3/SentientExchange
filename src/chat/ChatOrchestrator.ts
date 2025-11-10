@@ -1,5 +1,6 @@
 import { AIReasoningEngine } from './AIReasoningEngine.js';
 import { PatternMatcher } from './PatternMatcher.js';
+import { QueryExtractor } from './QueryExtractor.js';
 import { ServiceRegistry } from '../registry/ServiceRegistry.js';
 import { Database } from '../registry/database.js';
 import type { ChatMessage, ChatSession, ToolCall } from './types.js';
@@ -134,20 +135,63 @@ export class ChatOrchestrator {
 
         // Handle web search
         if (serviceType === 'web-search') {
+          // Extract clean search query
+          const extractedQuery = QueryExtractor.extractSearchQuery(userMessage);
+
           yield {
-            type: 'search_query',
+            type: 'service_status',
             data: {
-              query: intent.taskDescription || userMessage,
-              status: 'pending',
-              startTime: new Date().toISOString(),
+              serviceName: 'Web Search',
+              status: 'executing',
+              icon: '🔍',
+              message: 'Searching the web...',
             },
           };
 
           try {
-            const searchResult = await this.searchClient.search(
-              intent.taskDescription || userMessage,
-              { count: 5 }
-            );
+            let searchResult = await this.searchClient.search(extractedQuery, {
+              count: 5,
+            });
+
+            // Smart retry if no results
+            if (searchResult.results.length === 0) {
+              logger.info(
+                `No results for "${extractedQuery}", trying refined query...`
+              );
+
+              yield {
+                type: 'service_status',
+                data: {
+                  serviceName: 'Web Search',
+                  status: 'retrying',
+                  icon: '🔄',
+                  message: 'No results found, trying refined query...',
+                },
+              };
+
+              const refinedQuery =
+                QueryExtractor.refineSearchQuery(extractedQuery);
+              searchResult = await this.searchClient.search(refinedQuery, {
+                count: 5,
+              });
+
+              if (searchResult.results.length > 0) {
+                logger.info(
+                  `✓ Refined query "${refinedQuery}" found ${searchResult.results.length} results`
+                );
+              }
+            }
+
+            yield {
+              type: 'service_status',
+              data: {
+                serviceName: 'Web Search',
+                status: 'completed',
+                icon: '✅',
+                message: `Found ${searchResult.results.length} results`,
+                cost: searchResult.apiCallCost,
+              },
+            };
 
             yield {
               type: 'search_results',
@@ -163,7 +207,7 @@ export class ChatOrchestrator {
 
             toolCalls.push({
               tool: 'web-search',
-              arguments: { query: userMessage },
+              arguments: { query: extractedQuery },
               result: searchResult,
               cost: searchResult.apiCallCost,
               status: 'completed',
@@ -172,6 +216,15 @@ export class ChatOrchestrator {
             });
           } catch (error: any) {
             logger.error('Web search failed:', error.message);
+            yield {
+              type: 'service_status',
+              data: {
+                serviceName: 'Web Search',
+                status: 'failed',
+                icon: '❌',
+                message: 'Search failed - using AI knowledge instead',
+              },
+            };
             yield {
               type: 'search_results',
               data: {
@@ -529,6 +582,7 @@ export interface ChatEvent {
     | 'thinking'
     | 'intent'
     | 'service_call'
+    | 'service_status'
     | 'search_query'
     | 'search_results'
     | 'payment_request'

@@ -51,6 +51,15 @@ export interface PaymentRequest {
   timestamp: string;
 }
 
+export interface ServiceStatus {
+  serviceName: string;
+  status: 'executing' | 'retrying' | 'completed' | 'failed';
+  icon: string;
+  message: string;
+  cost?: string;
+  timestamp: string;
+}
+
 export interface Session {
   id: string;
   balance: string;
@@ -61,6 +70,7 @@ export interface Session {
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [serviceCalls, setServiceCalls] = useState<ServiceCall[]>([]);
+  const [serviceStatuses, setServiceStatuses] = useState<ServiceStatus[]>([]);
   const [searchQueries, setSearchQueries] = useState<SearchQuery[]>([]);
   const [paymentRequests, setPaymentRequests] = useState<PaymentRequest[]>([]);
   const [session, setSession] = useState<Session | null>(null);
@@ -88,6 +98,7 @@ export function useChat() {
           setServiceCalls(savedCalls || []);
           setSearchQueries(savedSearches || []);
           setPaymentRequests(savedPayments || []);
+          // Don't restore serviceStatuses - they're ephemeral status indicators
         } catch (e) {
           console.error('Failed to load saved conversation:', e);
         }
@@ -121,6 +132,7 @@ export function useChat() {
   const clearChat = useCallback(() => {
     setMessages([]);
     setServiceCalls([]);
+    setServiceStatuses([]);
     setSearchQueries([]);
     setPaymentRequests([]);
     if (session) {
@@ -172,6 +184,30 @@ export function useChat() {
                   ];
                 }
               });
+            });
+            break;
+
+          case 'service_status':
+            // Add or update service status (animated indicators)
+            setServiceStatuses(prev => {
+              const statusData = data.data || data;
+              const newStatus: ServiceStatus = {
+                serviceName: statusData.serviceName,
+                status: statusData.status,
+                icon: statusData.icon,
+                message: statusData.message,
+                cost: statusData.cost,
+                timestamp: new Date().toLocaleTimeString()
+              };
+
+              // Replace existing status for same service or add new
+              const existing = prev.findIndex(s => s.serviceName === statusData.serviceName && s.status !== 'completed' && s.status !== 'failed');
+              if (existing >= 0) {
+                const updated = [...prev];
+                updated[existing] = newStatus;
+                return updated;
+              }
+              return [...prev, newStatus];
             });
             break;
 
@@ -307,6 +343,7 @@ export function useChat() {
   return {
     messages,
     serviceCalls,
+    serviceStatuses,
     searchQueries,
     paymentRequests,
     session,
