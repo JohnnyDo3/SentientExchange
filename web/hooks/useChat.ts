@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { flushSync } from 'react-dom';
 import { chatAPI } from '@/lib/chat-api';
 
 export interface Message {
@@ -150,8 +149,9 @@ export function useChat() {
 
         switch (data.type) {
           case 'token':
-            // Update streaming assistant message (force immediate render)
-            flushSync(() => {
+            // Update streaming assistant message with forced browser repaint
+            // Using requestAnimationFrame ensures browser paints between each token
+            requestAnimationFrame(() => {
               setMessages(prev => {
                 const lastMsg = prev[prev.length - 1];
                 const token = data.data?.token || '';
