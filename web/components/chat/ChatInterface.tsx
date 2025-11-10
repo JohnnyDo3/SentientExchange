@@ -11,6 +11,7 @@ import TypingIndicator from './TypingIndicator';
 import { useChat } from '@/hooks/useChat';
 import { motion } from 'framer-motion';
 import { MessageSquare, Trash2, AlertCircle } from 'lucide-react';
+import Header from '@/components/ui/Header';
 
 export default function ChatInterface() {
   const {
@@ -35,8 +36,11 @@ export default function ChatInterface() {
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-b from-gray-950 via-black to-gray-900">
-      {/* Clean Header with Session Wallet */}
-      <div className="border-b border-gray-800/50 bg-black/80 backdrop-blur-sm px-4 py-3 z-10">
+      {/* Navigation Header */}
+      <Header />
+
+      {/* Chat Sub-Header with Session Wallet */}
+      <div className="border-b border-gray-800/50 bg-black/80 backdrop-blur-sm px-4 py-3 mt-20">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             {messages.length > 0 && (

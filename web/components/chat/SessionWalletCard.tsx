@@ -28,38 +28,26 @@ export default function SessionWalletCard({
   const isLowBalance = balanceNum < 0.10;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={`rounded-lg border p-4 ${
-        isLowBalance
-          ? 'bg-red/10 border-red/30'
-          : 'bg-dark-card border-gray-800'
-      }`}
-    >
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Wallet className="w-5 h-5 text-purple" />
-          <span className="font-semibold text-white">Session Wallet</span>
+    <div className="relative">
+      {/* Compact Header Display */}
+      <div
+        className={`flex items-center gap-3 px-4 py-2 rounded-lg border cursor-pointer transition-all hover:scale-105 ${
+          isLowBalance
+            ? 'bg-red/10 border-red/30'
+            : 'bg-gray-900/80 border-gray-700'
+        }`}
+        onClick={() => setShowAddFunds(!showAddFunds)}
+      >
+        <Wallet className={`w-4 h-4 ${isLowBalance ? 'text-red' : 'text-purple'}`} />
+        <div className="flex items-baseline gap-1.5">
+          <span className={`text-lg font-bold ${isLowBalance ? 'text-red' : 'text-white'}`}>
+            {balance}
+          </span>
+          <span className="text-xs text-gray-400">USDC</span>
         </div>
-        <button
-          onClick={() => setShowAddFunds(!showAddFunds)}
-          className="btn-secondary text-sm px-3 py-1"
-        >
-          <Plus className="w-4 h-4 mr-1" />
-          Add Funds
-        </button>
-      </div>
-
-      {/* Balance Display */}
-      <div className="mb-3">
-        <div className="flex items-baseline gap-2">
-          <span className="text-3xl font-bold text-white">{balance}</span>
-          <span className="text-sm text-gray-400">USDC</span>
-        </div>
-        <div className="w-full bg-gray-800 rounded-full h-2 mt-2">
+        <div className="w-16 h-1 bg-gray-800 rounded-full overflow-hidden">
           <div
-            className={`h-2 rounded-full transition-all ${
+            className={`h-full transition-all ${
               isLowBalance ? 'bg-red' : 'bg-gradient-to-r from-purple to-blue'
             }`}
             style={{ width: `${percentRemaining}%` }}
@@ -67,60 +55,41 @@ export default function SessionWalletCard({
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <p className="text-gray-500">Initial</p>
-          <p className="text-white font-semibold">{initialBalance}</p>
-        </div>
-        <div>
-          <p className="text-gray-500">Spent</p>
-          <p className="text-white font-semibold flex items-center gap-1">
-            <TrendingDown className="w-4 h-4 text-red" />
-            ${spentAmount}
-          </p>
-        </div>
-      </div>
-
-      {isLowBalance && (
-        <div className="mt-3 pt-3 border-t border-red/30">
-          <p className="text-sm text-red">⚠️ Low balance! Add funds to continue.</p>
-        </div>
-      )}
-
-      {/* Add Funds Form */}
+      {/* Dropdown Menu */}
       {showAddFunds && (
         <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          className="mt-3 pt-3 border-t border-gray-800"
+          initial={{ opacity: 0, y: -10, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          className="absolute top-full right-0 mt-2 w-80 bg-dark-card border border-gray-800 rounded-xl p-4 shadow-xl z-50"
         >
-          <p className="text-sm text-gray-400 mb-2">Add USDC to session wallet:</p>
-          <div className="flex gap-2">
-            <input
-              type="number"
-              step="0.10"
-              min="0.10"
-              placeholder="Amount (e.g., 1.00)"
-              value={customAmount}
-              onChange={(e) => setCustomAmount(e.target.value)}
-              className="flex-1 px-3 py-2 bg-dark border border-gray-700 rounded-lg text-white"
-            />
-            <button
-              onClick={() => {
-                const amount = parseFloat(customAmount);
-                if (amount > 0) {
-                  onAddFunds(amount);
-                  setCustomAmount('');
-                  setShowAddFunds(false);
-                }
-              }}
-              className="btn-primary px-4"
-            >
-              Add
-            </button>
+          {/* Stats */}
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-xs text-gray-500">Initial</p>
+              <p className="text-white font-semibold">{initialBalance}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Spent</p>
+              <p className="text-white font-semibold flex items-center gap-1">
+                <TrendingDown className="w-4 h-4 text-red" />
+                ${spentAmount}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Remaining</p>
+              <p className="text-white font-semibold">{percentRemaining}%</p>
+            </div>
           </div>
-          <div className="flex gap-2 mt-2">
+
+          {isLowBalance && (
+            <div className="mb-4 p-2 bg-red/10 border border-red/30 rounded-lg">
+              <p className="text-xs text-red">⚠️ Low balance! Add funds to continue.</p>
+            </div>
+          )}
+
+          {/* Quick Add Buttons */}
+          <p className="text-xs text-gray-400 mb-2">Quick Add:</p>
+          <div className="grid grid-cols-4 gap-2 mb-3">
             {[0.50, 1.00, 2.00, 5.00].map((amount) => (
               <button
                 key={amount}
@@ -128,14 +97,52 @@ export default function SessionWalletCard({
                   onAddFunds(amount);
                   setShowAddFunds(false);
                 }}
-                className="btn-secondary text-xs px-3 py-1"
+                className="btn-secondary text-xs px-2 py-2"
               >
                 +${amount.toFixed(2)}
               </button>
             ))}
           </div>
+
+          {/* Custom Amount */}
+          <div className="pt-3 border-t border-gray-800">
+            <p className="text-xs text-gray-400 mb-2">Custom Amount:</p>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                step="0.10"
+                min="0.10"
+                placeholder="0.00"
+                value={customAmount}
+                onChange={(e) => setCustomAmount(e.target.value)}
+                className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm"
+              />
+              <button
+                onClick={() => {
+                  const amount = parseFloat(customAmount);
+                  if (amount > 0) {
+                    onAddFunds(amount);
+                    setCustomAmount('');
+                    setShowAddFunds(false);
+                  }
+                }}
+                disabled={!customAmount || parseFloat(customAmount) <= 0}
+                className="btn-primary px-4 text-sm disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
+          </div>
         </motion.div>
       )}
-    </motion.div>
+
+      {/* Backdrop */}
+      {showAddFunds && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setShowAddFunds(false)}
+        />
+      )}
+    </div>
   );
 }

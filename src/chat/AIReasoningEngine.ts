@@ -3,7 +3,7 @@ import type { ServiceIntent, ToolCall } from './types';
 
 export class AIReasoningEngine {
   private anthropic: Anthropic;
-  private model = 'claude-3-5-sonnet-20241022';
+  private model = 'claude-sonnet-4-5-20250929';
 
   constructor(apiKey: string) {
     this.anthropic = new Anthropic({ apiKey });
@@ -90,11 +90,11 @@ Respond in JSON format:
       system: systemPrompt,
       messages: [
         ...conversationHistory,
-        { role: 'user', content: userMessage }
-      ]
+        { role: 'user', content: userMessage },
+      ],
     });
 
-    const textContent = response.content.find(c => c.type === 'text');
+    const textContent = response.content.find((c) => c.type === 'text');
     if (!textContent || textContent.type !== 'text') {
       throw new Error('No text response from Claude');
     }
@@ -105,7 +105,7 @@ Respond in JSON format:
       // Fallback if JSON parsing fails
       return {
         needsService: false,
-        reasoning: 'Failed to parse intent, handling natively'
+        reasoning: 'Failed to parse intent, handling natively',
       };
     }
   }
@@ -124,8 +124,8 @@ Respond in JSON format:
       stream: true,
       messages: [
         ...conversationHistory,
-        { role: 'user', content: userMessage }
-      ]
+        { role: 'user', content: userMessage },
+      ],
     });
 
     return this.streamToAsyncIterable(stream);
@@ -139,7 +139,7 @@ Respond in JSON format:
     serviceResults: ToolCall[]
   ): Promise<AsyncIterable<string>> {
     const resultsText = serviceResults
-      .map(r => `Service: ${r.tool}\nResult: ${JSON.stringify(r.result)}`)
+      .map((r) => `Service: ${r.tool}\nResult: ${JSON.stringify(r.result)}`)
       .join('\n\n');
 
     const prompt = `A user asked: "${userMessage}"
@@ -154,7 +154,7 @@ Please provide a natural, conversational response incorporating these results. B
       max_tokens: 1000,
       temperature: 0.7,
       stream: true,
-      messages: [{ role: 'user', content: prompt }]
+      messages: [{ role: 'user', content: prompt }],
     });
 
     return this.streamToAsyncIterable(stream);
@@ -162,7 +162,10 @@ Please provide a natural, conversational response incorporating these results. B
 
   private async *streamToAsyncIterable(stream: any): AsyncIterable<string> {
     for await (const chunk of stream) {
-      if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+      if (
+        chunk.type === 'content_block_delta' &&
+        chunk.delta.type === 'text_delta'
+      ) {
         yield chunk.delta.text;
       }
     }
