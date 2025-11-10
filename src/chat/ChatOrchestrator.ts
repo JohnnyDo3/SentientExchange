@@ -121,7 +121,7 @@ export class ChatOrchestrator {
             count: 5,
           });
 
-          // Smart retry if no results
+          // Smart retry if no results (with rate limit delay)
           if (result.results.length === 0) {
             yield {
               type: 'service_status',
@@ -132,6 +132,9 @@ export class ChatOrchestrator {
                 message: 'No results found, trying refined query...',
               },
             };
+
+            // Wait 1.5 seconds to avoid Brave API rate limit (1 req/sec)
+            await new Promise((resolve) => setTimeout(resolve, 1500));
 
             const refinedQuery =
               QueryExtractor.refineSearchQuery(extractedQuery);
@@ -312,6 +315,9 @@ export class ChatOrchestrator {
                   message: 'No results found, trying refined query...',
                 },
               };
+
+              // Wait 1.5 seconds to avoid Brave API rate limit (1 req/sec)
+              await new Promise((resolve) => setTimeout(resolve, 1500));
 
               const refinedQuery =
                 QueryExtractor.refineSearchQuery(extractedQuery);

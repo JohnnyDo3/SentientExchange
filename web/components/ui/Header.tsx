@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Home, ShoppingCart, BarChart3, Zap, User, FileText, Menu, X, MessageSquare } from 'lucide-react';
 import { soundManager } from '@/lib/sound';
@@ -49,8 +50,14 @@ export default function Header() {
               onClick={() => soundManager.playClick()}
               className="flex items-center gap-3 group"
             >
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple to-pink flex items-center justify-center">
-                <span className="text-2xl">🤖</span>
+              <div className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center">
+                <Image
+                  src="/sentientXX.png"
+                  alt="Sentient Exchange Logo"
+                  width={40}
+                  height={40}
+                  className="object-contain"
+                />
               </div>
               <div className="hidden sm:block">
                 <h1 className="text-xl font-bold gradient-text">Sentient Exchange</h1>
@@ -138,8 +145,14 @@ export default function Header() {
             {/* Mobile Menu Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-800 flex-shrink-0">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 flex-shrink-0 rounded-lg bg-gradient-to-br from-purple to-pink flex items-center justify-center">
-                  <span className="text-2xl">🤖</span>
+                <div className="w-10 h-10 flex-shrink-0 rounded-lg overflow-hidden flex items-center justify-center">
+                  <Image
+                    src="/sentientXX.png"
+                    alt="Sentient Exchange Logo"
+                    width={40}
+                    height={40}
+                    className="object-contain"
+                  />
                 </div>
                 <div className="min-w-0">
                   <h2 className="text-lg font-bold gradient-text truncate">Sentient Exchange</h2>

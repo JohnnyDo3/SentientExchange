@@ -29,16 +29,18 @@ export class BraveSearchClient {
     this.apiKey = apiKey || process.env.BRAVE_API_KEY || '';
 
     if (!this.apiKey) {
-      logger.warn('⚠️  BRAVE_API_KEY not configured - web search will be disabled');
+      logger.warn(
+        '⚠️  BRAVE_API_KEY not configured - web search will be disabled'
+      );
     }
 
     this.client = axios.create({
       baseURL: 'https://api.search.brave.com/res/v1',
       headers: {
-        'Accept': 'application/json',
-        'X-Subscription-Token': this.apiKey
+        Accept: 'application/json',
+        'X-Subscription-Token': this.apiKey,
       },
-      timeout: 10000 // 10 second timeout
+      timeout: 10000, // 10 second timeout
     });
   }
 
@@ -49,7 +51,10 @@ export class BraveSearchClient {
   async checkHealth(): Promise<boolean> {
     // Use cached result if recent
     const now = Date.now();
-    if (now - this.lastHealthCheck < this.healthCheckCacheTTL && this.isHealthy) {
+    if (
+      now - this.lastHealthCheck < this.healthCheckCacheTTL &&
+      this.isHealthy
+    ) {
       logger.info('✓ Brave Search health check (cached): healthy');
       return true;
     }
@@ -61,8 +66,8 @@ export class BraveSearchClient {
       const response = await this.client.get('/web/search', {
         params: {
           q: 'test',
-          count: 1
-        }
+          count: 1,
+        },
       });
 
       this.isHealthy = response.status === 200;
@@ -75,7 +80,6 @@ export class BraveSearchClient {
       }
 
       return this.isHealthy;
-
     } catch (error: any) {
       this.isHealthy = false;
       this.lastHealthCheck = now;
@@ -105,7 +109,7 @@ export class BraveSearchClient {
         query,
         results: [],
         healthCheckPassed: false,
-        apiCallCost: '$0.00'
+        apiCallCost: '$0.00',
       };
     }
 
@@ -117,20 +121,22 @@ export class BraveSearchClient {
           q: query,
           count: options.count || 10,
           safesearch: options.safesearch || 'moderate',
-          freshness: options.freshness
-        }
+          freshness: options.freshness,
+        },
       });
 
       const data = response.data;
 
       // Parse results
-      const results: SearchResult[] = (data.web?.results || []).map((result: any) => ({
-        title: result.title,
-        url: result.url,
-        description: result.description,
-        age: result.age,
-        source: result.meta_url?.hostname
-      }));
+      const results: SearchResult[] = (data.web?.results || []).map(
+        (result: any) => ({
+          title: result.title,
+          url: result.url,
+          description: result.description,
+          age: result.age,
+          source: result.meta_url?.hostname,
+        })
+      );
 
       logger.info(`✓ Found ${results.length} results for "${query}"`);
 
@@ -144,18 +150,44 @@ export class BraveSearchClient {
         results,
         totalResults: data.web?.results?.length || 0,
         healthCheckPassed: true,
-        apiCallCost
+        apiCallCost,
       };
-
     } catch (error: any) {
-      logger.error('Search failed:', error.message);
+      // Handle specific error types
+      if (error.response?.status === 429) {
+        logger.error(
+          'Search failed: Rate limit exceeded (429) - Brave API free tier limit reached'
+        );
+        logger.warn(
+          '⚠️  To fix: Add BRAVE_API_KEY to .env or upgrade to paid tier'
+        );
+
+        return {
+          query,
+          results: [],
+          healthCheckPassed: false,
+          apiCallCost: '$0.00',
+        };
+      } else if (error.response?.status === 401) {
+        logger.error('Search failed: Invalid or missing Brave API key (401)');
+        logger.warn('⚠️  To fix: Set BRAVE_API_KEY in .env file');
+
+        return {
+          query,
+          results: [],
+          healthCheckPassed: false,
+          apiCallCost: '$0.00',
+        };
+      } else {
+        logger.error('Search failed:', error.message);
+      }
 
       // Return empty results on error (graceful degradation)
       return {
         query,
         results: [],
-        healthCheckPassed: true,
-        apiCallCost: '$0.00'
+        healthCheckPassed: false,
+        apiCallCost: '$0.00',
       };
     }
   }
@@ -171,28 +203,27 @@ export class BraveSearchClient {
       const response = await axios.get(url, {
         timeout: 10000,
         headers: {
-          'User-Agent': 'AgentMarket/1.0 (AI Agent)'
-        }
+          'User-Agent': 'AgentMarket/1.0 (AI Agent)',
+        },
       });
 
       if (response.status === 200) {
         logger.info(`✓ Fetched ${url} successfully`);
         return {
           content: response.data,
-          success: true
+          success: true,
         };
       }
 
       return {
         content: '',
-        success: false
+        success: false,
       };
-
     } catch (error: any) {
       logger.error(`Failed to fetch ${url}:`, error.message);
       return {
         content: '',
-        success: false
+        success: false,
       };
     }
   }
