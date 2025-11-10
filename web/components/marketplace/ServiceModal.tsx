@@ -373,7 +373,7 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
                   >
                     <h3 className="text-2xl font-bold gradient-text mb-4">Confirm Purchase</h3>
                     <p className="text-gray-300 mb-6">
-                      You're about to purchase <span className="text-white font-semibold">{service.name}</span> for{' '}
+                      You&apos;re about to purchase <span className="text-white font-semibold">{service.name}</span> for{' '}
                       <span className="text-green font-semibold">{paymentInstructions?.priceFormatted || `$${price.toFixed(3)}`} USDC</span>
                     </p>
                     <div className="bg-gray-800/50 rounded-lg p-4 mb-6 space-y-2 text-sm">

@@ -53,7 +53,7 @@ export default function SearchResultCard({
             <span className="text-xs text-gray-500">•</span>
             <span className="text-xs text-gray-400">{timestamp}</span>
           </div>
-          <p className="text-sm text-gray-300 italic">"{query}"</p>
+          <p className="text-sm text-gray-300 italic">&quot;{query}&quot;</p>
         </div>
         <div className="text-xs text-gray-400">{cost}</div>
       </div>

@@ -507,7 +507,7 @@ app.post('/your-endpoint', x402Middleware(), (req, res) => {
               className="mt-1 w-4 h-4 rounded border-gray-700 bg-gray-800 text-purple focus:ring-2 focus:ring-purple focus:ring-offset-0 cursor-pointer"
             />
             <span className="text-sm text-gray-300 group-hover:text-white transition-colors">
-              ✓ I've added the middleware to my service
+              ✓ I&apos;ve added the middleware to my service
               <span className="text-red-400">*</span>
             </span>
           </label>
@@ -546,7 +546,7 @@ app.post('/your-endpoint', x402Middleware(), (req, res) => {
           className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple focus:border-transparent transition-all"
         />
         <p className="text-gray-500 text-xs mt-1">
-          We'll ping this endpoint every 5 minutes to monitor your service health
+          We&apos;ll ping this endpoint every 5 minutes to monitor your service health
         </p>
       </div>
 
@@ -607,7 +607,7 @@ app.post('/your-endpoint', x402Middleware(), (req, res) => {
         />
         <p className="text-gray-500 text-xs mt-1 flex items-center gap-1">
           <span>💵</span>
-          Solana wallet address where you'll receive <span className="text-green font-semibold">USDC</span> payments
+          Solana wallet address where you&apos;ll receive <span className="text-green font-semibold">USDC</span> payments
         </p>
         {errors.walletAddress && (
           <p className="text-red-400 text-sm mt-1 flex items-center gap-1">
@@ -624,7 +624,7 @@ app.post('/your-endpoint', x402Middleware(), (req, res) => {
             Payment Chains <span className="text-gray-500">(select which chains to accept)</span>
           </label>
           <p className="text-xs text-gray-500 mb-3">
-            Select the blockchain networks where you'll accept USDC payments.
+            Select the blockchain networks where you&apos;ll accept USDC payments.
             <span className="text-amber-400 block mt-1">
               ⚠️ Ensure your wallet supports all selected chains or payments may be lost.
             </span>

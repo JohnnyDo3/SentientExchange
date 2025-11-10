@@ -26,7 +26,7 @@ export default function ServiceList({
         <div className="text-6xl mb-4">📦</div>
         <h3 className="text-2xl font-bold text-white mb-2">No Services Yet</h3>
         <p className="text-gray-400 mb-6">
-          You haven't registered any services. Get started by creating your first service!
+          You haven&apos;t registered any services. Get started by creating your first service!
         </p>
         <a
           href="/providers/register"
