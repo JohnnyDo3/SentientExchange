@@ -51,8 +51,11 @@ export const chatAPI = {
 
   async getHistory(sessionId: string) {
     const res = await fetch(`/api/chat/history/${sessionId}`);
-    if (!res.ok) throw new Error('Failed to fetch history');
-    return res.json();
+    const data = await res.json();
+
+    // Return the response data even if status is not ok
+    // The useChat hook will check data.success
+    return data;
   }
 };
 

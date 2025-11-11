@@ -10,13 +10,21 @@ import ServiceMetrics from '@/components/providers/ServiceMetrics';
 import ParticleScene from '@/components/3d/ParticleScene';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
+interface Transaction {
+  id: string;
+  timestamp: string;
+  amount: string;
+  user: string;
+  status: 'completed' | 'pending' | 'failed';
+}
+
 interface Analytics {
   totalRevenue: string;
   totalRequests: number;
   revenueByDay: Array<{ date: string; revenue: number }>;
   requestsByHour: Array<{ hour: string; requests: number }>;
   topUsers: Array<{ name: string; requests: number; spent: string }>;
-  recentTransactions: Array<any>;
+  recentTransactions: Array<Transaction>;
 }
 
 function ServiceAnalyticsContent() {
@@ -48,15 +56,15 @@ function ServiceAnalyticsContent() {
         const analyticsData = await MarketplaceAPI.getServiceAnalytics(serviceId);
         setAnalytics(analyticsData);
 
-      } catch (err: any) {
+      } catch (err) {
         console.error('Failed to load analytics:', err);
-        setError(err.message || 'Failed to load analytics');
+        setError(err instanceof Error ? err.message : 'Failed to load analytics');
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadData();
+    void loadData();
   }, [serviceId]);
 
   if (isLoading) {
@@ -88,7 +96,6 @@ function ServiceAnalyticsContent() {
     );
   }
 
-  const price = parseFloat(service.pricing.perRequest.replace('$', ''));
   const revenue = analytics.totalRevenue;
 
   // Extract chart data from analytics

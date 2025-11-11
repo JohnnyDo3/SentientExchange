@@ -22,9 +22,9 @@ const sampleQueries = [
 export default function SwarmPage() {
   const [query, setQuery] = useState('');
   const [isRunning, setIsRunning] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<string | null>(null);
 
-  const handleSubmit = async () => {
+  const handleSubmitAsync = async () => {
     if (!query.trim() || isRunning) return;
 
     soundManager.playAgentSound();
@@ -48,6 +48,10 @@ export default function SwarmPage() {
       soundManager.playSuccessChord();
       setIsRunning(false);
     }, 12000);
+  };
+
+  const handleSubmit = () => {
+    void handleSubmitAsync();
   };
 
   return (
@@ -165,7 +169,7 @@ export default function SwarmPage() {
               </div>
 
               <div className="grid md:grid-cols-2 gap-6 mb-8">
-                {Object.entries(result.analysis).map(([key, data]: [string, any]) => (
+                {Object.entries(result.analysis).map(([key, data]: [string, { score: number; description: string; impact: string }]) => (
                   <div key={key} className="bg-gray-900/50 rounded-xl p-6 border border-gray-800">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-lg font-semibold text-white capitalize">{key}</h3>

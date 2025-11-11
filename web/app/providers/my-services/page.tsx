@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Plus, ArrowLeft, RefreshCw, Wallet } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -25,7 +25,7 @@ export default function MyServicesPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Load services from API
-  const loadServices = async () => {
+  const loadServices = useCallback(async () => {
     // Don't load if not authenticated
     if (!isAuthenticated) {
       setIsLoading(false);
@@ -49,11 +49,11 @@ export default function MyServicesPage() {
         // Fallback to empty state if backend not available
         setServices([]);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error loading services:', error);
 
       // Handle authentication errors
-      if (error.message?.includes('Authentication')) {
+      if (error instanceof Error && error.message?.includes('Authentication')) {
         setError('Please sign in to view your services');
       } else {
         setError('Failed to load services. Please try again.');
@@ -64,18 +64,18 @@ export default function MyServicesPage() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  };
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!authLoading) {
-      loadServices();
+      void loadServices();
     }
-  }, [isAuthenticated, authLoading]);
+  }, [isAuthenticated, authLoading, loadServices]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
     soundManager.playClick();
-    loadServices();
+    void loadServices();
   };
 
   const handleEdit = (service: Service) => {
@@ -89,7 +89,7 @@ export default function MyServicesPage() {
     soundManager.playSuccessChord();
   };
 
-  const handleDelete = async (service: Service) => {
+  const handleDeleteAsync = async (service: Service) => {
     try {
       await MarketplaceAPI.deleteService(service.id);
       setServices(services.filter(s => s.id !== service.id));
@@ -98,6 +98,10 @@ export default function MyServicesPage() {
       console.error('Error deleting service:', error);
       alert('Failed to delete service. Please try again.');
     }
+  };
+
+  const handleDelete = (service: Service) => {
+    void handleDeleteAsync(service);
   };
 
   const handleViewAnalytics = (service: Service) => {

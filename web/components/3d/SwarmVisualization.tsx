@@ -14,7 +14,7 @@ interface SwarmVisualizationProps {
   query: string;
 }
 
-export default function SwarmVisualization({ isRunning, query }: SwarmVisualizationProps) {
+export default function SwarmVisualization({ isRunning, query: _query }: SwarmVisualizationProps) {
   const [activeAgents, setActiveAgents] = useState<Set<number>>(new Set());
   const [completedAgents, setCompletedAgents] = useState<Set<number>>(new Set());
   const [progress, setProgress] = useState(0);

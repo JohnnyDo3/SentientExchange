@@ -104,7 +104,7 @@ export default function ChatHistorySidebar({
         initial={{ x: -320 }}
         animate={{ x: isOpen ? 0 : -320 }}
         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        className="fixed left-0 top-0 h-full w-80 bg-black/95 backdrop-blur-xl border-r border-gray-800/50 z-50 flex flex-col shadow-2xl"
+        className="fixed left-0 top-20 h-[calc(100vh-5rem)] w-80 bg-black/95 backdrop-blur-xl border-r border-gray-800/50 z-50 flex flex-col shadow-2xl"
       >
         {/* Header */}
         <div className="p-4 border-b border-gray-800/50">
@@ -205,19 +205,6 @@ export default function ChatHistorySidebar({
         </div>
       </motion.div>
 
-      {/* Toggle Button (Desktop Only) */}
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={() => (isOpen ? onClose() : null)}
-        className="hidden lg:block fixed top-24 p-2 bg-purple text-white rounded-r-lg shadow-lg z-40 transition-all hover:shadow-purple/50"
-        style={{
-          left: isOpen ? '320px' : '0px',
-          transition: 'left 0.3s ease-in-out'
-        }}
-      >
-        {isOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-      </motion.button>
     </>
   );
 }

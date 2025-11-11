@@ -18,6 +18,34 @@ interface Agent {
   totalCost: number;
 }
 
+interface OrchestrationEvent {
+  type: string;
+  timestamp: string;
+  agentId: string;
+  message: string;
+  data?: Record<string, unknown>;
+}
+
+interface OrchestrationResult {
+  success: boolean;
+  output?: string;
+  error?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface WebSocketEventData {
+  type?: string;
+  message?: string;
+  timestamp?: string;
+  agentId?: string;
+  name?: string;
+  agent?: string;
+  cost?: number;
+  totalCost?: number;
+  output?: string;
+  [key: string]: unknown;
+}
+
 interface OrchestrationState {
   isRunning: boolean;
   totalCost: number;
@@ -25,9 +53,9 @@ interface OrchestrationState {
   servicesUsed: number;
   elapsedTime: number;
   agents: Agent[];
-  events: any[];
-  result: any;
-  finalOutput: any;
+  events: OrchestrationEvent[];
+  result: OrchestrationResult | null;
+  finalOutput: string | null;
 }
 
 const DEMO_QUERIES = [
@@ -56,7 +84,7 @@ export default function SwarmPage() {
     socketManager.connect();
 
     // Setup event listeners
-    socketManager.on('orchestration-started', (data: any) => {
+    socketManager.on('orchestration-started', (data: WebSocketEventData) => {
       setState(prev => ({
         ...prev,
         isRunning: true,
@@ -65,21 +93,21 @@ export default function SwarmPage() {
       soundManager.playAgentSound();
     });
 
-    socketManager.on('task-decomposed', (data: any) => {
+    socketManager.on('task-decomposed', (data: WebSocketEventData) => {
       setState(prev => ({
         ...prev,
         events: [...prev.events, { ...data, event: 'task-decomposed' }],
       }));
     });
 
-    socketManager.on('services-discovered', (data: any) => {
+    socketManager.on('services-discovered', (data: WebSocketEventData) => {
       setState(prev => ({
         ...prev,
         events: [...prev.events, { ...data, event: 'services-discovered' }],
       }));
     });
 
-    socketManager.on('agent-spawned', (data: any) => {
+    socketManager.on('agent-spawned', (data: WebSocketEventData) => {
       console.log('Agent spawned:', data);
       setState(prev => ({
         ...prev,
@@ -89,7 +117,7 @@ export default function SwarmPage() {
       soundManager.playAgentSound();
     });
 
-    socketManager.on('service-hired', (data: any) => {
+    socketManager.on('service-hired', (data: WebSocketEventData) => {
       setState(prev => ({
         ...prev,
         totalCost: data.totalCost || prev.totalCost + (data.cost || 0),
@@ -99,7 +127,7 @@ export default function SwarmPage() {
       soundManager.playClick();
     });
 
-    socketManager.on('orchestration-completed', (data: any) => {
+    socketManager.on('orchestration-completed', (data: WebSocketEventData) => {
       console.log('Orchestration completed:', data);
       console.log('Final output received:', {
         hasFinalOutput: !!data.finalOutput,
@@ -118,7 +146,7 @@ export default function SwarmPage() {
       soundManager.playSuccessChord();
     });
 
-    socketManager.on('orchestration-error', (data: any) => {
+    socketManager.on('orchestration-error', (data: WebSocketEventData) => {
       setState(prev => ({
         ...prev,
         isRunning: false,

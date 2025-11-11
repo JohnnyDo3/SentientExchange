@@ -14,7 +14,7 @@ import UnifiedConnectButton from '@/components/wallet/UnifiedConnectButton';
 
 export default function RegisterServicePage() {
   const router = useRouter();
-  const { isAuthenticated, isLoading: authLoading, address } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, address: _address } = useAuth();
   const { publicKey, connected } = useWallet();
 
   const [formData, setFormData] = useState<ServiceFormData>({
@@ -41,7 +41,7 @@ export default function RegisterServicePage() {
     }
   }, [connected, publicKey]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmitAsync = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Check if wallet is connected first
@@ -99,12 +99,16 @@ export default function RegisterServicePage() {
       setTimeout(() => {
         router.push('/providers/my-services');
       }, 3000);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to register service:', error);
-      alert(`Failed to register service: ${error.message || 'Please try again.'}`);
+      alert(`Failed to register service: ${error instanceof Error ? error.message : 'Please try again.'}`);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    void handleSubmitAsync(e);
   };
 
   // Auth Loading State
