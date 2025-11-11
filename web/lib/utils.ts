@@ -36,7 +36,16 @@ export function generateAgentName(): string {
   return `${prefix}${suffix}`;
 }
 
-export function generateMockTransaction(): any {
+interface MockTransaction {
+  id: string;
+  agent: string;
+  service: string;
+  price: number;
+  timestamp: string;
+  status: 'completed';
+}
+
+export function generateMockTransaction(): MockTransaction {
   const services = [
     'vision-pro', 'sentiment-ai', 'summarizer', 'translator',
     'price-feed', 'image-resize', 'data-processor', 'code-analyzer'
