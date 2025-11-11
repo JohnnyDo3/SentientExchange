@@ -106,6 +106,19 @@
 }
 
 @layer utilities {
+  /* Screen reader only - visually hidden but accessible to screen readers */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
   /* Text glow */
   .text-glow {
     text-shadow: 0 0 10px currentColor;
@@ -143,6 +156,24 @@
 
   .animate-shimmer {
     animation: shimmer 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse-subtle {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.95; transform: scale(0.99); }
+  }
+
+  .animate-pulse-subtle {
+    animation: pulse-subtle 2s ease-in-out infinite;
+  }
+
+  @keyframes glow-pulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(168, 85, 247, 0.3); }
+    50% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.6); }
+  }
+
+  .animate-glow-pulse {
+    animation: glow-pulse 2s ease-in-out infinite;
   }
 }
 
@@ -189,4 +220,73 @@
 
 .wallet-adapter-modal-button:hover {
   background: rgba(55, 55, 55, 0.9) !important;
+}
+
+/* Mobile Touch Optimizations */
+@media (hover: none) and (pointer: coarse) {
+  /* Larger tap targets for mobile */
+  button, a, input, select {
+    min-height: 44px;
+  }
+
+  /* Remove hover scale effects on touch devices */
+  .hover\:scale-105:hover {
+    transform: scale(1) !important;
+  }
+
+  /* Smooth momentum scrolling */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Prevent text selection on mobile buttons */
+  button {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* Toggle Checkbox */
+.toggle-checkbox {
+  @apply relative w-11 h-6 bg-gray-700 rounded-full cursor-pointer;
+  @apply transition-colors duration-200 ease-in-out;
+  @apply appearance-none;
+}
+
+.toggle-checkbox:checked {
+  @apply bg-purple;
+}
+
+.toggle-checkbox::before {
+  @apply content-[''] absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full;
+  @apply transition-transform duration-200 ease-in-out;
+}
+
+.toggle-checkbox:checked::before {
+  @apply transform translate-x-5;
+}
+
+/* Focus states for accessibility */
+*:focus-visible {
+  @apply outline-2 outline-offset-2 outline-purple;
+}
+
+/* Skip to main content link for screen readers */
+.skip-to-main {
+  @apply absolute -top-full left-0 bg-purple text-white px-4 py-2 z-50;
+  @apply focus:top-0 transition-all;
+}
+
+/* Reduced motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -495,10 +495,12 @@ export class ChatOrchestrator {
 
         // Handle marketplace services (existing logic)
         yield {
-          type: 'service_call',
+          type: 'service_status',
           data: {
             serviceName: serviceType,
             status: 'pending',
+            icon: '🔍',
+            message: 'Searching for service...',
             cost: '$0.00',
             startTime: new Date().toISOString(),
           },
@@ -510,10 +512,12 @@ export class ChatOrchestrator {
 
         if (services.length === 0) {
           yield {
-            type: 'service_call',
+            type: 'service_status',
             data: {
               serviceName: serviceType,
               status: 'failed',
+              icon: '❌',
+              message: 'No matching service found',
               error: 'No matching service found',
               endTime: new Date().toISOString(),
             },
@@ -522,13 +526,17 @@ export class ChatOrchestrator {
         }
 
         const service = services[0];
+        // Get icon from service metadata (or default)
+        const serviceIcon = service.metadata.image || '⚙️';
 
         // Execute purchase with session wallet
         yield {
-          type: 'service_call',
+          type: 'service_status',
           data: {
             serviceName: service.name,
             status: 'executing',
+            icon: serviceIcon,
+            message: `Executing ${service.name}...`,
             cost:
               service.pricing.perRequest || service.pricing.amount || '$0.00',
           },
@@ -552,11 +560,14 @@ export class ChatOrchestrator {
           });
 
           yield {
-            type: 'service_call',
+            type: 'service_status',
             data: {
               serviceName: service.name,
               status: 'completed',
+              icon: serviceIcon,
+              message: `${service.name} completed successfully`,
               result: JSON.stringify(result),
+              cost: service.pricing.perRequest,
               endTime: new Date().toISOString(),
             },
           };
@@ -569,10 +580,12 @@ export class ChatOrchestrator {
           };
         } catch (error: any) {
           yield {
-            type: 'service_call',
+            type: 'service_status',
             data: {
               serviceName: service.name,
               status: 'failed',
+              icon: '❌',
+              message: `${service.name} failed`,
               error: error.message,
               endTime: new Date().toISOString(),
             },

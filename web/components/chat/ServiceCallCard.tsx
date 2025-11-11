@@ -59,9 +59,17 @@ export default function ServiceCallCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className={`rounded-lg border ${config.bg} ${config.border} p-4 my-2`}
+      initial={{ opacity: 0, scale: 0.9, y: 20 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{
+        type: "spring",
+        stiffness: 300,
+        damping: 25
+      }}
+      whileHover={{ scale: 1.02 }}
+      className={`rounded-lg border backdrop-blur-xl ${config.bg} ${config.border} p-4 my-2 shadow-lg transition-all duration-300 hover:shadow-2xl ${
+        status === 'executing' ? 'animate-pulse-subtle' : ''
+      }`}
     >
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-2">
