@@ -5,12 +5,12 @@ import { Service } from './types';
  * Connects to the API server on port 8081 (dev) or same origin (production)
  */
 
-// In production, use same origin. In dev, use localhost:8081
+// In production, use same origin. In dev, use localhost:3333
 const getApiBaseUrl = () => {
   if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
     return window.location.origin; // Production - same domain
   }
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081';
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3333';
 };
 
 const API_BASE_URL = getApiBaseUrl();

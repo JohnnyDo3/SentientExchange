@@ -33,7 +33,8 @@ export default function ChatInterface() {
     error,
     sendMessage,
     addFunds,
-    clearChat
+    clearChat,
+    loadSession
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -105,9 +106,20 @@ export default function ChatInterface() {
     info('Started new chat');
   };
 
-  const handleSelectSession = (sessionId: string) => {
-    // TODO: Load session history from API
-    info(`Loading session: ${sessionId}`);
+  const handleSelectSession = async (sessionId: string) => {
+    try {
+      info(`Loading session: ${sessionId}`);
+      const success = await loadSession(sessionId);
+
+      if (success) {
+        success('Session loaded successfully!');
+      } else {
+        showError('Failed to load session');
+      }
+    } catch (error) {
+      console.error('Error loading session:', error);
+      showError('Failed to load session');
+    }
   };
 
   const handleCopyMessage = () => {

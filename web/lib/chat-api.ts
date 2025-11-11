@@ -1,11 +1,27 @@
 export const chatAPI = {
   async createSession() {
+    const sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
     const res = await fetch('/api/chat/sessions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'New Chat',
+        messages: [],
+        serviceCalls: [],
+        searchQueries: [],
+        paymentRequests: []
+      })
     });
     if (!res.ok) throw new Error('Failed to create session');
-    return res.json();
+    const data = await res.json();
+
+    // Return session object that useChat expects
+    return {
+      id: data.session.id,
+      balance: '10.000',
+      initialBalance: '10.000',
+      pdaAddress: generatePDAAddress()
+    };
   },
 
   async streamMessage(sessionId: string, message: string) {
@@ -39,3 +55,14 @@ export const chatAPI = {
     return res.json();
   }
 };
+
+// Generate a mock PDA address for the session
+function generatePDAAddress(): string {
+  // Generate a mock Solana-style address
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz123456789';
+  let result = '';
+  for (let i = 0; i < 44; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}

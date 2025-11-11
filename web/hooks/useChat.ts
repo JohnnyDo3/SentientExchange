@@ -340,6 +340,39 @@ export function useChat() {
     }
   }, [session]);
 
+  const loadSession = useCallback(async (sessionId: string) => {
+    try {
+      setError(null);
+      setIsLoading(true);
+
+      // Load session history from API
+      const response = await chatAPI.getHistory(sessionId);
+
+      if (response.success) {
+        const { history } = response;
+
+        // Update all chat state with loaded data
+        setMessages(history.messages || []);
+        setServiceCalls(history.serviceCalls || []);
+        setSearchQueries(history.searchQueries || []);
+        setPaymentRequests(history.paymentRequests || []);
+        setServiceStatuses([]); // Reset status indicators
+        setSession(history.session);
+
+        return true;
+      } else {
+        setError('Failed to load session: ' + response.error);
+        return false;
+      }
+    } catch (error) {
+      console.error('Failed to load session:', error);
+      setError('Failed to load session. Please try again.');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   return {
     messages,
     serviceCalls,
@@ -351,6 +384,7 @@ export function useChat() {
     error,
     sendMessage,
     addFunds,
-    clearChat
+    clearChat,
+    loadSession
   };
 }

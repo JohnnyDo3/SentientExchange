@@ -51,37 +51,27 @@ export default function ChatHistorySidebar({
 
   const loadSessions = async () => {
     setLoading(true);
-    // TODO: Replace with actual API call
-    // const response = await fetch('/api/chat/sessions');
-    // const data = await response.json();
 
-    // Mock data for now
-    const mockSessions: ChatSession[] = [
-      {
-        id: '1',
-        title: 'Tesla stock sentiment analysis',
-        preview: 'search for Tesla stock news and analyze sentiment',
-        messageCount: 12,
-        lastActivity: '2 hours ago',
-        isPinned: true
-      },
-      {
-        id: '2',
-        title: 'Image classification service',
-        preview: 'Help me analyze this product image',
-        messageCount: 8,
-        lastActivity: '1 day ago'
-      },
-      {
-        id: '3',
-        title: 'Text summarization test',
-        preview: 'Can you summarize this long article?',
-        messageCount: 5,
-        lastActivity: '3 days ago'
+    try {
+      const response = await fetch('/api/chat/sessions');
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch sessions');
       }
-    ];
 
-    setSessions(mockSessions);
+      const data = await response.json();
+
+      if (data.success) {
+        setSessions(data.sessions || []);
+      } else {
+        console.error('Failed to load sessions:', data.error);
+        setSessions([]);
+      }
+    } catch (error) {
+      console.error('Error loading chat sessions:', error);
+      setSessions([]);
+    }
+
     setLoading(false);
   };
 
@@ -220,8 +210,11 @@ export default function ChatHistorySidebar({
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => (isOpen ? onClose() : null)}
-        className="hidden lg:block fixed left-80 top-24 p-2 bg-purple text-white rounded-r-lg shadow-lg z-40 transition-all hover:shadow-purple/50"
-        style={{ transform: isOpen ? 'translateX(0)' : 'translateX(-320px)' }}
+        className="hidden lg:block fixed top-24 p-2 bg-purple text-white rounded-r-lg shadow-lg z-40 transition-all hover:shadow-purple/50"
+        style={{
+          left: isOpen ? '320px' : '0px',
+          transition: 'left 0.3s ease-in-out'
+        }}
       >
         {isOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
       </motion.button>
