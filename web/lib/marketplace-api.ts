@@ -1,4 +1,4 @@
-import { Service, ServiceFilters } from './types';
+import { Service } from './types';
 
 /**
  * Type-Safe API client for Sentient Exchange MCP backend
@@ -16,11 +16,36 @@ const getApiBaseUrl = () => {
 const API_BASE_URL = getApiBaseUrl();
 
 // API Response Types
-interface ApiResponse<T> {
+
+interface AnalyticsData {
+  revenue: number;
+  requests: number;
+  averageRating: number;
+  topClients: Array<{ address: string; requests: number }>;
+  usageByDay: Array<{ date: string; requests: number; revenue: number }>;
+}
+
+interface PurchaseRequest {
+  prompt?: string;
+  input?: string;
+  parameters?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+interface PurchaseResponse {
   success: boolean;
-  data?: T;
-  error?: string;
+  result?: unknown;
+  transactionId: string;
+  cost: string;
   message?: string;
+}
+
+interface AuditEntry {
+  id: string;
+  action: string;
+  timestamp: string;
+  details: Record<string, unknown>;
+  userId?: string;
 }
 
 interface ServicesResponse {
@@ -310,9 +335,9 @@ export class MarketplaceAPI {
    */
   static async purchaseService(
     serviceId: string,
-    requestData: any
-  ): Promise<any> {
-    const response = await this.request<any>(
+    requestData: PurchaseRequest
+  ): Promise<PurchaseResponse> {
+    const response = await this.request<PurchaseResponse>(
       `/api/services/${serviceId}/purchase`,
       {
         method: 'POST',
@@ -327,8 +352,8 @@ export class MarketplaceAPI {
   /**
    * Get analytics for a specific service (requires authentication and ownership)
    */
-  static async getServiceAnalytics(serviceId: string): Promise<any> {
-    const response = await this.request<{ success: boolean; analytics: any }>(
+  static async getServiceAnalytics(serviceId: string): Promise<AnalyticsData> {
+    const response = await this.request<{ success: boolean; analytics: AnalyticsData }>(
       `/api/services/${serviceId}/analytics`,
       {
         method: 'GET',
@@ -346,8 +371,8 @@ export class MarketplaceAPI {
   static async getServiceAudit(
     serviceId: string,
     limit = 50
-  ): Promise<any[]> {
-    const response = await this.request<{ success: boolean; audit: any[] }>(
+  ): Promise<AuditEntry[]> {
+    const response = await this.request<{ success: boolean; audit: AuditEntry[] }>(
       `/api/services/${serviceId}/audit?limit=${limit}`
     );
     return response.audit;
@@ -382,4 +407,13 @@ export class MarketplaceAPI {
 }
 
 // Export types for use in components
-export type { ServicesResponse, ServiceResponse, StatsResponse, TransactionData };
+export type {
+  ServicesResponse,
+  ServiceResponse,
+  StatsResponse,
+  TransactionData,
+  AnalyticsData,
+  PurchaseRequest,
+  PurchaseResponse,
+  AuditEntry
+};

@@ -4,18 +4,87 @@
 
 import { io, Socket } from 'socket.io-client';
 
+// Define specific event data types
+export interface OrchestrationStartedData {
+  orchestrationId: string;
+  query: string;
+  timestamp: number;
+}
+
+export interface TaskDecomposedData {
+  orchestrationId: string;
+  tasks: Array<{ id: string; description: string; priority: number }>;
+  timestamp: number;
+}
+
+export interface ServicesDiscoveredData {
+  orchestrationId: string;
+  services: Array<{ id: string; name: string; capabilities: string[]; cost: number }>;
+  timestamp: number;
+}
+
+export interface AgentSpawnedData {
+  orchestrationId: string;
+  agentId: string;
+  agentType: string;
+  assignedTask: string;
+  timestamp: number;
+}
+
+export interface ServiceHiredData {
+  orchestrationId: string;
+  serviceId: string;
+  serviceName: string;
+  cost: number;
+  timestamp: number;
+}
+
+export interface OrchestrationUpdateData {
+  orchestrationId: string;
+  progress: number;
+  currentTask: string;
+  timestamp: number;
+}
+
+export interface OrchestrationCompletedData {
+  orchestrationId: string;
+  result: unknown;
+  totalCost: number;
+  duration: number;
+  timestamp: number;
+}
+
+export interface OrchestrationErrorData {
+  orchestrationId: string;
+  error: string;
+  timestamp: number;
+}
+
+// Union type for all possible event data
+export type EventData =
+  | OrchestrationStartedData
+  | TaskDecomposedData
+  | ServicesDiscoveredData
+  | AgentSpawnedData
+  | ServiceHiredData
+  | OrchestrationUpdateData
+  | OrchestrationCompletedData
+  | OrchestrationErrorData;
+
 export interface OrchestrationEvent {
   timestamp: number;
   event: string;
   agent?: string;
   service?: string;
   cost?: number;
-  data?: any;
+  data?: EventData;
 }
+
+type EventCallback = (data: EventData) => void;
 
 class SocketManager {
   private socket: Socket | null = null;
-  private listeners: Map<string, ((...args: any[]) => void)[]> = new Map();
+  private listeners: Map<string, EventCallback[]> = new Map();
 
   connect() {
     if (this.socket?.connected) return this.socket;
@@ -53,7 +122,7 @@ class SocketManager {
     ];
 
     events.forEach(event => {
-      this.socket?.on(event, (data: any) => {
+      this.socket?.on(event, (data: EventData) => {
         this.emit(event, data);
       });
     });
@@ -75,14 +144,14 @@ class SocketManager {
     this.socket.emit('start-orchestration', { query });
   }
 
-  on(event: string, callback: (...args: any[]) => void) {
+  on(event: string, callback: EventCallback) {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
     }
     this.listeners.get(event)!.push(callback);
   }
 
-  off(event: string, callback: (...args: any[]) => void) {
+  off(event: string, callback: EventCallback) {
     const listeners = this.listeners.get(event);
     if (listeners) {
       const index = listeners.indexOf(callback);
@@ -92,7 +161,7 @@ class SocketManager {
     }
   }
 
-  private emit(event: string, data: any) {
+  private emit(event: string, data: EventData) {
     const listeners = this.listeners.get(event);
     if (listeners) {
       listeners.forEach(callback => callback(data));

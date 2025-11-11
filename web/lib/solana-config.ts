@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
@@ -24,7 +23,7 @@ export function useSolanaConfig() {
       new TorusWalletAdapter(),
       new LedgerWalletAdapter(),
     ],
-    [network]
+    [] // network is constant, no need to include it
   );
 
   return { endpoint, wallets };

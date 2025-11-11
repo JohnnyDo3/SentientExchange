@@ -162,9 +162,9 @@ export function calculateGravityWellForce(
 export function updatePhysics(
   nodes: ServiceNode[],
   deltaTime: number,
-  attractionStrength: number = 0.1,
-  repulsionStrength: number = 1.0,
-  damping: number = 0.9
+  _attractionStrength: number = 0.1,
+  _repulsionStrength: number = 1.0,
+  _damping: number = 0.9
 ): void {
   // Rotate entire structure gently around Y-axis
   const rotationSpeed = 0.1; // Radians per second

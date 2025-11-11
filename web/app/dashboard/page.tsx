@@ -24,8 +24,8 @@ export default function DashboardPage() {
     volumeTrend: 45
   });
 
-  const [activityData, setActivityData] = useState(generateMockActivityData());
-  const [agents, setAgents] = useState(generateMockAgents());
+  const [activityData, _setActivityData] = useState(generateMockActivityData());
+  const [agents, _setAgents] = useState(generateMockAgents());
 
   // Simulate real-time updates
   useEffect(() => {

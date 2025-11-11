@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import SoundToggle from "@/components/ui/SoundToggle";
-import Header from "@/components/ui/Header";
-import Footer from "@/components/Footer";
 import Providers from "@/components/Providers";
 import ConditionalLayout from "@/components/ConditionalLayout";
 import { organizationSchema, websiteSchema, softwareApplicationSchema } from './structured-data';

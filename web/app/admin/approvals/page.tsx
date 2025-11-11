@@ -24,17 +24,24 @@ interface PendingService {
   };
 }
 
+interface TestResponse {
+  status: number;
+  headers: Record<string, string>;
+  body?: unknown;
+  error?: string;
+}
+
 interface TestResult {
   endpoint: string;
   status: number;
   middlewareWorking: boolean;
-  response?: any;
+  response?: TestResponse;
   message: string;
   error?: string;
 }
 
 export default function AdminApprovalsPage() {
-  const { isAuthenticated, token, address } = useAuth();
+  const { isAuthenticated, token, address: _address } = useAuth();
   const [services, setServices] = useState<PendingService[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +100,8 @@ export default function AdminApprovalsPage() {
           [serviceId]: data.test,
         }));
       }
-    } catch (err: any) {
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setTestResults((prev) => ({
         ...prev,
         [serviceId]: {
@@ -101,7 +109,7 @@ export default function AdminApprovalsPage() {
           status: 0,
           middlewareWorking: false,
           message: '✗ Test failed',
-          error: err.message,
+          error: errorMessage,
         },
       }));
     } finally {
@@ -133,8 +141,9 @@ export default function AdminApprovalsPage() {
       } else {
         alert(`Failed to approve: ${data.error}`);
       }
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Error: ${errorMessage}`);
     } finally {
       setProcessing((prev) => ({ ...prev, [serviceId]: false }));
     }
@@ -170,8 +179,9 @@ export default function AdminApprovalsPage() {
       } else {
         alert(`Failed to reject: ${data.error}`);
       }
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Error: ${errorMessage}`);
     } finally {
       setProcessing((prev) => ({ ...prev, [serviceId]: false }));
     }
@@ -320,21 +330,21 @@ export default function AdminApprovalsPage() {
                       {/* Action Buttons */}
                       <div className="flex gap-3">
                         <button
-                          onClick={() => testEndpoint(service.id)}
+                          onClick={() => void testEndpoint(service.id)}
                           disabled={isProcessing}
                           className="px-4 py-2 bg-blue hover:bg-blue-dark text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isProcessing ? 'Testing...' : 'Test Endpoint'}
                         </button>
                         <button
-                          onClick={() => approveService(service.id)}
+                          onClick={() => void approveService(service.id)}
                           disabled={isProcessing}
                           className="px-4 py-2 bg-green hover:bg-green-dark text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isProcessing ? 'Processing...' : 'Approve'}
                         </button>
                         <button
-                          onClick={() => rejectService(service.id)}
+                          onClick={() => void rejectService(service.id)}
                           disabled={isProcessing}
                           className="px-4 py-2 bg-red hover:bg-red-dark text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
