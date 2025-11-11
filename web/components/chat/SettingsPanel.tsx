@@ -105,13 +105,16 @@ export default function SettingsPanel({
     key: keyof Settings[K],
     value: any
   ) => {
-    setSettings((prev) => ({
-      ...prev,
-      [category]: {
-        ...prev[category],
-        [key]: value,
-      },
-    }));
+    setSettings((prev) => {
+      const prevCategory = prev[category] as Record<string, any>;
+      return {
+        ...prev,
+        [category]: {
+          ...prevCategory,
+          [key]: value,
+        },
+      };
+    });
     setHasUnsavedChanges(true);
   };
 
