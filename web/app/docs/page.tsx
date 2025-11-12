@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Zap, Book, Wrench, Users, Award } from 'lucide-react';
+import { Zap, Book, Wrench, Users } from 'lucide-react';
 
 export default function DocsHomePage() {
   return (
@@ -170,40 +170,6 @@ export default function DocsHomePage() {
             </div>
           </div>
 
-          {/* For Hackathon Judges */}
-          <div className="p-6 rounded-lg border border-yellow-900/30 bg-black/40">
-            <div className="flex items-start gap-4">
-              <Award className="w-6 h-6 text-yellow-400 mt-1" />
-              <div className="flex-1">
-                <h3 className="text-xl font-semibold text-yellow-300 mb-2">
-                  For Hackathon Judges
-                </h3>
-                <p className="text-gray-400 mb-4">
-                  Comprehensive project documentation with technical accuracy and implementation details.
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  <Link
-                    href="/docs/concepts/introduction"
-                    className="text-sm text-yellow-400 hover:text-yellow-300 underline"
-                  >
-                    Project Overview →
-                  </Link>
-                  <Link
-                    href="/docs/concepts/architecture"
-                    className="text-sm text-yellow-400 hover:text-yellow-300 underline"
-                  >
-                    Technical Architecture →
-                  </Link>
-                  <Link
-                    href="/docs/deployment/ci-cd"
-                    className="text-sm text-yellow-400 hover:text-yellow-300 underline"
-                  >
-                    Production Deployment →
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 

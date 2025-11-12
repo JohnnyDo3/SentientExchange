@@ -37,6 +37,16 @@ export class PatternMatcher {
       };
     }
 
+    // Web search patterns (built-in feature for internet search)
+    if (this.matchesWebSearch(lowerMessage)) {
+      return {
+        needsService: true,
+        reasoning: 'Pattern matched: web search request',
+        serviceType: ['web-search'],
+        taskDescription: message,
+      };
+    }
+
     // x402 fetch patterns (built-in feature for paywalled content)
     if (this.matchesX402Fetch(lowerMessage)) {
       return {
@@ -49,6 +59,18 @@ export class PatternMatcher {
 
     // No pattern matched - use DynamicServiceMatcher + AI
     return null;
+  }
+
+  private static matchesWebSearch(msg: string): boolean {
+    const patterns = [
+      /^(search|google|find|look up|lookup).+(for|about|on)?/i,
+      /^(web |internet |online )?(search|query)/i,
+      /(search|find).+(news|information|articles?|web|internet|online)/i,
+      /(what|whats|what's).+(happening|going on|latest).+(with|about|in)/i,
+      /(tell me|show me|find|get).+(latest|recent|current).+(news|info)/i,
+      /^(find|get) (me )?(some )?(news|articles?|info)/i,
+    ];
+    return patterns.some((p) => p.test(msg));
   }
 
   private static matchesMarketplaceDiscovery(msg: string): boolean {
