@@ -1,13 +1,10 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import SoundToggle from "@/components/ui/SoundToggle";
 import Providers from "@/components/Providers";
 import ConditionalLayout from "@/components/ConditionalLayout";
 import { organizationSchema, websiteSchema, softwareApplicationSchema } from './structured-data';
 import Script from 'next/script';
-
-const inter = Inter({ subsets: ["latin"] });
 
 // Force dynamic rendering for client-side features
 export const dynamic = 'force-dynamic';
@@ -152,7 +149,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareApplicationSchema) }}
         />
       </head>
-      <body className={`${inter.className} bg-black text-white antialiased flex flex-col min-h-screen`}>
+      <body className="font-sans bg-black text-white antialiased flex flex-col min-h-screen">
         {/* Google Analytics */}
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"
