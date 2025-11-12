@@ -7,7 +7,7 @@ import { soundManager } from '@/lib/sound';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { useState } from 'react';
 import { PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
-import { Token, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 interface ServiceModalProps {
   service: Service | null;
@@ -101,30 +101,35 @@ export default function ServiceModal({ service, isOpen, onClose }: ServiceModalP
       const usdcMint = new PublicKey(paymentInstructions.token);
       const amount = BigInt(paymentInstructions.amount);
 
-      // Get associated token accounts
-      const senderTokenAccount = await Token.getAssociatedTokenAddress(
-        ASSOCIATED_TOKEN_PROGRAM_ID,
-        TOKEN_PROGRAM_ID,
+      // Get associated token accounts using the static method
+      const senderTokenAccount = await getAssociatedTokenAddress(
         usdcMint,
-        publicKey
+        publicKey,
+        false,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
       );
 
-      const recipientTokenAccount = await Token.getAssociatedTokenAddress(
-        ASSOCIATED_TOKEN_PROGRAM_ID,
-        TOKEN_PROGRAM_ID,
+      const recipientTokenAccount = await getAssociatedTokenAddress(
         usdcMint,
-        recipientPubkey
+        recipientPubkey,
+        false,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
       );
 
-      // For hackathon demo - simplified payment flow
-      // In production, this would use full SPL token transfer
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: recipientPubkey,
-          lamports: Number(amount) // Demo: SOL transfer instead of USDC
-        })
+      // Create USDC transfer instruction using static method
+      const transferInstruction = createTransferInstruction(
+        senderTokenAccount,
+        recipientTokenAccount,
+        publicKey,
+        Number(amount),
+        [],
+        TOKEN_PROGRAM_ID
       );
+
+      // Build the transaction
+      const transaction = new Transaction().add(transferInstruction);
 
       // Send transaction
       setPurchaseState('processing');

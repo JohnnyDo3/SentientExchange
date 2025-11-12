@@ -1,6 +1,6 @@
 import { Connection, PublicKey, Transaction, SystemProgram, Keypair } from '@solana/web3.js';
 import { Program, AnchorProvider, web3, BN, Provider, Wallet } from '@project-serum/anchor';
-import { Token, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { Database } from '../registry/database.js';
 import { logger } from '../utils/logger.js';
 import bs58 from 'bs58';

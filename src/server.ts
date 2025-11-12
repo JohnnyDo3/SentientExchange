@@ -32,6 +32,8 @@ import { getTransaction, type GetTransactionArgs } from './tools/transaction.js'
 import { setSpendingLimits, checkSpending, resetSpendingLimits, type SetSpendingLimitsArgs, type CheckSpendingArgs } from './tools/spending-limits.js';
 import { discoverAndPrepareService, type DiscoverAndPrepareArgs } from './tools/smart-discover-prepare.js';
 import { completeServiceWithPayment, type CompleteServiceWithPaymentArgs } from './tools/smart-execute-complete.js';
+import { webSearch, type WebSearchArgs } from './tools/web-search.js';
+import { smartNewsSentiment, quickTopicSentiment, type SmartNewsSentimentArgs } from './tools/smart-news-sentiment.js';
 
 /**
  * SentientExchange MCP Server
@@ -80,6 +82,10 @@ Available Tools:
 SMART TOOLS (Reduce workflow from 5 calls to 3):
 12. discover_and_prepare_service - Discover best service + health check + prepare payment (replaces discover + details + purchase)
 13. complete_service_with_payment - Verify payment + submit + auto-retry with backups (replaces submit_payment with retry logic)
+
+WORKFLOW TOOLS (News and Web Search):
+14. web_search - Search the web for current information, news, and data
+15. smart_news_sentiment - Complete end-to-end news sentiment analysis workflow (web search → service discovery → payment → analysis)
 
 Payment Flow:
 - Client manages their own Solana wallet (configured in MCP client)
@@ -491,6 +497,53 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
               required: ['sessionId', 'signature'],
             },
           },
+          {
+            name: 'web_search',
+            description:
+              'Search the web for current information, news, and data. Returns search results with titles, snippets, and URLs.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: {
+                  type: 'string',
+                  description: 'Search query to find current information',
+                },
+                limit: {
+                  type: 'number',
+                  description: 'Maximum number of search results to return (1-10, default: 5)',
+                  minimum: 1,
+                  maximum: 10,
+                  default: 5,
+                },
+              },
+              required: ['query'],
+            },
+          },
+          {
+            name: 'smart_news_sentiment',
+            description:
+              'SMART WORKFLOW TOOL: Complete end-to-end news sentiment analysis. Searches for current news about a topic, discovers sentiment analysis services, executes payment, and returns sentiment analysis results. Combines web search + service discovery + payment + analysis.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                topic: {
+                  type: 'string',
+                  description: 'Topic to search for news and analyze sentiment (e.g., "Tesla", "Bitcoin", "AI")',
+                },
+                maxPrice: {
+                  type: 'string',
+                  description: 'Maximum price willing to pay for sentiment analysis (default: $0.50)',
+                  pattern: '^\\$\\d+(\\.\\d{1,2})?$',
+                  default: '$0.50',
+                },
+                sessionId: {
+                  type: 'string',
+                  description: 'Session wallet ID for payment (optional)',
+                },
+              },
+              required: ['topic'],
+            },
+          },
         ],
       };
     });
@@ -580,6 +633,15 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
               args as unknown as CompleteServiceWithPaymentArgs
             );
 
+          case 'web_search':
+            return await webSearch(args as unknown as WebSearchArgs);
+
+          case 'smart_news_sentiment':
+            return await smartNewsSentiment(
+              this.registry,
+              args as unknown as SmartNewsSentimentArgs
+            );
+
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -612,7 +674,7 @@ The system uses the x402 payment protocol for autonomous agent-to-agent payments
 
       logger.info('✓ MCP server started successfully');
       logger.info('✓ Ready to accept connections from Claude Desktop');
-      logger.info('✓ All 8 tools registered and ready');
+      logger.info('✓ All 15 tools registered and ready');
     } catch (error: unknown) {
       logger.error('Failed to start MCP server:', error);
       throw error;

@@ -57,7 +57,9 @@
       "Bash(timeout:*)",
       "WebFetch(domain:www.helius.dev)",
       "WebFetch(domain:r1xlabs.com)",
-      "WebFetch(domain:www.sentientexchange.com)"
+      "WebFetch(domain:www.sentientexchange.com)",
+      "Bash(cargo build-sbf:*)",
+      "SlashCommand(/security-audit)"
     ],
     "deny": [],
     "ask": []
