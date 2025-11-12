@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update session balance
-    const currentBalance = parseFloat(session.balance || '10.000'); // Default starting balance
+    const currentBalance = parseFloat(session.balance || '0.000'); // Default starting balance
     const newBalance = currentBalance + amount;
 
     session.balance = newBalance.toFixed(3);

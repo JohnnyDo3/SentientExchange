@@ -18,8 +18,8 @@ export const chatAPI = {
     // Return session object that useChat expects
     return {
       id: data.session.id,
-      balance: '10.000',
-      initialBalance: '10.000',
+      balance: '0.000',
+      initialBalance: '0.000',
       pdaAddress: generatePDAAddress()
     };
   },

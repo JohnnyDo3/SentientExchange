@@ -40,8 +40,8 @@ export async function GET(
           paymentRequests: session.paymentRequests || [],
           session: {
             id: session.id,
-            balance: session.balance || '10.000',
-            initialBalance: session.initialBalance || '10.000',
+            balance: session.balance || '0.000',
+            initialBalance: session.initialBalance || '0.000',
             pdaAddress: session.pdaAddress || generatePDAAddress()
           }
         }
