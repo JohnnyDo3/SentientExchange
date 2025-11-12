@@ -84,3 +84,12 @@ lpt[0-9]
 
 # Archive folder (temp docs, old files)
 archive/
+# Session Wallet Keypairs - NEVER COMMIT
+programs/session-wallet/authority-keypair.json
+programs/session-wallet/session-wallet-keypair.json
+programs/session-wallet/target/
+programs/session-wallet/Cargo.lock
+
+# Keypair files
+*.keypair.json
+*-keypair.json

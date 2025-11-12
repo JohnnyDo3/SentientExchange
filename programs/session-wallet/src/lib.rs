@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
-declare_id!("Your_Program_ID_Here"); // Will be generated
+declare_id!("SXqp6LiVF2GTCf6o7xiXJasav7DNyuGAeyp7kLm6Prk");
 
 #[program]
 pub mod session_wallet {
@@ -22,7 +22,7 @@ pub mod session_wallet {
         session_wallet.initial_balance = initial_funding;
         session_wallet.current_balance = initial_funding;
         session_wallet.is_active = true;
-        session_wallet.bump = *ctx.bumps.get("session_wallet").unwrap();
+        session_wallet.bump = ctx.bumps.session_wallet;
 
         // Transfer initial funding from treasury to session wallet
         let cpi_accounts = Transfer {
@@ -201,13 +201,9 @@ pub struct InitializeSession<'info> {
     #[account(mut)]
     pub treasury_token_account: Account<'info, TokenAccount>,
 
-    #[account(
-        init,
-        payer = authority,
-        token::mint = treasury_token_account.mint,
-        token::authority = session_wallet,
-    )]
-    pub session_token_account: Account<'info, TokenAccount>,
+    /// CHECK: Session token account will be created externally
+    #[account(mut)]
+    pub session_token_account: AccountInfo<'info>,
 
     #[account(mut)]
     pub authority: Signer<'info>,

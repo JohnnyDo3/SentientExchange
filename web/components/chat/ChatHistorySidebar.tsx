@@ -94,7 +94,7 @@ export default function ChatHistorySidebar({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
           />
         )}
       </AnimatePresence>
@@ -112,7 +112,7 @@ export default function ChatHistorySidebar({
             <h2 className="text-xl font-bold gradient-text">Chat History</h2>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-gray-800/50 rounded-lg transition-colors lg:hidden"
+              className="p-2 hover:bg-gray-800/50 rounded-lg transition-colors"
             >
               <X className="w-5 h-5" />
             </button>

@@ -1563,41 +1563,133 @@ app.get('/api/ai/health', (req, res) => {
 // ============================================================================
 
 /**
- * POST /api/chat/sessions - Create new chat session
+ * POST /api/chat/sessions - Create new chat session with smart contract wallet
  */
 app.post('/api/chat/sessions', async (req, res, next) => {
   try {
     const sessionId = randomUUID();
+    const initialBalance = 0.50; // $0.50 USDC
 
-    // Create session wallet (Phase 3 - for now just save to DB)
-    const initialBalance = '0.50';
-    const pdaAddress = 'placeholder'; // Will be actual PDA in Phase 3
+    logger.info(`Creating new chat session ${sessionId} with $${initialBalance} USDC funding`);
 
-    await db.run(
-      `INSERT INTO chat_sessions (id, pda_address, wallet_address, initial_balance, current_balance, created_at, last_activity, nonce_accounts)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+    try {
+      // Create session wallet on-chain with smart contract
+      const walletResult = await sessionWalletManager.createSessionWallet(
         sessionId,
-        pdaAddress,
-        pdaAddress, // Same for now
-        initialBalance,
-        initialBalance,
-        Date.now(),
-        Date.now(),
-        JSON.stringify([]),
-      ]
-    );
+        initialBalance
+      );
 
-    res.json({
-      id: sessionId,
-      pdaAddress,
-      balance: initialBalance,
-      initialBalance,
-    });
+      // Get wallet addresses
+      const walletInfo = await sessionWalletManager.getSessionWalletInfo(sessionId);
 
-    logger.info(`✓ Chat session created: ${sessionId}`);
+      res.json({
+        id: sessionId,
+        pdaAddress: walletResult.pdaAddress,
+        walletAddress: walletInfo.tokenAccount.toBase58(),
+        balance: initialBalance.toFixed(2),
+        initialBalance: initialBalance.toFixed(2),
+        signature: walletResult.signature,
+        funded: true,
+      });
+
+      logger.info(`✓ Chat session created with wallet: ${sessionId} (${walletResult.pdaAddress})`);
+    } catch (smartContractError: any) {
+      // Fallback: Create session without smart contract if deployment not ready
+      logger.warn(`Smart contract not available, creating session without funding: ${smartContractError.message}`);
+
+      const sessionId = randomUUID();
+      await db.run(
+        `INSERT INTO chat_sessions (id, pda_address, wallet_address, initial_balance, current_balance, created_at, last_activity, nonce_accounts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          sessionId,
+          'placeholder-pda',
+          'placeholder-wallet',
+          '0.00',
+          '0.00',
+          Date.now(),
+          Date.now(),
+          JSON.stringify([]),
+        ]
+      );
+
+      res.json({
+        id: sessionId,
+        pdaAddress: 'placeholder-pda',
+        walletAddress: 'placeholder-wallet',
+        balance: '0.00',
+        initialBalance: '0.00',
+        funded: false,
+        warning: 'Session created without smart contract funding - configure SESSION_WALLET_PROGRAM_ID and SESSION_WALLET_AUTHORITY_KEY'
+      });
+    }
+
   } catch (error: unknown) {
     logger.error('Failed to create chat session:', error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/chat/sessions - List all chat sessions with metadata
+ */
+app.get('/api/chat/sessions', async (req, res, next) => {
+  try {
+    const sessions = await db.all<any>(`
+      SELECT
+        s.id,
+        s.created_at,
+        s.last_activity,
+        COUNT(m.id) as message_count,
+        m.latest_message
+      FROM chat_sessions s
+      LEFT JOIN (
+        SELECT
+          session_id,
+          COUNT(*) as msg_count,
+          MAX(content) as latest_message
+        FROM chat_messages
+        GROUP BY session_id
+      ) m ON s.id = m.session_id
+      GROUP BY s.id
+      ORDER BY s.last_activity DESC
+      LIMIT 50
+    `);
+
+    const formattedSessions = sessions.map((session: any) => {
+      const lastActivity = new Date(session.last_activity);
+      const now = new Date();
+      const diffMs = now.getTime() - lastActivity.getTime();
+      const diffMins = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      let timeAgo = '';
+      if (diffMins < 1) timeAgo = 'Just now';
+      else if (diffMins < 60) timeAgo = `${diffMins}m ago`;
+      else if (diffHours < 24) timeAgo = `${diffHours}h ago`;
+      else timeAgo = `${diffDays}d ago`;
+
+      return {
+        id: session.id,
+        title: session.latest_message ?
+          session.latest_message.slice(0, 50) + (session.latest_message.length > 50 ? '...' : '') :
+          'New Chat',
+        preview: session.latest_message || 'No messages yet',
+        messageCount: session.message_count || 0,
+        lastActivity: timeAgo,
+        isPinned: false
+      };
+    });
+
+    res.json({
+      success: true,
+      sessions: formattedSessions
+    });
+
+    logger.debug(`✓ Listed ${formattedSessions.length} chat sessions`);
+  } catch (error: unknown) {
+    logger.error('Failed to list chat sessions:', error);
     next(error);
   }
 });
