@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger.js';
 import { getErrorMessage } from '../types/errors';
+import { BraveSearchClient } from '../search/BraveSearchClient.js';
 import Joi from 'joi';
 
 /**
@@ -15,7 +16,12 @@ export interface WebSearchArgs {
  */
 const webSearchSchema = Joi.object({
   query: Joi.string().min(1).max(200).required().description('Search query'),
-  limit: Joi.number().integer().min(1).max(10).default(5).description('Number of search results to return')
+  limit: Joi.number()
+    .integer()
+    .min(1)
+    .max(10)
+    .default(5)
+    .description('Number of search results to return'),
 });
 
 /**
@@ -30,7 +36,9 @@ export async function webSearch(args: WebSearchArgs) {
     const { error, value } = webSearchSchema.validate(args);
     if (error) {
       logger.error('Invalid web search arguments:', error.details);
-      throw new Error(`Invalid arguments: ${error.details.map(d => d.message).join(', ')}`);
+      throw new Error(
+        `Invalid arguments: ${error.details.map((d) => d.message).join(', ')}`
+      );
     }
 
     const { query, limit } = value;
@@ -47,9 +55,8 @@ export async function webSearch(args: WebSearchArgs) {
       query,
       results: searchResults,
       timestamp: new Date().toISOString(),
-      source: 'web_search'
+      source: 'web_search',
     };
-
   } catch (error) {
     const message = getErrorMessage(error);
     logger.error('Web search failed:', { error: message, query: args.query });
@@ -58,21 +65,39 @@ export async function webSearch(args: WebSearchArgs) {
 }
 
 /**
- * Perform the actual web search
- * This function interfaces with Claude's web search capability
+ * Perform the actual web search using Brave Search API
  */
 async function performWebSearch(query: string, limit: number) {
-  // For now, return a structured response that tells Claude to use its web search
-  // In production, this would integrate with Brave Search API or similar
+  try {
+    // Create BraveSearchClient instance
+    const searchClient = new BraveSearchClient();
 
-  return [
-    {
-      title: `Web search results for: ${query}`,
-      snippet: `Use Claude's built-in web search to find current information about "${query}". This tool delegates to Claude's web search capability to get real-time results.`,
-      url: `https://search.brave.com/search?q=${encodeURIComponent(query)}`,
-      timestamp: new Date().toISOString()
+    // Execute search with health check
+    const result = await searchClient.search(query, {
+      count: limit,
+      safesearch: 'moderate',
+    });
+
+    // If health check failed, return empty results
+    if (!result.healthCheckPassed) {
+      logger.warn(
+        'Brave Search API health check failed - no API key configured or API is down'
+      );
+      return [];
     }
-  ];
+
+    // Convert BraveSearchClient results to web-search format
+    return result.results.map((searchResult) => ({
+      title: searchResult.title || 'Untitled',
+      snippet: searchResult.description || 'No description available',
+      url: searchResult.url || '',
+      timestamp: new Date().toISOString(),
+      source: searchResult.source || 'Brave Search',
+    }));
+  } catch (error) {
+    logger.error('Brave Search failed:', getErrorMessage(error));
+    return [];
+  }
 }
 
 /**
@@ -96,7 +121,10 @@ export function extractSearchQuery(userMessage: string): string {
   query = query.replace(/\s+(and tell me|tell me|show me).+$/i, '');
 
   // Remove sentiment analysis instructions
-  query = query.replace(/\s+(using sentiment analyzer|sentiment analysis|analyze sentiment).+$/i, '');
+  query = query.replace(
+    /\s+(using sentiment analyzer|sentiment analysis|analyze sentiment).+$/i,
+    ''
+  );
 
   // Clean up whitespace
   query = query.trim();
