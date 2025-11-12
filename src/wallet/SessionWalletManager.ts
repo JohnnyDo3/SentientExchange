@@ -1,6 +1,6 @@
 import { Connection, PublicKey, Transaction, SystemProgram, Keypair } from '@solana/web3.js';
 import { Program, AnchorProvider, web3, BN, Provider, Wallet } from '@project-serum/anchor';
-import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { Token, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { Database } from '../registry/database.js';
 import { logger } from '../utils/logger.js';
 import bs58 from 'bs58';
@@ -166,13 +166,15 @@ export class SessionWalletManager {
       this.program = new Program(SESSION_WALLET_IDL as any, this.programId, provider);
 
       // Get treasury token account
-      this.treasuryTokenAccount = await getAssociatedTokenAddress(
+      this.treasuryTokenAccount = await Token.getAssociatedTokenAddress(
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
         this.usdcMint,
         this.authority.publicKey
       );
 
       logger.info(`✓ Program initialized with authority: ${this.authority.publicKey.toBase58()}`);
-      logger.info(`✓ Treasury token account: ${this.treasuryTokenAccount.toBase58()}`);
+      logger.info(`✓ Treasury token account: ${this.treasuryTokenAccount?.toBase58()}`);
 
     } catch (error: any) {
       logger.error('Failed to initialize program:', error.message);
@@ -207,7 +209,9 @@ export class SessionWalletManager {
       );
 
       // Get session token account (ATA)
-      const sessionTokenAccount = await getAssociatedTokenAddress(
+      const sessionTokenAccount = await Token.getAssociatedTokenAddress(
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
         this.usdcMint,
         pda
       );
@@ -282,7 +286,9 @@ export class SessionWalletManager {
       );
 
       // Get session token account
-      const sessionTokenAccount = await getAssociatedTokenAddress(
+      const sessionTokenAccount = await Token.getAssociatedTokenAddress(
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
         this.usdcMint,
         pda
       );
@@ -336,7 +342,9 @@ export class SessionWalletManager {
       );
 
       // Get session token account
-      const sessionTokenAccount = await getAssociatedTokenAddress(
+      const sessionTokenAccount = await Token.getAssociatedTokenAddress(
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
         this.usdcMint,
         pda
       );
@@ -384,7 +392,9 @@ export class SessionWalletManager {
       );
 
       // Get session token account
-      const sessionTokenAccount = await getAssociatedTokenAddress(
+      const sessionTokenAccount = await Token.getAssociatedTokenAddress(
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
         this.usdcMint,
         pda
       );
@@ -467,7 +477,9 @@ export class SessionWalletManager {
       this.programId
     );
 
-    const tokenAccount = await getAssociatedTokenAddress(
+    const tokenAccount = await Token.getAssociatedTokenAddress(
+      ASSOCIATED_TOKEN_PROGRAM_ID,
+      TOKEN_PROGRAM_ID,
       this.usdcMint,
       pda
     );

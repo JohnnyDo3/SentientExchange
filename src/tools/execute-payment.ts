@@ -1,5 +1,5 @@
 import { Connection, Keypair, PublicKey, Transaction, SystemProgram, sendAndConfirmTransaction } from '@solana/web3.js';
-import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { Token, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { logger } from '../utils/logger.js';
 import { getErrorMessage } from '../types/errors';
 import Joi from 'joi';
@@ -175,37 +175,29 @@ async function executeTokenTransfer(
   const mintPubkey = new PublicKey(tokenMint);
 
   // Get token accounts
-  const sourceTokenAccount = await getAssociatedTokenAddress(
+  const sourceTokenAccount = await Token.getAssociatedTokenAddress(
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    TOKEN_PROGRAM_ID,
     mintPubkey,
     payer.publicKey
   );
 
-  const destinationTokenAccount = await getAssociatedTokenAddress(
+  const destinationTokenAccount = await Token.getAssociatedTokenAddress(
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    TOKEN_PROGRAM_ID,
     mintPubkey,
     recipientPubkey
   );
 
-  // Create transfer instruction
-  const transaction = new Transaction().add(
-    createTransferInstruction(
-      sourceTokenAccount,
-      destinationTokenAccount,
-      payer.publicKey,
-      amount,
-      [],
-      TOKEN_PROGRAM_ID
-    )
-  );
+  // Create token instance and execute transfer
+  const token = new Token(connection, mintPubkey, TOKEN_PROGRAM_ID, payer);
 
-  // Send and confirm transaction
-  const signature = await sendAndConfirmTransaction(
-    connection,
-    transaction,
-    [payer],
-    {
-      commitment: 'confirmed',
-      maxRetries: 3,
-    }
+  const signature = await token.transfer(
+    sourceTokenAccount,
+    destinationTokenAccount,
+    payer,
+    [],
+    Number(amount)
   );
 
   logger.info('Token transfer confirmed', { signature });

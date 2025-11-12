@@ -11,9 +11,9 @@ import {
   sendAndConfirmTransaction
 } from '@solana/web3.js';
 import {
-  getOrCreateAssociatedTokenAccount,
-  createTransferInstruction,
-  TOKEN_PROGRAM_ID
+  Token,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID
 } from '@solana/spl-token';
 import { logger } from '../utils/logger';
 import { PaymentError, getErrorMessage } from '../types/errors';
@@ -36,20 +36,12 @@ export async function executeTransfer(
       amount: amount.toString()
     });
 
-    // Get or create associated token accounts
-    const fromTokenAccount = await getOrCreateAssociatedTokenAccount(
-      connection,
-      payer,
-      tokenMint,
-      payer.publicKey
-    );
+    // Create token instance
+    const token = new Token(connection, tokenMint, TOKEN_PROGRAM_ID, payer);
 
-    const toTokenAccount = await getOrCreateAssociatedTokenAccount(
-      connection,
-      payer,
-      tokenMint,
-      recipient
-    );
+    // Get or create associated token accounts
+    const fromTokenAccount = await token.getOrCreateAssociatedAccountInfo(payer.publicKey);
+    const toTokenAccount = await token.getOrCreateAssociatedAccountInfo(recipient);
 
     logger.debug('Token accounts resolved', {
       from: fromTokenAccount.address.toBase58(),
@@ -57,8 +49,8 @@ export async function executeTransfer(
     });
 
     // Check balance
-    const balance = await connection.getTokenAccountBalance(fromTokenAccount.address);
-    const balanceAmount = BigInt(balance.value.amount);
+    const balance = await token.getAccountInfo(fromTokenAccount.address);
+    const balanceAmount = BigInt(balance.amount.toString());
 
     if (balanceAmount < amount) {
       throw new Error(
@@ -71,28 +63,14 @@ export async function executeTransfer(
       available: balanceAmount.toString()
     });
 
-    // Create transfer transaction
-    const transaction = new Transaction().add(
-      createTransferInstruction(
-        fromTokenAccount.address,
-        toTokenAccount.address,
-        payer.publicKey,
-        Number(amount), // Convert bigint to number for instruction
-        [],
-        TOKEN_PROGRAM_ID
-      )
-    );
-
-    // Send and confirm transaction
+    // Execute transfer
     logger.debug('Sending transaction...');
-    const signature = await sendAndConfirmTransaction(
-      connection,
-      transaction,
-      [payer],
-      {
-        commitment: 'confirmed',
-        maxRetries: 3
-      }
+    const signature = await token.transfer(
+      fromTokenAccount.address,
+      toTokenAccount.address,
+      payer,
+      [],
+      Number(amount)
     );
 
     logger.info('Solana transfer successful', {
@@ -123,15 +101,15 @@ export async function getTokenBalance(
   tokenMint: PublicKey
 ): Promise<bigint> {
   try {
-    const tokenAccount = await getOrCreateAssociatedTokenAccount(
-      connection,
-      Keypair.generate(), // Dummy keypair for read-only operation
+    const token = new Token(connection, tokenMint, TOKEN_PROGRAM_ID, Keypair.generate());
+    const tokenAccountAddress = await Token.getAssociatedTokenAddress(
+      ASSOCIATED_TOKEN_PROGRAM_ID,
+      TOKEN_PROGRAM_ID,
       tokenMint,
-      owner,
-      false // Don't create if it doesn't exist
+      owner
     );
 
-    const balance = await connection.getTokenAccountBalance(tokenAccount.address);
+    const balance = await connection.getTokenAccountBalance(tokenAccountAddress);
     return BigInt(balance.value.amount);
   } catch (error: unknown) {
     const message = getErrorMessage(error);
