@@ -23,7 +23,7 @@
     "axios": "^1.6.2",
     "cheerio": "^1.0.0-rc.12",
     "@solana/web3.js": "^1.87.6",
-    "@anthropic-ai/sdk": "^0.32.1"
+    "@anthropic-ai/sdk": "^0.71.0"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
